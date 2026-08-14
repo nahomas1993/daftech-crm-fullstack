@@ -1,0 +1,81 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: daftech_crm
+      POSTGRES_USER: daftech
+      # Password comes from .env (see .env.production.example) — never
+      # hardcode real credentials into this file.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daftech -d daftech_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *default-logging
+    networks:
+      - daftech-internal
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=daftech_crm;Username=daftech;Password=${POSTGRES_PASSWORD};"
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN}
+      Smtp__Host: ${SMTP_HOST}
+      Smtp__Username: ${SMTP_USERNAME}
+      Smtp__Password: ${SMTP_PASSWORD}
+      Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-no-reply@daftech.et}
+      AiReporting__Enabled: ${AI_REPORTING_ENABLED:-false}
+      AiReporting__ApiKey: ${AI_REPORTING_API_KEY:-}
+    volumes:
+      # Uploaded agreement scans live here — a named volume so they survive
+      # container recreation/redeploys, not just restarts.
+      - api-storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    networks:
+      - daftech-internal
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    logging: *default-logging
+    networks:
+      - daftech-internal
+
+networks:
+  daftech-internal:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  api-storage:

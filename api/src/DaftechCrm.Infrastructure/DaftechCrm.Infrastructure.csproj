@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>NU1605</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DaftechCrm.Application\DaftechCrm.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Npgsql is the standard, actively-maintained EF Core provider for PostgreSQL. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!-- MailKit — sends account-credential and notification emails via SMTP (SRS v2.0 §4.3.1). -->
+    <PackageReference Include="MailKit" Version="4.7.1.1" />
+    <!-- JWT access-token issuance and validation. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.8" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.2" />
+    <!-- Retry/backoff policies for the email sender (see MailKitEmailSender). -->
+    <PackageReference Include="Polly" Version="8.4.2" />
+  </ItemGroup>
+
+</Project>
