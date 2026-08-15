@@ -46,20 +46,22 @@ const REPORTS: ReportDef[] = [
 
       @if (opsLoading()) {
         <p class="text-muted" style="margin-top:1rem;">Loading…</p>
-      } @else if (ops(); as o) {
-        <div class="chart-grid">
-          <div class="chart-cell">
-            <h4>Tickets by Status ({{ o.totalTickets }} total)</h4>
-            <app-donut-chart [data]="opsDonutData()" [centerOverride]="o.totalTickets" centerLabel="Tickets" centerSuffix=""></app-donut-chart>
+      } @else {
+        @if (ops(); as o) {
+          <div class="chart-grid">
+            <div class="chart-cell">
+              <h4>Tickets by Status ({{ o.totalTickets }} total)</h4>
+              <app-donut-chart [data]="opsDonutData()" [centerOverride]="o.totalTickets" centerLabel="Tickets" centerSuffix=""></app-donut-chart>
+            </div>
+            <div class="chart-cell">
+              <h4>At a Glance</h4>
+              <div class="stat-row"><span class="stat-label">Active Clients</span><span class="stat-value">{{ o.activeClients }}</span></div>
+              <div class="stat-row"><span class="stat-label">Active Employees</span><span class="stat-value">{{ o.activeEmployees }}</span></div>
+              <div class="stat-row"><span class="stat-label">Active Agreements</span><span class="stat-value">{{ o.openAgreements }}</span></div>
+              <div class="stat-row"><span class="stat-label">Total Tickets</span><span class="stat-value">{{ o.totalTickets }}</span></div>
+            </div>
           </div>
-          <div class="chart-cell">
-            <h4>At a Glance</h4>
-            <div class="stat-row"><span class="stat-label">Active Clients</span><span class="stat-value">{{ o.activeClients }}</span></div>
-            <div class="stat-row"><span class="stat-label">Active Employees</span><span class="stat-value">{{ o.activeEmployees }}</span></div>
-            <div class="stat-row"><span class="stat-label">Active Agreements</span><span class="stat-value">{{ o.openAgreements }}</span></div>
-            <div class="stat-row"><span class="stat-label">Total Tickets</span><span class="stat-value">{{ o.totalTickets }}</span></div>
-          </div>
-        </div>
+        }
       }
     </div>
 
