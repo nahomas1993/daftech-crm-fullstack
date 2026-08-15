@@ -25,14 +25,14 @@ export class FailureTypeService {
     this._types.set(result);
   }
 
-  async create(name: string, durationValue: number, durationUnit: DurationUnit): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { name, durationValue, durationUnit }));
+  async create(name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { name, description, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }
 
-  async update(id: string, name: string, durationValue: number, durationUnit: DurationUnit): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { name, durationValue, durationUnit }));
+  async update(id: string, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { name, description, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }

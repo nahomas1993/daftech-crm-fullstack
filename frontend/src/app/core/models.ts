@@ -406,6 +406,7 @@ export type DurationUnit = 'Hours' | 'Days' | 'Months';
 export interface FailureType {
   id: string;
   name: string;
+  description?: string;
   durationValue: number;
   durationUnit: DurationUnit;
 }

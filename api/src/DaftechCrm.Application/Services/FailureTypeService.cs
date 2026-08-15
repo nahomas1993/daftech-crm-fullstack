@@ -10,10 +10,10 @@ public class FailureTypeService : IFailureTypeService
     private readonly IAppDbContext _db;
     public FailureTypeService(IAppDbContext db) => _db = db;
 
-    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Name, f.DurationValue, f.DurationUnit);
+    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Name, f.Description, f.DurationValue, f.DurationUnit);
 
     public async Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default) =>
-        await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Name).Select(f => new FailureTypeDto(f.Id, f.Name, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
+        await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Name).Select(f => new FailureTypeDto(f.Id, f.Name, f.Description, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
 
     public async Task<FailureTypeDto> CreateAsync(CreateFailureTypeRequest request, CancellationToken ct = default)
     {
@@ -27,7 +27,9 @@ public class FailureTypeService : IFailureTypeService
         if (exists)
             throw new InvalidOperationException($"A failure type named \"{name}\" already exists.");
 
-        var entry = new FailureType { Name = name, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+        var entry = new FailureType { Name = name, Description = description, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
         _db.Add(entry);
         await _db.SaveChangesAsync(ct);
         return ToDto(entry);
@@ -49,6 +51,7 @@ public class FailureTypeService : IFailureTypeService
             throw new InvalidOperationException($"A failure type named \"{name}\" already exists.");
 
         entry.Name = name;
+        entry.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         entry.DurationValue = request.DurationValue;
         entry.DurationUnit = request.DurationUnit;
         _db.Update(entry);

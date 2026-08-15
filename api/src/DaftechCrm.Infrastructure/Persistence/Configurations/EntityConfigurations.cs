@@ -117,6 +117,14 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.HasMany(x => x.AuditTrail).WithOne(a => a.Ticket).HasForeignKey(a => a.TicketId);
         b.HasIndex(x => x.Status);
         b.HasIndex(x => x.ClientConfirmationDeadline);
+
+        // Optimistic concurrency: use Postgres's built-in xmin system column
+        // (updated by Postgres on every row write) as the EF Core concurrency
+        // token instead of a hand-rolled version column. This needs no new
+        // column/migration DDL and gives a real, accurate conflict signal —
+        // SaveChanges now throws DbUpdateConcurrencyException only when the
+        // row was genuinely modified by someone else since it was read.
+        b.UseXminAsConcurrencyToken();
     }
 }
 
@@ -325,6 +333,7 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.ToTable("failure_types");
         b.HasKey(x => x.Id);
         b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+        b.Property(x => x.Description).HasMaxLength(500);
         b.HasIndex(x => x.Name).IsUnique();
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
     }

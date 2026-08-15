@@ -152,6 +152,10 @@ public class TicketsController : ControllerBase
                     request,
                     ct));
         }
+        catch (TicketNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
         catch (ConcurrencyConflictException ex)
         {
             return Conflict(ex.Message);

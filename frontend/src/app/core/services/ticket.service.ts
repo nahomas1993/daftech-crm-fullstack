@@ -204,20 +204,46 @@ export class TicketService {
     status: TicketStatus,
     actorName: string
   ): Promise<void> {
-    await firstValueFrom(
-      this.http.patch<Ticket>(
-        `${API_BASE_URL}/tickets/${ticketId}/status`,
-        {
-          status,
-          actorName
-        }
-      )
-    );
+    try {
+      await firstValueFrom(
+        this.http.patch<Ticket>(
+          `${API_BASE_URL}/tickets/${ticketId}/status`,
+          {
+            status,
+            actorName
+          }
+        )
+      );
+    } catch (err: any) {
+      throw new Error(TicketService.describeStatusUpdateError(err));
+    }
 
     await Promise.all([
       this.refresh(),
       this.refreshPaged()
     ]);
+  }
+
+  /**
+   * Maps a failed status-update request to a user-facing message by HTTP
+   * status code, not by echoing whatever text the server happened to send.
+   * A 409 is always a genuine concurrency conflict (the ticket's xmin
+   * token changed since it was read — see TicketService.UpdateStatusAsync
+   * on the backend); a 404 always means the ticket no longer exists; a 500
+   * (or anything else unexpected) is a generic server error. This keeps
+   * the concurrency message from ever appearing for an unrelated failure.
+   */
+  private static describeStatusUpdateError(err: any): string {
+    switch (err?.status) {
+      case 409:
+        return 'This ticket was changed by another user. Please refresh.';
+      case 404:
+        return 'Ticket not found.';
+      case 500:
+        return 'Server error. Please try again.';
+      default:
+        return 'Server error. Please try again.';
+    }
   }
 
   async confirmResolution(

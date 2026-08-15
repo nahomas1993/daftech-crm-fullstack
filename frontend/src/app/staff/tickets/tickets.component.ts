@@ -45,7 +45,7 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -56,10 +56,20 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
               <td class="mono">{{ t.id.slice(0,8) }}</td>
               <td>{{ t.clientName }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
+              <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
               <td class="text-muted">{{ t.assignedEmployeeName ?? '—' }}</td>
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td><app-badge [status]="t.status"></app-badge></td>
+              <td class="text-muted" style="font-size:0.8rem;">
+                @if (t.expectedResolutionBy) {
+                  {{ resolutionDeadlineLabel(t.expectedResolutionBy) }}
+                } @else if (!t.assignedAt) {
+                  Awaiting assignment
+                } @else {
+                  —
+                }
+              </td>
               <td class="text-muted">{{ t.satisfactionScore != null ? t.satisfactionScore + '/100' : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
@@ -90,7 +100,7 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="9" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="11" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -163,6 +173,24 @@ export class TicketsComponent {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
   }
 
+  /**
+   * Formats the server-computed expected-resolution deadline
+   * (AssignedAt + the ticket's failure type duration — see
+   * TicketService.ProjectAsync on the backend) for display. Purely
+   * presentational: the deadline itself is always the value the API
+   * returned, never recalculated here.
+   */
+  resolutionDeadlineLabel(expectedResolutionBy: string): string {
+    const deadline = new Date(expectedResolutionBy);
+    const now = new Date();
+    const label = deadline.toLocaleString(undefined, {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+    return deadline.getTime() < now.getTime()
+      ? `${label} (overdue)`
+      : label;
+  }
+
   private readonly finishedStatuses: TicketStatus[] = [
     'AwaitingClientConfirmation', 'Resolved', 'Closed', 'Escalated'
   ];
@@ -205,16 +233,10 @@ export class TicketsComponent {
         });
       }
     } catch (err: any) {
-      // ExceptionHandlingMiddleware returns { error: string, traceId }.
-      // Controllers' own BadRequest/NotFound(ex.Message) return a plain string.
-      // Angular puts the parsed JSON body in err.error either way, so it can be
-      // a string OR an object depending on which path produced it — handle both,
-      // or we render the raw object as "[object Object]".
-      const raw = err?.error;
-      const message =
-        typeof raw === 'string' ? raw
-        : raw?.error ?? err?.message
-        ?? 'Could not update this ticket — please try again.';
+      // TicketService.updateStatus() already maps the failure to a
+      // user-facing message by HTTP status code (409/404/500) and throws
+      // a plain Error with that message — just display it.
+      const message = err?.message ?? 'Could not update this ticket — please try again.';
       this.statusError.set({ ticketId, message });
       console.error('Failed to update ticket status', err);
     } finally {

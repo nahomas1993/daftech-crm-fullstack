@@ -238,6 +238,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("Status").HasColumnType("integer");
                 b.Property<string>("VoiceNoteStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("VoiceNoteFileName").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<uint>("xmin").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("xid");
                 b.HasKey("Id");
                 b.HasIndex("AgreementId");
                 b.HasIndex("AssignedEmployeeId");
@@ -320,6 +321,7 @@ namespace DaftechCrm.Infrastructure.Migrations
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
+                b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<int>("DurationValue").HasColumnType("integer");
                 b.Property<string>("DurationUnit").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.HasKey("Id");

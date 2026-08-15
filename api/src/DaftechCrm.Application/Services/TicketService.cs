@@ -145,33 +145,22 @@ public class TicketService : ITicketService
         return await LoadDtoAsync(ticket.Id, ct);
     }
 
+    /// <summary>
+    /// Loads and updates the ticket's status. Ticket.xmin is mapped as an
+    /// EF Core concurrency token (see TicketConfiguration), so
+    /// SaveChangesAsync itself detects a genuine simultaneous write — no
+    /// blind retry is needed or attempted here. A missing ticket is a 404,
+    /// not a concurrency conflict; the two are distinguished explicitly
+    /// below rather than both surfacing as the same exception.
+    /// </summary>
     public async Task<TicketDto> UpdateStatusAsync(
         Guid ticketId,
         UpdateTicketStatusRequest request,
-        CancellationToken ct = default) =>
-        await UpdateStatusWithRetryAsync(ticketId, request, retriesLeft: 1, ct);
-
-    /// <summary>
-    /// Loads and updates the ticket; on a concurrency conflict, detaches
-    /// the (now stale/poisoned) tracked instance and retries once against
-    /// a fully fresh read. There's no explicit concurrency token on
-    /// Ticket, so a 0-rows-affected UPDATE here means either a genuine
-    /// simultaneous write or — more commonly in practice — the tracked
-    /// instance in this scoped context no longer matches the database
-    /// (e.g. a prior request in the same connection pool hit a hiccup).
-    /// A single retry against a clean read resolves that without making
-    /// the technician manually re-click into the same dead end.
-    /// </summary>
-    private async Task<TicketDto> UpdateStatusWithRetryAsync(
-        Guid ticketId,
-        UpdateTicketStatusRequest request,
-        int retriesLeft,
-        CancellationToken ct)
+        CancellationToken ct = default)
     {
         var ticket = await _db.Tickets
             .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
-            ?? throw new InvalidOperationException(
-                "Ticket not found.");
+            ?? throw new TicketNotFoundException(ticketId);
 
         try
         {
@@ -240,55 +229,49 @@ public class TicketService : ITicketService
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            if (retriesLeft > 0)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Concurrency conflict updating ticket {TicketId} — retrying once against a fresh read.",
-                    ticketId);
-
-                // Detaching only the Ticket root isn't enough: the audit
-                // entry(ies) added to ticket.AuditTrail above are still
-                // tracked as Added in this same context, now orphaned from
-                // any properly-tracked parent. Left in place, they poison
-                // the retry's SaveChangesAsync too — turning what might be
-                // a rare, genuine race into a guaranteed second failure
-                // every time. Detach the whole graph (root + every entity
-                // this method could have staged) before retrying.
-                foreach (var auditEntry in ticket.AuditTrail.ToList())
-                {
-                    _db.Detach(auditEntry);
-                }
-                _db.Detach(ticket);
-
-                return await UpdateStatusWithRetryAsync(ticketId, request, retriesLeft - 1, ct);
-            }
-
-            // Retry also failed — this is a genuine, persistent conflict.
-            // Logged with a database-values snapshot (the row's actual
-            // current state) so it's diagnosable from Render logs rather
-            // than a black box, then surfaced to the caller as a normal,
-            // actionable error instead of a 500.
+            // xmin changed between our read and this SaveChangesAsync — the
+            // row was genuinely written by someone else in between. Do not
+            // blindly retry: silently re-applying this technician's status
+            // choice on top of whatever the other writer just did would
+            // overwrite their change without them ever knowing. Distinguish
+            // the row having been deleted entirely (404) from it having
+            // simply been modified (409) by checking whether it still
+            // exists, and log a snapshot of its current state either way so
+            // a persistent conflict is diagnosable from Render logs.
             var entry = ex.Entries.FirstOrDefault();
             string? dbSnapshot;
+            bool rowStillExists;
             try
             {
                 var dbValues = entry is not null ? await entry.GetDatabaseValuesAsync(ct) : null;
+                rowStillExists = dbValues is not null;
                 dbSnapshot = dbValues is null
                     ? "<row no longer exists in the database>"
                     : string.Join(", ", dbValues.Properties.Select(p => $"{p.Name}={dbValues[p]}"));
             }
             catch (Exception snapshotEx)
             {
+                rowStillExists = true;
                 dbSnapshot = $"<failed to read current DB values: {snapshotEx.Message}>";
             }
 
             _logger.LogWarning(
                 ex,
-                "Concurrency conflict persisted after retry for ticket {TicketId}. Conflicting entries: {Entries}. Current DB row: {DbSnapshot}",
+                "Concurrency conflict updating ticket {TicketId}. Conflicting entries: {Entries}. Current DB row: {DbSnapshot}",
                 ticketId,
                 string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)),
                 dbSnapshot);
+
+            // Detach so this poisoned tracked instance can't affect any
+            // later operation reusing the same scoped context.
+            foreach (var auditEntry in ticket.AuditTrail.ToList())
+            {
+                _db.Detach(auditEntry);
+            }
+            _db.Detach(ticket);
+
+            if (!rowStillExists)
+                throw new TicketNotFoundException(ticketId);
 
             throw new ConcurrencyConflictException(
                 "This ticket was just updated by someone else — refresh the page and try again.");
