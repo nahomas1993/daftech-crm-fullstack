@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { OnTimeReport, EmployeePerformanceReport, AiSummaryResult } from '../models';
+import { OnTimeReport, EmployeePerformanceReport, AiSummaryResult, OperationsOverview } from '../models';
 import { API_BASE_URL } from './api-base';
 
 @Injectable({ providedIn: 'root' })
@@ -10,6 +10,11 @@ export class ReportService {
 
   async getOnTimeResolutionReport(): Promise<OnTimeReport> {
     return firstValueFrom(this.http.get<OnTimeReport>(`${API_BASE_URL}/reports/on-time-resolution`));
+  }
+
+  /** Live system-wide ticket-status breakdown + headline counts for the "Overall Operations" pie chart. */
+  async getOperationsOverview(): Promise<OperationsOverview> {
+    return firstValueFrom(this.http.get<OperationsOverview>(`${API_BASE_URL}/reports/operations-overview`));
   }
 
   /**

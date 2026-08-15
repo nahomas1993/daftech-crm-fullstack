@@ -1,6 +1,7 @@
 using DaftechCrm.Api.Auth;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
+using DaftechCrm.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -24,14 +25,31 @@ public class TicketsController : ControllerBase
 
     /// <summary>
     /// Paged ticket listing for the Tickets table
-    /// (query: page, pageSize).
+    /// (query: page, pageSize). Non-admin technicians only ever see
+    /// tickets assigned to them — enforced here from the caller's own
+    /// JWT, not from anything the client could send, so the UI can't be
+    /// bypassed by editing the request.
     /// </summary>
     [HttpGet("paged")]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<PagedResult<TicketDto>>> GetAllPaged(
         [FromQuery] PaginationQuery query,
-        CancellationToken ct) =>
-        Ok(await _tickets.GetAllPagedAsync(query, ct));
+        CancellationToken ct)
+    {
+        Guid? scopeToEmployeeId = null;
+
+        if (!User.IsInRole(nameof(EmployeeRole.Admin)))
+        {
+            var (_, callerId) = CallerIdentity.Resolve(User);
+            scopeToEmployeeId = callerId;
+        }
+
+        return Ok(
+            await _tickets.GetAllPagedAsync(
+                query,
+                scopeToEmployeeId,
+                ct));
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TicketDto>> GetById(

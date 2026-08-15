@@ -124,7 +124,7 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
               <td>{{ allRoleLabels(e) }}</td>
               <td class="mono">{{ e.openTicketCount }}</td>
               <td><app-badge [status]="e.accountStatus"></app-badge></td>
-              <td>
+              <td class="actions-cell">
                 @if (e.accountStatus === 'Active') {
                   <button class="btn btn-outline btn-sm" [disabled]="disabling() === e.id" (click)="disable(e.id)">
                     {{ disabling() === e.id ? 'Disabling…' : 'Disable' }}
@@ -134,8 +134,37 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
                     {{ enabling() === e.id ? 'Enabling…' : 'Enable' }}
                   </button>
                 }
+                <button class="btn btn-outline btn-sm" (click)="startEdit(e)">Edit</button>
+                <button class="btn btn-outline btn-sm btn-danger" [disabled]="deleting() === e.id" (click)="deleteEmployee(e.id, e.fullName)">
+                  {{ deleting() === e.id ? 'Deleting…' : 'Delete' }}
+                </button>
               </td>
             </tr>
+            @if (editingId() === e.id) {
+              <tr class="edit-row">
+                <td colspan="8">
+                  <div class="edit-form">
+                    <div class="field"><label>Full Name</label><input type="text" [ngModel]="editForm.fullName" (ngModelChange)="editForm.fullName = $event" /></div>
+                    <div class="field"><label>Email</label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" /></div>
+                    <div class="field"><label>Phone Number</label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field">
+                      <label>Specialization</label>
+                      <select [ngModel]="editForm.specialization" (ngModelChange)="editForm.specialization = $event">
+                        <option value="">Select specialization…</option>
+                        @for (s of locations.options().specializations; track s.id) {
+                          <option [value]="s.name">{{ s.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="edit-actions">
+                      <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(e.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
+                      <button class="btn btn-secondary btn-sm" (click)="cancelEdit()">Cancel</button>
+                    </div>
+                    @if (editError()) { <p class="register-error" style="margin-top:0.5rem;">{{ editError() }}</p> }
+                  </div>
+                </td>
+              </tr>
+            }
           }
           @empty {
             <tr><td colspan="8" class="text-muted" style="text-align:center; padding: 1.5rem;">No employees match your filters.</td></tr>
@@ -175,6 +204,10 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
     .cred-row:first-of-type { border-top: none; }
     .cred-label { font-size: 0.8rem; color: var(--slate-500); }
     .cred-value { font-size: 0.95rem; font-weight: 700; color: var(--navy-900); }
+    .actions-cell { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .edit-row td { background: var(--slate-50, #f8fafc); padding: 1rem; }
+    .edit-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; align-items: end; }
+    .edit-actions { display: flex; gap: 0.5rem; }
   `],
 })
 export class EmployeesComponent {
@@ -189,6 +222,12 @@ export class EmployeesComponent {
   disabling = signal<string | null>(null);
   enabling = signal<string | null>(null);
   justRegistered = signal<EmployeeRegisteredResult | null>(null);
+
+  editingId = signal<string | null>(null);
+  savingEdit = signal(false);
+  editError = signal('');
+  deleting = signal<string | null>(null);
+  editForm = { fullName: '', email: '', phoneNumber: '', specialization: '' };
 
   form = {
     fullName: '', phoneNumber: '', email: '', specialization: '',
@@ -297,6 +336,40 @@ export class EmployeesComponent {
       await this.employeeService.enableEmployee(id);
     } finally {
       this.enabling.set(null);
+    }
+  }
+
+  startEdit(e: { id: string; fullName: string; email: string; phoneNumber: string; specialization: string }) {
+    this.editingId.set(e.id);
+    this.editError.set('');
+    this.editForm = { fullName: e.fullName, email: e.email, phoneNumber: e.phoneNumber, specialization: e.specialization };
+  }
+
+  cancelEdit() {
+    this.editingId.set(null);
+    this.editError.set('');
+  }
+
+  async saveEdit(id: string) {
+    this.savingEdit.set(true);
+    this.editError.set('');
+    try {
+      await this.employeeService.updateEmployee(id, { ...this.editForm });
+      this.editingId.set(null);
+    } catch (err: any) {
+      this.editError.set(err?.error?.error ?? err?.error ?? 'Could not save these changes — please try again.');
+    } finally {
+      this.savingEdit.set(false);
+    }
+  }
+
+  async deleteEmployee(id: string, fullName: string) {
+    if (!window.confirm(`Delete ${fullName}'s account? This removes them from the Employees list — their ticket and time-log history is kept.`)) return;
+    this.deleting.set(id);
+    try {
+      await this.employeeService.deleteEmployee(id);
+    } finally {
+      this.deleting.set(null);
     }
   }
 }

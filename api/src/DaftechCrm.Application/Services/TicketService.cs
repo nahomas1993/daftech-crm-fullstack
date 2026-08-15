@@ -4,6 +4,7 @@ using DaftechCrm.Application.Options;
 using DaftechCrm.Domain.Entities;
 using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace DaftechCrm.Application.Services;
@@ -15,19 +16,22 @@ public class TicketService : ITicketService
     private readonly INotificationService _notifications;
     private readonly ISystemConfigurationService _config;
     private readonly IFileStorageService _storage;
+    private readonly ILogger<TicketService> _logger;
 
     public TicketService(
         IAppDbContext db,
         ITicketAssignmentService assignment,
         INotificationService notifications,
         ISystemConfigurationService config,
-        IFileStorageService storage)
+        IFileStorageService storage,
+        ILogger<TicketService> logger)
     {
         _db = db;
         _assignment = assignment;
         _notifications = notifications;
         _config = config;
         _storage = storage;
+        _logger = logger;
     }
 
     public async Task<TicketDto> SubmitFromClientAsync(
@@ -179,8 +183,6 @@ public class TicketService : ITicketService
                             $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {ticket.ClientConfirmationDeadline:u})"
                     });
 
-                _db.Update(ticket);
-
                 await _db.SaveChangesAsync(ct);
 
                 // The status change is already committed above — a failure here
@@ -215,18 +217,25 @@ public class TicketService : ITicketService
                             $"Status changed to {request.Status}"
                     });
 
-                _db.Update(ticket);
-
                 await _db.SaveChangesAsync(ct);
             }
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateConcurrencyException ex)
         {
             // Someone else (a duplicate tap, another tab, another
             // technician) already changed this exact ticket between our
             // read and our save — the 0-rows-affected update is EF
             // reporting a lost race, not a server fault. Surface it as a
-            // normal, actionable error instead of a 500.
+            // normal, actionable error instead of a 500. Logged with the
+            // conflicting entry types so a *real* recurrence (as opposed
+            // to the old false positive from re-attaching the whole
+            // graph via _db.Update) can be diagnosed.
+            _logger.LogWarning(
+                ex,
+                "Concurrency conflict updating ticket {TicketId}. Conflicting entries: {Entries}",
+                ticketId,
+                string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)));
+
             throw new InvalidOperationException(
                 "This ticket was just updated by someone else — refresh the page and try again.");
         }
@@ -431,12 +440,21 @@ public class TicketService : ITicketService
 
     public async Task<PagedResult<TicketDto>> GetAllPagedAsync(
         PaginationQuery query,
+        Guid? assignedEmployeeId = null,
         CancellationToken ct = default)
     {
-        var totalCount =
-            await _db.Tickets.CountAsync(ct);
+        // assignedEmployeeId is set by the controller (from the caller's own
+        // JWT) whenever the caller isn't an Admin, so a technician only ever
+        // gets tickets assigned to them — regardless of what query params a
+        // client sends.
+        var baseQuery = assignedEmployeeId is Guid empId
+            ? _db.Tickets.Where(t => t.AssignedEmployeeId == empId)
+            : _db.Tickets;
 
-        var page = await _db.Tickets
+        var totalCount =
+            await baseQuery.CountAsync(ct);
+
+        var page = await baseQuery
             .AsNoTracking()
             .Include(t => t.Client)
             .Include(t => t.AssignedEmployee)

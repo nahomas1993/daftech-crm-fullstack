@@ -68,7 +68,7 @@ public class EmployeeService : IEmployeeService
 
     public async Task<IReadOnlyList<EmployeeDto>> GetAllAsync(CancellationToken ct = default)
     {
-        var employees = await _db.Employees.AsNoTracking().ToListAsync(ct);
+        var employees = await _db.Employees.AsNoTracking().Where(e => !e.IsDeleted).ToListAsync(ct);
 
         // Two grouped queries covering every employee, instead of the
         // previous 2-queries-per-employee loop (an N+1 that meant a
@@ -97,10 +97,11 @@ public class EmployeeService : IEmployeeService
 
     public async Task<PagedResult<EmployeeDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
-        var totalCount = await _db.Employees.CountAsync(ct);
+        var totalCount = await _db.Employees.CountAsync(e => !e.IsDeleted, ct);
 
         var employees = await _db.Employees
             .AsNoTracking()
+            .Where(e => !e.IsDeleted)
             .OrderBy(e => e.FullName)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -170,6 +171,43 @@ public class EmployeeService : IEmployeeService
         _db.Update(employee);
         await _db.SaveChangesAsync(ct);
         return await ToDto(employee, ct);
+    }
+
+    public async Task<EmployeeDto> UpdateAsync(Guid employeeId, UpdateEmployeeRequest request, CancellationToken ct = default)
+    {
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Employee not found.");
+
+        employee.FullName = request.FullName;
+        employee.Email = request.Email;
+        employee.PhoneNumber = request.PhoneNumber;
+        employee.Specialization = request.Specialization;
+        _db.Update(employee);
+        await _db.SaveChangesAsync(ct);
+        return await ToDto(employee, ct);
+    }
+
+    public async Task DeleteAsync(Guid employeeId, CancellationToken ct = default)
+    {
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Employee not found.");
+
+        employee.IsDeleted = true;
+        employee.DeletedAt = DateTimeOffset.UtcNow;
+        // A deleted account shouldn't remain a live login either — same
+        // session-revocation step as Disable, so an already-issued
+        // refresh token can't still be used after deletion.
+        employee.AccountStatus = EmployeeAccountStatus.Disabled;
+        _db.Update(employee);
+
+        var sessions = await _db.DeviceSessions.Where(d => d.EmployeeId == employeeId && d.AccessStatus == DeviceAccessStatus.Allowed).ToListAsync(ct);
+        foreach (var s in sessions)
+        {
+            s.AccessStatus = DeviceAccessStatus.Revoked;
+            _db.Update(s);
+        }
+
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<EmployeeDto> AddAllowedIpAsync(Guid employeeId, AddAllowedIpRequest request, CancellationToken ct = default)

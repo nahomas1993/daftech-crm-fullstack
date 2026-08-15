@@ -74,6 +74,24 @@ public class ClientsController : ControllerBase
         try { return Ok(await _clients.ResendCredentialEmailAsync(id, ct)); }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
+
+    /// <summary>Edits an existing client's profile fields. Account status/credentials go through approve/reject/resend instead.</summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<ClientDto>> Update(Guid id, [FromBody] UpdateClientRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _clients.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Soft-deletes the account — removes it from the Clients list and blocks login, but keeps agreements/tickets/trainings it's referenced by intact.</summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _clients.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
 }
 
 [ApiController]
@@ -354,6 +372,11 @@ public class ReportsController : ControllerBase
     [HttpGet("on-time-resolution")]
     public async Task<ActionResult<OnTimeReportDto>> GetOnTimeResolution(CancellationToken ct) =>
         Ok(await _reports.GetOnTimeResolutionReportAsync(ct));
+
+    /// <summary>Live system-wide snapshot (ticket status breakdown + headline counts) for the admin "Overall Operations" pie chart.</summary>
+    [HttpGet("operations-overview")]
+    public async Task<ActionResult<OperationsOverviewDto>> GetOperationsOverview(CancellationToken ct) =>
+        Ok(await _reports.GetOperationsOverviewAsync(ct));
 
     /// <summary>
     /// Written/graphical performance metrics for one employee. Pass

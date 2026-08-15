@@ -120,6 +120,8 @@ public static class DependencyInjection
 
         if (storageOptions.Provider == StorageProvider.Cloudinary)
             services.AddHttpClient<IFileStorageService, CloudinaryFileStorageService>();
+        else if (storageOptions.Provider == StorageProvider.Postgres)
+            services.AddSingleton<IFileStorageService, PostgresFileStorageService>();
         else
             services.AddSingleton<IFileStorageService, LocalFileStorageService>();
 

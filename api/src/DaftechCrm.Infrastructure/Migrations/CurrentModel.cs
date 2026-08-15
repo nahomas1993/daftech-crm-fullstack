@@ -65,8 +65,10 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("AccountRefId").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
                 b.Property<int>("AccountStatus").HasColumnType("integer");
                 b.Property<string>("City").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<DateTimeOffset?>("DeletedAt").HasColumnType("timestamp with time zone");
                 b.Property<string>("Email").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("IdNumber").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<bool>("IsDeleted").HasColumnType("boolean");
                 b.Property<string>("ItSupportContact").HasColumnType("text");
                 b.Property<string>("KycContact").HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("KycType").HasMaxLength(100).HasColumnType("character varying(100)");
@@ -95,11 +97,13 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("AccountRefId").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
                 b.Property<int>("AccountStatus").HasColumnType("integer");
                 b.Property<string>("AllowedIpAddresses").IsRequired().HasColumnType("varchar(1000)");
+                b.Property<DateTimeOffset?>("DeletedAt").HasColumnType("timestamp with time zone");
                 b.Property<DateTimeOffset?>("DisabledAt").HasColumnType("timestamp with time zone");
                 b.Property<string>("DisabledReason").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("Email").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("ExtraRoleLabels").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("FullName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<bool>("IsDeleted").HasColumnType("boolean");
                 b.Property<bool>("MustChangePassword").HasColumnType("boolean");
                 b.Property<string>("PasswordHash").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("PhoneNumber").IsRequired().HasMaxLength(30).HasColumnType("character varying(30)");
@@ -321,6 +325,18 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
                 b.ToTable("failure_types");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.StoredFile", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<string>("OriginalFileName").IsRequired().HasMaxLength(255).HasColumnType("character varying(255)");
+                b.Property<string>("ContentType").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
+                b.Property<long>("SizeBytes").HasColumnType("bigint");
+                b.Property<byte[]>("Content").IsRequired().HasColumnType("bytea");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+                b.HasKey("Id");
+                b.ToTable("stored_files");
             });
 
             // --- Relationships ---

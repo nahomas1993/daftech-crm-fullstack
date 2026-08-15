@@ -55,6 +55,16 @@ public class Client
     /// </summary>
     public DateTimeOffset? OtpExpiresAt { get; set; }
 
+    /// <summary>
+    /// Soft-delete flag. Agreements, tickets, and trainings all reference
+    /// ClientId, so a real DELETE would either orphan that history or be
+    /// blocked by FK constraints — setting this instead removes the
+    /// account from the Clients list and login path while keeping
+    /// historical records intact.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+
     public ICollection<Agreement> Agreements { get; set; } = new List<Agreement>();
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
 

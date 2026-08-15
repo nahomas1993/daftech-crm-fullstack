@@ -36,7 +36,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
             stroke-linecap="butt"
           />
         }
-        <text x="70" y="66" text-anchor="middle" class="center-value">{{ centerValue() }}%</text>
+        <text x="70" y="66" text-anchor="middle" class="center-value">{{ centerValue() }}{{ centerSuffix }}</text>
         <text x="70" y="84" text-anchor="middle" class="center-label">{{ centerLabel }}</text>
       </svg>
       <div class="legend">
@@ -72,6 +72,8 @@ export class DonutChartComponent {
   /** Value shown in the center of the ring. Defaults to the first slice's share of the total. */
   @Input() centerOverride: number | null = null;
   @Input() centerLabel = 'On Time';
+  /** Text shown right after the center value — defaults to "%" (existing on-time-rate usage). Pass '' for a raw count like a ticket total. */
+  @Input() centerSuffix = '%';
 
   private readonly total = computed(() => this._slicesInput().reduce((sum, s) => sum + s.value, 0));
 

@@ -12,6 +12,15 @@ services:
         value: Production
 
   # ---------- Frontend (Angular via Docker + Nginx) ----------
+  # nginx.conf already handles the SPA fallback (try_files ... /index.html)
+  # for this Docker service. The routes block below is a belt-and-suspenders
+  # duplicate of that same rule in Render's own format — it's what actually
+  # matters if this frontend is ever deployed as a Render "Static Site"
+  # instead of this Docker service (e.g. a manual zip-upload deploy of
+  # dist/daftech-crm/browser), since a Static Site never reads nginx.conf at
+  # all and otherwise 404s on any refresh of a non-root route (/login,
+  # /admin/tickets, etc.) because there's no server-side rewrite to
+  # index.html for the Angular router to take over.
   - type: web
     name: daftech-crm-frontend
     runtime: docker
@@ -22,6 +31,10 @@ services:
     envVars:
       - key: API_BASE_URL
         value: https://daftech-crm-api-new.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 databases:
   - name: daftech-crm-db-new

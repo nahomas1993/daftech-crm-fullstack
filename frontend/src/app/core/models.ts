@@ -262,6 +262,20 @@ export interface OnTimeReport {
   byEmployee: EmployeeOnTimeStats[];
 }
 
+export interface TicketStatusSlice {
+  status: string;
+  count: number;
+}
+
+/** System-wide snapshot for the admin "Overall Operations" pie chart — live ticket-status breakdown plus headline counts. */
+export interface OperationsOverview {
+  ticketsByStatus: TicketStatusSlice[];
+  totalTickets: number;
+  activeClients: number;
+  activeEmployees: number;
+  openAgreements: number;
+}
+
 /**
  * The optional 5-question client satisfaction survey — separate from the
  * 1-5 star Confirm Resolution rating that gates ticket closure.

@@ -63,6 +63,24 @@ public class EmployeesController : ControllerBase
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
     }
 
+    /// <summary>Edits an existing employee's profile fields (name/email/phone/specialization). Roles, IP allow-list, and enable/disable each have their own endpoints.</summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<EmployeeDto>> Update(Guid id, [FromBody] UpdateEmployeeRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _employees.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Soft-deletes the account — removes it from the Employees list and blocks login, but keeps tickets/time logs/etc. it's referenced by intact.</summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _employees.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
     [HttpPost("{id:guid}/allowed-ips")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<EmployeeDto>> AddAllowedIp(Guid id, [FromBody] AddAllowedIpRequest request, CancellationToken ct) =>

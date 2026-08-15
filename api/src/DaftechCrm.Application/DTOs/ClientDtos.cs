@@ -27,6 +27,13 @@ public record ClientRegisteredResult(ClientDto Client, string Username, string O
 
 public record RejectClientRequest(string Reason);
 
+/// <summary>Admin edits an existing client's profile fields. Excludes AccountStatus/Username/credentials — those go through the dedicated approve/reject/credential-resend endpoints.</summary>
+public record UpdateClientRequest(
+    string Name, string PhoneNumber, string Email, string Office, string Location,
+    string? Region, string? City, string? Woreda,
+    string KycType, string KycContact, string? ItSupportContact
+);
+
 /// <summary>Client logs in with the system-issued username and their current password.</summary>
 public record ClientLoginRequest(string Username, string Password);
 

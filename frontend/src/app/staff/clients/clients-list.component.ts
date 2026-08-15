@@ -114,8 +114,59 @@ import { ClientRegisteredResult } from '../../core/models';
               <td>{{ c.location }}</td>
               <td><app-badge [status]="c.accountStatus"></app-badge></td>
               <td class="text-muted">{{ c.onboardingDate }}</td>
-              <td><a [routerLink]="['/admin/clients', c.id]" class="btn btn-outline btn-sm">View</a></td>
+              <td class="actions-cell">
+                <a [routerLink]="['/admin/clients', c.id]" class="btn btn-outline btn-sm">View</a>
+                <button class="btn btn-outline btn-sm" (click)="startEdit(c)">Edit</button>
+                <button class="btn btn-outline btn-sm btn-danger" [disabled]="deleting() === c.id" (click)="deleteClient(c.id, c.name)">
+                  {{ deleting() === c.id ? 'Deleting…' : 'Delete' }}
+                </button>
+              </td>
             </tr>
+            @if (editingId() === c.id) {
+              <tr class="edit-row">
+                <td colspan="8">
+                  <div class="edit-form">
+                    <div class="field"><label>Name / Organization</label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
+                    <div class="field"><label>Phone Number</label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field"><label>Email</label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" /></div>
+                    <div class="field"><label>Office</label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
+                    <div class="field"><label>Location</label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
+                    <div class="field"><label>Region</label>
+                      <select [ngModel]="editForm.region" (ngModelChange)="editForm.region = $event">
+                        <option value="">Select region…</option>
+                        @for (r of locations.options().regions; track r.id) {
+                          <option [value]="r.name">{{ r.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="field"><label>City</label>
+                      <select [ngModel]="editForm.city" (ngModelChange)="editForm.city = $event">
+                        <option value="">Select city…</option>
+                        @for (ct of locations.options().cities; track ct.id) {
+                          <option [value]="ct.name">{{ ct.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="field"><label>Woreda</label>
+                      <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event">
+                        <option value="">Select woreda…</option>
+                        @for (w of locations.options().woredas; track w.id) {
+                          <option [value]="w.name">{{ w.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="field"><label>KYC Type</label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
+                    <div class="field"><label>KYC Contact</label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
+                    <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" /></div>
+                    <div class="edit-actions">
+                      <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(c.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
+                      <button class="btn btn-secondary btn-sm" (click)="cancelEdit()">Cancel</button>
+                    </div>
+                    @if (editError()) { <p class="register-error" style="margin-top:0.5rem;">{{ editError() }}</p> }
+                  </div>
+                </td>
+              </tr>
+            }
           }
           @empty {
             <tr><td colspan="8" class="text-muted" style="text-align:center; padding: 1.5rem;">No clients match your filters.</td></tr>
@@ -153,6 +204,10 @@ import { ClientRegisteredResult } from '../../core/models';
     .cred-row:first-of-type { border-top: none; }
     .cred-label { font-size: 0.8rem; color: var(--slate-500); }
     .cred-value { font-size: 0.95rem; font-weight: 700; color: var(--navy-900); }
+    .actions-cell { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .edit-row td { background: var(--slate-50, #f8fafc); padding: 1rem; }
+    .edit-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; align-items: end; }
+    .edit-actions { display: flex; gap: 0.5rem; }
   `],
 })
 export class ClientsListComponent {
@@ -163,6 +218,12 @@ export class ClientsListComponent {
   registerError = signal('');
   resending = signal(false);
   justRegistered = signal<ClientRegisteredResult | null>(null);
+
+  editingId = signal<string | null>(null);
+  savingEdit = signal(false);
+  editError = signal('');
+  deleting = signal<string | null>(null);
+  editForm = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
 
   form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
 
@@ -223,5 +284,49 @@ export class ClientsListComponent {
   closeCredentialPanel() {
     this.justRegistered.set(null);
     this.showForm.set(false);
+  }
+
+  startEdit(c: {
+    id: string; name: string; phoneNumber: string; email: string; office: string; location: string;
+    region?: string; city?: string; woreda?: string; kycType: string; kycContact: string; itSupportContact?: string;
+  }) {
+    this.editingId.set(c.id);
+    this.editError.set('');
+    this.editForm = {
+      name: c.name, phoneNumber: c.phoneNumber, email: c.email, office: c.office, location: c.location,
+      region: c.region ?? '', city: c.city ?? '', woreda: c.woreda ?? '',
+      kycType: c.kycType, kycContact: c.kycContact, itSupportContact: c.itSupportContact ?? '',
+    };
+  }
+
+  cancelEdit() {
+    this.editingId.set(null);
+    this.editError.set('');
+  }
+
+  async saveEdit(id: string) {
+    this.savingEdit.set(true);
+    this.editError.set('');
+    try {
+      await this.clients.updateClient(id, {
+        ...this.editForm,
+        itSupportContact: this.editForm.itSupportContact || undefined,
+      });
+      this.editingId.set(null);
+    } catch (err: any) {
+      this.editError.set(err?.error?.error ?? err?.error ?? 'Could not save these changes — please try again.');
+    } finally {
+      this.savingEdit.set(false);
+    }
+  }
+
+  async deleteClient(id: string, name: string) {
+    if (!window.confirm(`Delete ${name}'s account? This removes them from the Clients list — their agreement and ticket history is kept.`)) return;
+    this.deleting.set(id);
+    try {
+      await this.clients.deleteClient(id);
+    } finally {
+      this.deleting.set(null);
+    }
   }
 }

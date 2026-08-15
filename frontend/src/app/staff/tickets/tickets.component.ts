@@ -42,12 +42,16 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
     }
 
     <div class="panel panel-pad" style="margin-top:1.25rem;">
-      <h3>All Tickets</h3>
+      <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
         <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
-            <tr>
+            <tr
+              [class.row-faded]="isFinished(t.status) && t.status !== 'Resolved'"
+              [class.row-resolved]="t.status === 'Resolved'"
+              [class.row-in-progress]="t.status === 'InProgress'"
+            >
               <td class="mono">{{ t.id.slice(0,8) }}</td>
               <td>{{ t.clientName }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
@@ -96,6 +100,14 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
   styles: [`
     .status-error { color: var(--red); font-size: 0.76rem; margin: 0.35rem 0 0; }
     .status-success { color: var(--blue); font-size: 0.76rem; margin: 0.35rem 0 0; }
+    .row-faded { opacity: 0.45; filter: grayscale(35%); }
+    .row-faded:hover { opacity: 0.75; filter: none; }
+    /* Resolved tickets recede visually so a piled-up queue reads as "handled" at a glance — blur clears on hover/focus so the row is still fully readable when needed (e.g. re-checking details). */
+    .row-resolved { opacity: 0.55; filter: blur(1.5px); transition: filter 0.15s ease, opacity 0.15s ease; }
+    .row-resolved:hover, .row-resolved:focus-within { filter: none; opacity: 1; }
+    /* In-progress tickets stand out as active work still needing attention. */
+    .row-in-progress { font-weight: 700; }
+    .row-in-progress td { color: var(--navy-900); }
   `],
 })
 export class TicketsComponent {
@@ -113,6 +125,14 @@ export class TicketsComponent {
 
   categoryLabel(c: string): string {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
+  }
+
+  private readonly finishedStatuses: TicketStatus[] = [
+    'AwaitingClientConfirmation', 'Resolved', 'Closed', 'Escalated'
+  ];
+
+  isFinished(status: TicketStatus): boolean {
+    return this.finishedStatuses.includes(status);
   }
 
   canUpdateStatus(t: { assignedEmployeeId?: string; status: TicketStatus }): boolean {

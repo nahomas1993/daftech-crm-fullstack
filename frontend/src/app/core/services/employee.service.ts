@@ -142,6 +142,18 @@ export class EmployeeService {
     await Promise.all([this.refresh(), this.refreshPaged()]);
   }
 
+  /** Edits the plain profile fields — name/email/phone/specialization. Roles, IP allow-list, and enable/disable each have their own methods above. */
+  async updateEmployee(id: string, data: { fullName: string; email: string; phoneNumber: string; specialization: string }): Promise<void> {
+    await firstValueFrom(this.http.put<Employee>(`${API_BASE_URL}/employees/${id}`, data));
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+  }
+
+  /** Soft-deletes the account — removes it from the Employees list and blocks login; tickets/time-logs/etc. it's referenced by are kept intact. */
+  async deleteEmployee(id: string): Promise<void> {
+    await firstValueFrom(this.http.delete<void>(`${API_BASE_URL}/employees/${id}`));
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+  }
+
   async addAllowedIp(employeeId: string, ip: string): Promise<void> {
     await firstValueFrom(this.http.post<Employee>(`${API_BASE_URL}/employees/${employeeId}/allowed-ips`, { ipAddress: ip }));
     await Promise.all([this.refresh(), this.refreshPaged()]);

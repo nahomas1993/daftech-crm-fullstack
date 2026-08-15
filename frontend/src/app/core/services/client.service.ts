@@ -100,4 +100,20 @@ export class ClientService {
     await firstValueFrom(this.http.post<Client>(`${API_BASE_URL}/clients/${clientId}/reject`, { reason }));
     await Promise.all([this.refresh(), this.refreshPaged()]);
   }
+
+  /** Edits the plain profile fields. Account status/credentials go through approve/reject/resendCredentialEmail instead. */
+  async updateClient(id: string, data: {
+    name: string; phoneNumber: string; email: string; office: string; location: string;
+    region?: string; city?: string; woreda?: string;
+    kycType: string; kycContact: string; itSupportContact?: string;
+  }): Promise<void> {
+    await firstValueFrom(this.http.put<Client>(`${API_BASE_URL}/clients/${id}`, data));
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+  }
+
+  /** Soft-deletes the account — removes it from the Clients list and blocks login; agreements/tickets/trainings it's referenced by are kept intact. */
+  async deleteClient(id: string): Promise<void> {
+    await firstValueFrom(this.http.delete<void>(`${API_BASE_URL}/clients/${id}`));
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+  }
 }

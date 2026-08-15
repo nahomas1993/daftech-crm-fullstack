@@ -31,6 +31,28 @@ public record OnTimeReportDto(
 /// whether to show it or silently omit it; the rest of this DTO is always
 /// populated regardless of AI availability.
 /// </summary>
+/// <summary>One slice of the admin operations-overview pie chart — how many tickets are currently in a given status, system-wide.</summary>
+public record TicketStatusSliceDto(
+    string Status,
+    int Count
+);
+
+/// <summary>
+/// System-wide snapshot for the admin Reports page's "Overall Operations"
+/// pie chart — every ticket, grouped by its current status, plus a couple
+/// of headline counts (active clients, active employees) for context.
+/// Unlike OnTimeReportDto (which only looks at tickets that have already
+/// been resolved), this counts every ticket regardless of status, so it
+/// reflects the live state of the queue right now.
+/// </summary>
+public record OperationsOverviewDto(
+    IReadOnlyList<TicketStatusSliceDto> TicketsByStatus,
+    int TotalTickets,
+    int ActiveClients,
+    int ActiveEmployees,
+    int OpenAgreements
+);
+
 public record EmployeePerformanceReportDto(
     Guid EmployeeId,
     string EmployeeName,

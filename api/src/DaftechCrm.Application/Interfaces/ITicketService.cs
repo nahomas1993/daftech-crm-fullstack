@@ -38,8 +38,12 @@ public interface ITicketService
 
     Task<IReadOnlyList<TicketDto>> GetAllAsync(CancellationToken ct = default);
 
-    /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Tickets table UI.</summary>
-    Task<PagedResult<TicketDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
+    /// <summary>
+    /// Paged variant of <see cref="GetAllAsync"/> for the Tickets table UI.
+    /// When <paramref name="assignedEmployeeId"/> is supplied, results are
+    /// restricted to tickets assigned to that employee.
+    /// </summary>
+    Task<PagedResult<TicketDto>> GetAllPagedAsync(PaginationQuery query, Guid? assignedEmployeeId = null, CancellationToken ct = default);
 
     Task<TicketDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<TicketDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);

@@ -155,14 +155,15 @@ public class ClientService : IClientService
     }
 
     public async Task<IReadOnlyList<ClientDto>> GetAllAsync(CancellationToken ct = default) =>
-        (await _db.Clients.AsNoTracking().ToListAsync(ct)).Select(ToDto).ToList();
+        (await _db.Clients.AsNoTracking().Where(c => !c.IsDeleted).ToListAsync(ct)).Select(ToDto).ToList();
 
     public async Task<PagedResult<ClientDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
-        var totalCount = await _db.Clients.CountAsync(ct);
+        var totalCount = await _db.Clients.CountAsync(c => !c.IsDeleted, ct);
 
         var items = await _db.Clients
             .AsNoTracking()
+            .Where(c => !c.IsDeleted)
             .OrderBy(c => c.Name)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -178,7 +179,39 @@ public class ClientService : IClientService
     }
 
     public async Task<IReadOnlyList<ClientDto>> GetPendingAsync(CancellationToken ct = default) =>
-        (await _db.Clients.AsNoTracking().Where(c => c.AccountStatus == ClientAccountStatus.Pending).ToListAsync(ct)).Select(ToDto).ToList();
+        (await _db.Clients.AsNoTracking().Where(c => c.AccountStatus == ClientAccountStatus.Pending && !c.IsDeleted).ToListAsync(ct)).Select(ToDto).ToList();
+
+    public async Task<ClientDto> UpdateAsync(Guid clientId, UpdateClientRequest request, CancellationToken ct = default)
+    {
+        var client = await _db.Clients.FirstOrDefaultAsync(c => c.Id == clientId && !c.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Client not found.");
+
+        client.Name = request.Name;
+        client.PhoneNumber = request.PhoneNumber;
+        client.Email = request.Email;
+        client.Office = request.Office;
+        client.Location = request.Location;
+        client.Region = request.Region;
+        client.City = request.City;
+        client.Woreda = request.Woreda;
+        client.KycType = request.KycType;
+        client.KycContact = request.KycContact;
+        client.ItSupportContact = request.ItSupportContact;
+        _db.Update(client);
+        await _db.SaveChangesAsync(ct);
+        return ToDto(client);
+    }
+
+    public async Task DeleteAsync(Guid clientId, CancellationToken ct = default)
+    {
+        var client = await _db.Clients.FirstOrDefaultAsync(c => c.Id == clientId && !c.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Client not found.");
+
+        client.IsDeleted = true;
+        client.DeletedAt = DateTimeOffset.UtcNow;
+        _db.Update(client);
+        await _db.SaveChangesAsync(ct);
+    }
 
     private static ClientDto ToDto(Client c) => new(
         c.Id, c.Name, c.IdNumber, c.PhoneNumber, c.Email, c.Office, c.Location,

@@ -126,4 +126,37 @@ public class ReportService : IReportService
 
         return await _aiNarrative.SummarizeTabularReportAsync(data, ct);
     }
+
+    /// <summary>
+    /// Every ticket in the system grouped by its current status — a
+    /// live snapshot of "what's actually going on right now" for the
+    /// admin's overall-operations pie chart, as opposed to
+    /// GetOnTimeResolutionReportAsync above, which only looks backward
+    /// at tickets that have already reached Resolved.
+    /// </summary>
+    public async Task<OperationsOverviewDto> GetOperationsOverviewAsync(CancellationToken ct = default)
+    {
+        var statusCounts = await _db.Tickets
+            .AsNoTracking()
+            .GroupBy(t => t.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        // Every TicketStatus value is represented, even at zero, so the
+        // pie chart's legend is stable across refreshes instead of
+        // slices appearing/disappearing as the queue empties out.
+        var byStatus = Enum.GetValues<TicketStatus>()
+            .Select(status => new TicketStatusSliceDto(
+                status.ToString(),
+                statusCounts.FirstOrDefault(s => s.Status == status)?.Count ?? 0))
+            .ToList();
+
+        var totalTickets = byStatus.Sum(s => s.Count);
+
+        var activeClients = await _db.Clients.CountAsync(c => c.AccountStatus == ClientAccountStatus.Approved, ct);
+        var activeEmployees = await _db.Employees.CountAsync(e => e.AccountStatus == EmployeeAccountStatus.Active, ct);
+        var openAgreements = await _db.Agreements.CountAsync(a => a.Status == AgreementStatus.Active, ct);
+
+        return new OperationsOverviewDto(byStatus, totalTickets, activeClients, activeEmployees, openAgreements);
+    }
 }

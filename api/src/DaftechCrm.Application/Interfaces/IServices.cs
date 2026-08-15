@@ -22,6 +22,12 @@ public interface IClientService
 
     Task<ClientDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<ClientDto>> GetPendingAsync(CancellationToken ct = default);
+
+    /// <summary>Updates the plain profile fields. AccountStatus/credentials have their own dedicated endpoints (approve/reject/resend).</summary>
+    Task<ClientDto> UpdateAsync(Guid clientId, UpdateClientRequest request, CancellationToken ct = default);
+
+    /// <summary>Soft-deletes the account (removes it from active lists/login) — agreements/tickets/trainings it's referenced by are left intact.</summary>
+    Task DeleteAsync(Guid clientId, CancellationToken ct = default);
 }
 
 public interface IEmployeeService
@@ -41,6 +47,12 @@ public interface IEmployeeService
     /// <summary>Disables the account, revokes all active device sessions, and blocks future logins. Historical records are untouched.</summary>
     Task<EmployeeDto> DisableAsync(Guid employeeId, DisableEmployeeRequest request, CancellationToken ct = default);
     Task<EmployeeDto> EnableAsync(Guid employeeId, CancellationToken ct = default);
+
+    /// <summary>Updates the plain profile fields (name, email, phone, specialization). Roles/IPs/status have their own dedicated endpoints.</summary>
+    Task<EmployeeDto> UpdateAsync(Guid employeeId, UpdateEmployeeRequest request, CancellationToken ct = default);
+
+    /// <summary>Soft-deletes the account (removes it from active lists/login, revokes sessions) — tickets/time logs/etc. it's referenced by are left intact.</summary>
+    Task DeleteAsync(Guid employeeId, CancellationToken ct = default);
 
     Task<EmployeeDto> AddAllowedIpAsync(Guid employeeId, AddAllowedIpRequest request, CancellationToken ct = default);
     Task<EmployeeDto> RemoveAllowedIpAsync(Guid employeeId, string ip, CancellationToken ct = default);
@@ -240,6 +252,9 @@ public interface IReportService
     /// IAiNarrativeReportService for the degrade-gracefully contract.
     /// </summary>
     Task<AiPerformanceSummaryResult> SummarizeTabularReportAsync(TabularReportData data, CancellationToken ct = default);
+
+    /// <summary>System-wide snapshot for the admin Reports page's "Overall Operations" pie chart — every ticket by current status, plus headline counts.</summary>
+    Task<OperationsOverviewDto> GetOperationsOverviewAsync(CancellationToken ct = default);
 }
 
 public interface ISatisfactionSurveyService

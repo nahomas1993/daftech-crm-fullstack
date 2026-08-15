@@ -329,3 +329,16 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
     }
 }
+
+/// <summary>Binary content backing PostgresFileStorageService — ticket attachments and voice notes stored in-database rather than a third-party host.</summary>
+public class StoredFileConfiguration : IEntityTypeConfiguration<StoredFile>
+{
+    public void Configure(EntityTypeBuilder<StoredFile> b)
+    {
+        b.ToTable("stored_files");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.OriginalFileName).HasMaxLength(255).IsRequired();
+        b.Property(x => x.ContentType).HasMaxLength(150).IsRequired();
+        b.Property(x => x.Content).IsRequired();
+    }
+}

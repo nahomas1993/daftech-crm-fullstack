@@ -10,5 +10,14 @@ namespace DaftechCrm.Domain.Enums;
 public enum StorageProvider
 {
     LocalFileSystem,
-    Cloudinary
+    Cloudinary,
+
+    /// <summary>
+    /// Stores file bytes directly in this app's own Postgres database
+    /// (see StoredFile / PostgresFileStorageService) — keeps attachments
+    /// and voice notes fully in-system with no third-party dependency,
+    /// while still surviving redeploys on hosts without persistent disk
+    /// (e.g. Render's free tier), unlike LocalFileSystem.
+    /// </summary>
+    Postgres
 }

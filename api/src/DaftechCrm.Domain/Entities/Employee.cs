@@ -74,6 +74,19 @@ public class Employee
     public DateTimeOffset? DisabledAt { get; set; }
     public string? DisabledReason { get; set; }
 
+    /// <summary>
+    /// Soft-delete flag. Tickets, time logs, maintenance records, and
+    /// login/device history all reference EmployeeId, so a real DELETE
+    /// would either orphan that history or be blocked by FK constraints —
+    /// setting this instead removes the account from every "active" list
+    /// and login path while keeping historical records intact. Distinct
+    /// from AccountStatus/DisabledAt (Disable/Enable): disabling blocks
+    /// login but keeps the account visible and reversible day-to-day;
+    /// deleting additionally hides it from the Employees list entirely.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+
     public ICollection<Ticket> AssignedTickets { get; set; } = new List<Ticket>();
     public ICollection<TimeLog> TimeLogs { get; set; } = new List<TimeLog>();
     public ICollection<MaintenanceRecord> MaintenanceRecords { get; set; } = new List<MaintenanceRecord>();

@@ -9,7 +9,7 @@ import { MaintenanceService } from '../../core/services/maintenance.service';
 import { EmployeeService } from '../../core/services/employee.service';
 import { SatisfactionSurveyService } from '../../core/services/satisfaction-survey.service';
 import { PdfExportService, PdfReportSpec } from '../../core/services/pdf-export.service';
-import { OnTimeReport, AiSummaryResult } from '../../core/models';
+import { OnTimeReport, AiSummaryResult, OperationsOverview } from '../../core/models';
 
 interface ReportDef {
   id: string;
@@ -33,6 +33,35 @@ const REPORTS: ReportDef[] = [
   template: `
     <h1>Reports</h1>
     <p class="text-muted" style="margin-top:0.3rem;">Generate downloadable reports across the system.</p>
+
+    <div class="panel panel-pad" style="margin-top:1.25rem;">
+      <div class="chart-header">
+        <div>
+          <h3>Overall Operations</h3>
+          <p class="text-muted" style="font-size:0.82rem; margin-top:0.25rem;">
+            Live snapshot of every ticket in the system right now, by current status.
+          </p>
+        </div>
+      </div>
+
+      @if (opsLoading()) {
+        <p class="text-muted" style="margin-top:1rem;">Loading…</p>
+      } @else if (ops(); as o) {
+        <div class="chart-grid">
+          <div class="chart-cell">
+            <h4>Tickets by Status ({{ o.totalTickets }} total)</h4>
+            <app-donut-chart [data]="opsDonutData()" [centerOverride]="o.totalTickets" centerLabel="Tickets" centerSuffix=""></app-donut-chart>
+          </div>
+          <div class="chart-cell">
+            <h4>At a Glance</h4>
+            <div class="stat-row"><span class="stat-label">Active Clients</span><span class="stat-value">{{ o.activeClients }}</span></div>
+            <div class="stat-row"><span class="stat-label">Active Employees</span><span class="stat-value">{{ o.activeEmployees }}</span></div>
+            <div class="stat-row"><span class="stat-label">Active Agreements</span><span class="stat-value">{{ o.openAgreements }}</span></div>
+            <div class="stat-row"><span class="stat-label">Total Tickets</span><span class="stat-value">{{ o.totalTickets }}</span></div>
+          </div>
+        </div>
+      }
+    </div>
 
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <div class="chart-header">
@@ -127,6 +156,10 @@ const REPORTS: ReportDef[] = [
     .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; align-items: start; }
     .chart-cell h4 { font-size: 0.82rem; margin-bottom: 0.9rem; color: var(--navy-800); }
     @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0; border-top: 1px solid rgba(0,0,0,0.06); font-size: 0.85rem; }
+    .stat-row:first-of-type { border-top: none; }
+    .stat-label { color: var(--slate-500); }
+    .stat-value { font-weight: 700; color: var(--navy-900); }
   `],
 })
 export class ReportsComponent {
@@ -141,6 +174,9 @@ export class ReportsComponent {
   report = signal<OnTimeReport | null>(null);
   loading = signal(true);
 
+  ops = signal<OperationsOverview | null>(null);
+  opsLoading = signal(true);
+
   constructor(
     private reportsSvc: ReportService,
     private clients: ClientService,
@@ -152,6 +188,7 @@ export class ReportsComponent {
     private pdf: PdfExportService
   ) {
     void this.load();
+    void this.loadOps();
   }
 
   private async load() {
@@ -163,6 +200,40 @@ export class ReportsComponent {
       this.loading.set(false);
     }
   }
+
+  private async loadOps() {
+    this.opsLoading.set(true);
+    try {
+      const o = await this.reportsSvc.getOperationsOverview();
+      this.ops.set(o);
+    } finally {
+      this.opsLoading.set(false);
+    }
+  }
+
+  /** Same status → color mapping as app-badge, so the pie chart reads consistently with badges shown everywhere else (green = healthy/done, amber = active work, red = escalated, blue = awaiting the client, slate = anything else). Zero-count statuses are dropped so the legend doesn't clutter with slices that aren't there. */
+  private readonly statusColors: Record<string, string> = {
+    Resolved: '#16a34a',
+    Closed: '#16a34a',
+    Submitted: '#d97706',
+    Forwarded: '#d97706',
+    Assigned: '#d97706',
+    InProgress: '#d97706',
+    AwaitingClientConfirmation: '#2563eb',
+    Escalated: 'var(--brand-red, #dc2626)',
+  };
+
+  opsDonutData = computed((): DonutSlice[] => {
+    const o = this.ops();
+    if (!o) return [];
+    return o.ticketsByStatus
+      .filter(s => s.count > 0)
+      .map(s => ({
+        label: s.status.replace(/([a-z])([A-Z])/g, '$1 $2'),
+        value: s.count,
+        color: this.statusColors[s.status] ?? '#64748b',
+      }));
+  });
 
   donutData = computed((): DonutSlice[] => {
     const r = this.report();

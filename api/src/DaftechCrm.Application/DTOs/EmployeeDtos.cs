@@ -24,6 +24,16 @@ public record EmployeeRegisteredResult(EmployeeDto Employee, string Username, st
 
 public record DisableEmployeeRequest(string Reason);
 
+/// <summary>
+/// Admin edits an existing employee's profile fields. Deliberately
+/// excludes Roles/AllowedIpAddresses/AccountStatus — those already have
+/// dedicated endpoints (role changes aren't exposed via this edit form;
+/// IP allow-list has its own add/remove; status has enable/disable) so
+/// this one endpoint only ever touches the plain profile fields shown on
+/// the edit form.
+/// </summary>
+public record UpdateEmployeeRequest(string FullName, string Email, string PhoneNumber, string Specialization);
+
 public record AddAllowedIpRequest(string IpAddress);
 
 public record DeviceSessionDto(Guid Id, DeviceType DeviceType, string DeviceIdentifier, string IpAddress, DateTimeOffset LastSeen, DeviceAccessStatus AccessStatus);
