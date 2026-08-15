@@ -68,11 +68,15 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
                   <button class="btn btn-outline btn-sm" (click)="playVoiceNote(t.id)">🎤 Voice note</button>
                 }
                 @if (canUpdateStatus(t)) {
-                  <select #st style="margin-right:0.3rem;">
-                    <option value="InProgress" [selected]="t.status === 'InProgress'">In Progress</option>
-                    <option value="Resolved" [selected]="t.status === 'Resolved'">Resolved (sends to client for confirmation)</option>
+                  <select
+                    style="margin-right:0.3rem;"
+                    [value]="selectedStatusFor(t)"
+                    (change)="onStatusSelect(t.id, $any($event.target).value)"
+                  >
+                    <option value="InProgress">In Progress</option>
+                    <option value="Resolved">Resolved (sends to client for confirmation)</option>
                   </select>
-                  <button class="btn btn-outline btn-sm" (click)="updateStatus(t.id, st.value)" [disabled]="updatingTicketId() === t.id">
+                  <button class="btn btn-outline btn-sm" (click)="updateStatus(t.id, selectedStatusFor(t))" [disabled]="updatingTicketId() === t.id">
                     {{ updatingTicketId() === t.id ? 'Updating…' : 'Update' }}
                   </button>
                 }
@@ -121,6 +125,28 @@ export class TicketsComponent {
   statusError = signal<{ ticketId: string; message: string } | null>(null);
   statusSuccess = signal<{ ticketId: string; message: string } | null>(null);
 
+  // The status dropdown only offers InProgress/Resolved as choices, but a
+  // ticket's real status can also be Assigned (nothing picked yet). This
+  // map holds the technician's in-progress *selection* per ticket,
+  // separate from the ticket's actual server-side status — so the <select>
+  // stays a normal Angular-bound control instead of an uncontrolled DOM
+  // element that could silently keep a stale value across a failed
+  // request and retry.
+  private selectedStatus = signal<Map<string, 'InProgress' | 'Resolved'>>(new Map());
+
+  /** What the dropdown should show for this ticket: the technician's own pending pick if they've touched it, otherwise a sensible default from the ticket's real status (Assigned tickets default to InProgress, the first real step). */
+  selectedStatusFor(t: { id: string; status: TicketStatus }): 'InProgress' | 'Resolved' {
+    const picked = this.selectedStatus().get(t.id);
+    if (picked) return picked;
+    return t.status === 'Resolved' ? 'Resolved' : 'InProgress';
+  }
+
+  onStatusSelect(ticketId: string, value: string) {
+    const next = new Map(this.selectedStatus());
+    next.set(ticketId, value as 'InProgress' | 'Resolved');
+    this.selectedStatus.set(next);
+  }
+
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
   categoryLabel(c: string): string {
@@ -154,6 +180,11 @@ export class TicketsComponent {
     this.updatingTicketId.set(ticketId);
     try {
       await this.tickets.updateStatus(ticketId, status as TicketStatus, actor);
+
+      const next = new Map(this.selectedStatus());
+      next.delete(ticketId);
+      this.selectedStatus.set(next);
+
       // Marking "Resolved" doesn't set the ticket to a Resolved status — the server
       // moves it to AwaitingClientConfirmation and starts the confirmation window.
       // Without this message the row just looks unchanged, so we spell out what happened.

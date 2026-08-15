@@ -32,5 +32,15 @@ public interface IAppDbContext
     void Add<TEntity>(TEntity entity) where TEntity : class;
     void Update<TEntity>(TEntity entity) where TEntity : class;
     void Remove<TEntity>(TEntity entity) where TEntity : class;
+
+    /// <summary>
+    /// Stops tracking the given entity (if it's currently tracked) without
+    /// deleting it — used to recover from a failed SaveChangesAsync that
+    /// left a stale/poisoned instance in the context's identity map, so a
+    /// retry's fresh query actually hits the database instead of getting
+    /// the same bad tracked instance back.
+    /// </summary>
+    void Detach<TEntity>(TEntity entity) where TEntity : class;
+
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

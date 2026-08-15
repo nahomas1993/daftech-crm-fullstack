@@ -148,7 +148,25 @@ public class TicketService : ITicketService
     public async Task<TicketDto> UpdateStatusAsync(
         Guid ticketId,
         UpdateTicketStatusRequest request,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        await UpdateStatusWithRetryAsync(ticketId, request, retriesLeft: 1, ct);
+
+    /// <summary>
+    /// Loads and updates the ticket; on a concurrency conflict, detaches
+    /// the (now stale/poisoned) tracked instance and retries once against
+    /// a fully fresh read. There's no explicit concurrency token on
+    /// Ticket, so a 0-rows-affected UPDATE here means either a genuine
+    /// simultaneous write or — more commonly in practice — the tracked
+    /// instance in this scoped context no longer matches the database
+    /// (e.g. a prior request in the same connection pool hit a hiccup).
+    /// A single retry against a clean read resolves that without making
+    /// the technician manually re-click into the same dead end.
+    /// </summary>
+    private async Task<TicketDto> UpdateStatusWithRetryAsync(
+        Guid ticketId,
+        UpdateTicketStatusRequest request,
+        int retriesLeft,
+        CancellationToken ct)
     {
         var ticket = await _db.Tickets
             .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
@@ -222,19 +240,42 @@ public class TicketService : ITicketService
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            // Someone else (a duplicate tap, another tab, another
-            // technician) already changed this exact ticket between our
-            // read and our save — the 0-rows-affected update is EF
-            // reporting a lost race, not a server fault. Surface it as a
-            // normal, actionable error instead of a 500. Logged with the
-            // conflicting entry types so a *real* recurrence (as opposed
-            // to the old false positive from re-attaching the whole
-            // graph via _db.Update) can be diagnosed.
+            if (retriesLeft > 0)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Concurrency conflict updating ticket {TicketId} — retrying once against a fresh read.",
+                    ticketId);
+
+                _db.Detach(ticket);
+                return await UpdateStatusWithRetryAsync(ticketId, request, retriesLeft - 1, ct);
+            }
+
+            // Retry also failed — this is a genuine, persistent conflict.
+            // Logged with a database-values snapshot (the row's actual
+            // current state) so it's diagnosable from Render logs rather
+            // than a black box, then surfaced to the caller as a normal,
+            // actionable error instead of a 500.
+            var entry = ex.Entries.FirstOrDefault();
+            string? dbSnapshot;
+            try
+            {
+                var dbValues = entry is not null ? await entry.GetDatabaseValuesAsync(ct) : null;
+                dbSnapshot = dbValues is null
+                    ? "<row no longer exists in the database>"
+                    : string.Join(", ", dbValues.Properties.Select(p => $"{p.Name}={dbValues[p]}"));
+            }
+            catch (Exception snapshotEx)
+            {
+                dbSnapshot = $"<failed to read current DB values: {snapshotEx.Message}>";
+            }
+
             _logger.LogWarning(
                 ex,
-                "Concurrency conflict updating ticket {TicketId}. Conflicting entries: {Entries}",
+                "Concurrency conflict persisted after retry for ticket {TicketId}. Conflicting entries: {Entries}. Current DB row: {DbSnapshot}",
                 ticketId,
-                string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)));
+                string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)),
+                dbSnapshot);
 
             throw new InvalidOperationException(
                 "This ticket was just updated by someone else — refresh the page and try again.");

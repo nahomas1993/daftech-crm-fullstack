@@ -52,6 +52,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public void Add<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Add(entity);
     public void Update<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Update(entity);
     public void Remove<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Remove(entity);
+    public void Detach<TEntity>(TEntity entity) where TEntity : class => Entry(entity).State = EntityState.Detached;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

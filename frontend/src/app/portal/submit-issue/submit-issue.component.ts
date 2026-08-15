@@ -51,6 +51,25 @@ import { TicketCategory } from '../../core/models';
           }
           <span class="text-muted" style="font-size:0.75rem;">A screenshot of an error message or console can help us diagnose faster. Max 10 MB.</span>
         </div>
+        <div class="field" style="margin-top:0.8rem;">
+          <label>Record a voice note (optional)</label>
+          <div class="voice-controls">
+            @if (!isRecording() && !voiceNoteBlob()) {
+              <button type="button" class="btn btn-outline btn-sm" (click)="startRecording()">🎤 Start Recording</button>
+            }
+            @if (isRecording()) {
+              <button type="button" class="btn btn-outline btn-sm recording" (click)="stopRecording()">⏹ Stop ({{ recordingSeconds() }}s)</button>
+            }
+            @if (voiceNoteBlob() && !isRecording()) {
+              <audio [src]="voiceNoteUrl()" controls style="height:32px;"></audio>
+              <button type="button" class="btn btn-outline btn-sm" (click)="discardRecording()">Discard</button>
+            }
+          </div>
+          <span class="text-muted" style="font-size:0.75rem;">Describe the issue out loud if that's easier than typing it — up to 3 minutes.</span>
+          @if (recordingError(); as rerr) {
+            <span class="text-muted" style="font-size:0.75rem; color: var(--red, #b3261e);">{{ rerr }}</span>
+          }
+        </div>
         <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="submitting()" (click)="submit()">
           {{ submitting() ? 'Submitting…' : 'Submit Issue' }}
         </button>
@@ -69,6 +88,8 @@ import { TicketCategory } from '../../core/models';
     select { width: 100%; }
     .success { margin-top: 1rem; padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--green-bg); color: var(--green); font-size: 0.85rem; }
     .error { margin-top: 1rem; padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--red-bg, #fdecea); color: var(--red, #b3261e); font-size: 0.85rem; }
+    .voice-controls { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .recording { color: var(--red, #b3261e); border-color: var(--red, #b3261e); }
   `],
 })
 export class SubmitIssueComponent {
@@ -79,6 +100,17 @@ export class SubmitIssueComponent {
   submittedId = signal<string | null>(null);
   submitting = signal(false);
   errorMessage = signal<string | null>(null);
+
+  isRecording = signal(false);
+  recordingSeconds = signal(0);
+  voiceNoteBlob = signal<Blob | null>(null);
+  voiceNoteUrl = signal<string | null>(null);
+  recordingError = signal<string | null>(null);
+
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordedChunks: Blob[] = [];
+  private recordingTimerId: ReturnType<typeof setInterval> | null = null;
+  private readonly maxRecordingSeconds = 180;
 
   private readonly maxFileSizeBytes = 10 * 1024 * 1024;
 
@@ -105,6 +137,63 @@ export class SubmitIssueComponent {
     this.selectedFile.set(file);
   }
 
+  async startRecording() {
+    this.recordingError.set(null);
+    this.discardRecording();
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.recordingError.set('Voice recording isn\'t supported in this browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.recordedChunks = [];
+      this.mediaRecorder = new MediaRecorder(stream);
+
+      this.mediaRecorder.ondataavailable = (e: BlobEvent) => {
+        if (e.data.size > 0) this.recordedChunks.push(e.data);
+      };
+
+      this.mediaRecorder.onstop = () => {
+        const blob = new Blob(this.recordedChunks, { type: this.mediaRecorder?.mimeType || 'audio/webm' });
+        this.voiceNoteBlob.set(blob);
+        this.voiceNoteUrl.set(URL.createObjectURL(blob));
+        // Recording is done — release the microphone rather than leaving
+        // the browser's "mic in use" indicator on.
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      this.mediaRecorder.start();
+      this.isRecording.set(true);
+      this.recordingSeconds.set(0);
+      this.recordingTimerId = setInterval(() => {
+        const next = this.recordingSeconds() + 1;
+        this.recordingSeconds.set(next);
+        if (next >= this.maxRecordingSeconds) this.stopRecording();
+      }, 1000);
+    } catch {
+      this.recordingError.set('Microphone access was denied — allow it in your browser settings to record a voice note.');
+    }
+  }
+
+  stopRecording() {
+    if (this.recordingTimerId) {
+      clearInterval(this.recordingTimerId);
+      this.recordingTimerId = null;
+    }
+    this.mediaRecorder?.stop();
+    this.isRecording.set(false);
+  }
+
+  discardRecording() {
+    const url = this.voiceNoteUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.voiceNoteBlob.set(null);
+    this.voiceNoteUrl.set(null);
+    this.recordedChunks = [];
+  }
+
   async submit() {
     const client = this.auth.currentClient();
     const agreement = this.agreement();
@@ -114,9 +203,23 @@ export class SubmitIssueComponent {
     this.errorMessage.set(null);
 
     try {
+      // The voice-note endpoint needs to exist before ticket creation —
+      // the ticket-submission request carries its storageKey rather than
+      // the recording itself. A failure here shouldn't block the ticket
+      // submission; it just means the note doesn't get attached.
+      let voiceNote: { storageKey: string; fileName: string } | undefined;
+      const recording = this.voiceNoteBlob();
+      if (recording) {
+        try {
+          voiceNote = await this.tickets.uploadVoiceNote(recording, 'voice-note.webm');
+        } catch {
+          this.errorMessage.set('Your voice note could not be uploaded — the issue will still be submitted without it.');
+        }
+      }
+
       const ticket = await this.tickets.submitFromClient(
         client.id, agreement.id, this.description().trim(), this.category(),
-        this.failureTypeId() || undefined
+        this.failureTypeId() || undefined, voiceNote
       );
 
       const file = this.selectedFile();
@@ -137,6 +240,7 @@ export class SubmitIssueComponent {
       this.description.set('');
       this.failureTypeId.set('');
       this.selectedFile.set(null);
+      this.discardRecording();
     } finally {
       this.submitting.set(false);
     }
