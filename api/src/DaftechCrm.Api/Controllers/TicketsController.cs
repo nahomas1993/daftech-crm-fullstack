@@ -1,4 +1,5 @@
 using DaftechCrm.Api.Auth;
+using DaftechCrm.Application;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Enums;
@@ -150,6 +151,10 @@ public class TicketsController : ControllerBase
                     id,
                     request,
                     ct));
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Message);
         }
         catch (InvalidOperationException ex)
         {

@@ -247,7 +247,20 @@ public class TicketService : ITicketService
                     "Concurrency conflict updating ticket {TicketId} — retrying once against a fresh read.",
                     ticketId);
 
+                // Detaching only the Ticket root isn't enough: the audit
+                // entry(ies) added to ticket.AuditTrail above are still
+                // tracked as Added in this same context, now orphaned from
+                // any properly-tracked parent. Left in place, they poison
+                // the retry's SaveChangesAsync too — turning what might be
+                // a rare, genuine race into a guaranteed second failure
+                // every time. Detach the whole graph (root + every entity
+                // this method could have staged) before retrying.
+                foreach (var auditEntry in ticket.AuditTrail.ToList())
+                {
+                    _db.Detach(auditEntry);
+                }
                 _db.Detach(ticket);
+
                 return await UpdateStatusWithRetryAsync(ticketId, request, retriesLeft - 1, ct);
             }
 
@@ -277,7 +290,7 @@ public class TicketService : ITicketService
                 string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)),
                 dbSnapshot);
 
-            throw new InvalidOperationException(
+            throw new ConcurrencyConflictException(
                 "This ticket was just updated by someone else — refresh the page and try again.");
         }
 
