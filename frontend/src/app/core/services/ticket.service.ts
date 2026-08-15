@@ -29,6 +29,12 @@ export class TicketService {
       void this.refresh();
       void this.refreshPaged();
     }
+    // NOTE: this only fires once, at app bootstrap, when TicketService
+    // (providedIn: 'root') is first constructed — typically before login
+    // has happened. It doesn't reliably load data after the fact. Pages
+    // that need myTickets data must call refreshMyTickets() themselves in
+    // ngOnInit (see MyTicketsComponent, MaintenanceHistoryComponent,
+    // DashboardComponent) rather than relying on this constructor check.
   }
 
   async refresh(): Promise<void> {

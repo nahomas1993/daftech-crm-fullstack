@@ -1,4 +1,4 @@
-import { Component, computed, signal, OnInit } from '@angular/core';
+import { Component, computed, signal, OnInit, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SlicePipe } from '@angular/common';
 import { RouterLink, ActivatedRoute } from '@angular/router';
@@ -6,16 +6,22 @@ import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { BadgeComponent } from '../../shared/badge.component';
+import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TICKET_CATEGORY_LABELS, TicketCategory, TicketStatus } from '../../core/models';
 
 type FilterKey = 'all' | 'pending' | 'accomplished' | 'escalated';
 
 const PENDING_STATUSES: TicketStatus[] = ['Submitted', 'Assigned', 'InProgress', 'Resolved', 'AwaitingClientConfirmation'];
 
+/** How often to re-pull ticket status while this page is open, so a
+ * technician's status change shows up without a manual refresh. There's
+ * no SignalR push wired up on the client portal yet, so poll instead. */
+const REFRESH_INTERVAL_MS = 20_000;
+
 @Component({
   selector: 'app-maintenance-history',
   standalone: true,
-  imports: [FormsModule, SlicePipe, RouterLink, BadgeComponent],
+  imports: [FormsModule, SlicePipe, RouterLink, BadgeComponent, FilePreviewModalComponent],
   template: `
     <div class="head-row">
       <div>
@@ -112,7 +118,7 @@ const PENDING_STATUSES: TicketStatus[] = ['Submitted', 'Assigned', 'InProgress',
               <td class="text-muted">{{ t.satisfactionStars ? (t.satisfactionStars + '★') : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
-                  <button class="btn btn-outline btn-sm" (click)="downloadAttachment(t.id, t.attachmentFileName)">Download</button>
+                  <button class="btn btn-outline btn-sm" (click)="viewAttachment(t.id, t.attachmentFileName)">View</button>
                 } @else {
                   <span class="text-muted">—</span>
                 }
@@ -130,6 +136,15 @@ const PENDING_STATUSES: TicketStatus[] = ['Submitted', 'Assigned', 'InProgress',
         </tbody>
       </table></div>
     </div>
+
+    <app-file-preview-modal
+      [open]="previewOpen()"
+      [title]="previewTitle()"
+      [fileName]="previewFileName()"
+      [kind]="previewKind()"
+      [load]="previewLoader"
+      (closed)="closePreview()">
+    </app-file-preview-modal>
   `,
   styles: [`
     .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
@@ -149,7 +164,7 @@ const PENDING_STATUSES: TicketStatus[] = ['Submitted', 'Assigned', 'InProgress',
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   `],
 })
-export class MaintenanceHistoryComponent implements OnInit {
+export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
   category = signal<TicketCategory>('Bug');
   description = signal('');
@@ -184,9 +199,23 @@ export class MaintenanceHistoryComponent implements OnInit {
     private route: ActivatedRoute
   ) {}
 
+  private pollHandle: ReturnType<typeof setInterval> | undefined;
+
   ngOnInit() {
     const q = this.route.snapshot.queryParamMap.get('filter') as FilterKey | null;
     if (q && ['all', 'pending', 'accomplished', 'escalated'].includes(q)) this.filter.set(q);
+
+    this.refreshTickets();
+    this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
+  }
+
+  ngOnDestroy() {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+  }
+
+  private refreshTickets() {
+    const client = this.auth.currentClient();
+    if (client) void this.ticketsSvc.refreshMyTickets(client.id);
   }
 
   toggleSubmitPanel() {
@@ -272,14 +301,26 @@ export class MaintenanceHistoryComponent implements OnInit {
     this.recordingSeconds.set(0);
   }
 
-  async downloadAttachment(ticketId: string, fileName: string) {
-    const blob = await this.ticketsSvc.downloadAttachment(ticketId);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Opens the attachment inline (image/PDF preview, or "open in new tab"
+  // for other types) instead of forcing a download.
+  previewOpen = signal(false);
+  previewTitle = signal('Attachment');
+  previewFileName = signal('');
+  previewKind = signal<FilePreviewKind>('other');
+  previewLoader: (() => Promise<Blob>) | undefined;
+
+  viewAttachment(ticketId: string, fileName: string) {
+    // Close first so [open] reliably transitions false→true even when
+    // switching directly between two tickets' attachments.
+    this.previewOpen.set(false);
+    this.previewFileName.set(fileName);
+    this.previewKind.set(filePreviewKindFor(fileName));
+    this.previewLoader = () => this.ticketsSvc.downloadAttachment(ticketId);
+    setTimeout(() => this.previewOpen.set(true));
+  }
+
+  closePreview() {
+    this.previewOpen.set(false);
   }
 
   agreement = computed(() => {

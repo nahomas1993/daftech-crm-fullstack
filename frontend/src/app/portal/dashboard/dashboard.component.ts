@@ -1,4 +1,4 @@
-import { Component, computed } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
@@ -6,6 +6,10 @@ import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { TICKET_CATEGORY_LABELS } from '../../core/models';
+
+/** Poll interval so a technician's status change (e.g. Resolved) shows
+ * up on the dashboard without the client refreshing the page. */
+const REFRESH_INTERVAL_MS = 20_000;
 
 @Component({
   selector: 'app-portal-dashboard',
@@ -74,8 +78,24 @@ import { TICKET_CATEGORY_LABELS } from '../../core/models';
     .see-all { font-size: 0.8rem; font-weight: 600; }
   `],
 })
-export class PortalDashboardComponent {
+export class PortalDashboardComponent implements OnInit, OnDestroy {
   constructor(private auth: AuthService, private ticketsSvc: TicketService, private agreementsSvc: AgreementService) {}
+
+  private pollHandle: ReturnType<typeof setInterval> | undefined;
+
+  ngOnInit(): void {
+    this.refresh();
+    this.pollHandle = setInterval(() => this.refresh(), REFRESH_INTERVAL_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+  }
+
+  private refresh(): void {
+    const client = this.auth.currentClient();
+    if (client) void this.ticketsSvc.refreshMyTickets(client.id);
+  }
 
   client = computed(() => this.auth.currentClient());
 

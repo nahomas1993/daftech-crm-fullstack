@@ -1,10 +1,16 @@
-import { Component, computed } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { TICKET_CATEGORY_LABELS } from '../../core/models';
+
+/** How often to re-pull ticket status while this page is open, so a
+ * technician resolving a ticket shows up here without the client having
+ * to navigate away and back. There's no push channel (SignalR) wired up
+ * on the client portal yet, so a short poll is the reliable stand-in. */
+const REFRESH_INTERVAL_MS = 20_000;
 
 @Component({
   selector: 'app-my-tickets',
@@ -39,13 +45,31 @@ import { TICKET_CATEGORY_LABELS } from '../../core/models';
     </div>
   `,
 })
-export class MyTicketsComponent {
+export class MyTicketsComponent implements OnInit, OnDestroy {
   constructor(private auth: AuthService, private ticketsSvc: TicketService) {}
 
   tickets = computed(() => {
     const client = this.auth.currentClient();
     return client ? this.ticketsSvc.forClient(client.id) : [];
   });
+
+  private pollHandle: ReturnType<typeof setInterval> | undefined;
+
+  ngOnInit(): void {
+    this.refresh();
+    // Poll while the page is open so a technician's status change (e.g.
+    // marking a ticket Resolved) shows up here without a manual refresh.
+    this.pollHandle = setInterval(() => this.refresh(), REFRESH_INTERVAL_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+  }
+
+  private refresh(): void {
+    const client = this.auth.currentClient();
+    if (client) void this.ticketsSvc.refreshMyTickets(client.id);
+  }
 
   categoryLabel(c: string): string {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;

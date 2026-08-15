@@ -5,12 +5,13 @@ import { EmployeeService } from '../../core/services/employee.service';
 import { AuthService } from '../../core/services/auth.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
+import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
 
 @Component({
   selector: 'app-tickets',
   standalone: true,
-  imports: [BadgeComponent, PaginationComponent, SlicePipe],
+  imports: [BadgeComponent, PaginationComponent, SlicePipe, FilePreviewModalComponent],
   template: `
     <h1>Tickets</h1>
     <p class="text-muted" style="margin-top:0.3rem;">
@@ -62,10 +63,10 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
               <td class="text-muted">{{ t.satisfactionScore != null ? t.satisfactionScore + '/100' : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
-                  <button class="btn btn-outline btn-sm" (click)="downloadAttachment(t.id, t.attachmentFileName)">Attachment</button>
+                  <button class="btn btn-outline btn-sm" (click)="viewAttachment(t.id, t.attachmentFileName)">📎 Attachment</button>
                 }
                 @if (t.voiceNoteFileName) {
-                  <button class="btn btn-outline btn-sm" (click)="playVoiceNote(t.id)">🎤 Voice note</button>
+                  <button class="btn btn-outline btn-sm" (click)="viewVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
                 }
                 @if (canUpdateStatus(t)) {
                   <select
@@ -100,6 +101,15 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
         (pageChange)="tickets.goToPage($event)">
       </app-pagination>
     </div>
+
+    <app-file-preview-modal
+      [open]="previewOpen()"
+      [title]="previewTitle()"
+      [fileName]="previewFileName()"
+      [kind]="previewKind()"
+      [load]="previewLoader"
+      (closed)="closePreview()">
+    </app-file-preview-modal>
   `,
   styles: [`
     .status-error { color: var(--red); font-size: 0.76rem; margin: 0.35rem 0 0; }
@@ -212,22 +222,37 @@ export class TicketsComponent {
     }
   }
 
-  async downloadAttachment(ticketId: string, fileName: string) {
-    const blob = await this.tickets.downloadAttachment(ticketId);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+  // File preview modal state — attachments and voice notes open inline
+  // (audio player / image / PDF viewer) instead of forcing a download, so
+  // technicians can see and listen to them without leaving the system.
+  previewOpen = signal(false);
+  previewTitle = signal('');
+  previewFileName = signal('');
+  previewKind = signal<FilePreviewKind>('other');
+  previewLoader: (() => Promise<Blob>) | undefined;
+
+  viewAttachment(ticketId: string, fileName: string) {
+    // Close first if a preview is already open for a different file — this
+    // guarantees the [open] input goes false→true so the modal's
+    // ngOnChanges reliably re-fires and fetches the new file.
+    this.previewOpen.set(false);
+    this.previewTitle.set('Attachment');
+    this.previewFileName.set(fileName);
+    this.previewKind.set(filePreviewKindFor(fileName));
+    this.previewLoader = () => this.tickets.downloadAttachment(ticketId);
+    setTimeout(() => this.previewOpen.set(true));
   }
 
-  /** Opens the voice-note recording in a new tab for playback — audio blobs play natively in the browser rather than downloading. */
-  async playVoiceNote(ticketId: string) {
-    const blob = await this.tickets.downloadVoiceNote(ticketId);
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    // Not revoking immediately — the new tab needs the blob URL to stay
-    // valid while it plays; it's cleaned up when that tab/window closes.
+  viewVoiceNote(ticketId: string, fileName: string) {
+    this.previewOpen.set(false);
+    this.previewTitle.set('Voice note');
+    this.previewFileName.set(fileName);
+    this.previewKind.set('audio');
+    this.previewLoader = () => this.tickets.downloadVoiceNote(ticketId);
+    setTimeout(() => this.previewOpen.set(true));
+  }
+
+  closePreview() {
+    this.previewOpen.set(false);
   }
 }
