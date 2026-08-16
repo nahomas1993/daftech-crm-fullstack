@@ -58,8 +58,16 @@ public static class ControllerBaseAuthExtensions
     /// authenticated but doesn't own/isn't permitted to touch this
     /// specific resource" check, so the frontend can distinguish it from
     /// an expired-token 403.
+    ///
+    /// Returns the concrete ForbidResult type, not IActionResult — action
+    /// methods here are typically declared as Task&lt;ActionResult&lt;T&gt;&gt;,
+    /// and ActionResult&lt;T&gt; only has an implicit conversion from
+    /// ActionResult (which ForbidResult derives from) and from T itself,
+    /// not from the IActionResult interface. Returning IActionResult here
+    /// compiles fine on this method's own signature but fails with
+    /// CS0029 at every call site inside an ActionResult&lt;T&gt; method.
     /// </summary>
-    public static IActionResult ForbidOwnership(this ControllerBase controller)
+    public static ForbidResult ForbidOwnership(this ControllerBase controller)
     {
         controller.Response.Headers[CallerIdentity.OwnershipForbiddenHeader] = CallerIdentity.OwnershipForbiddenValue;
         return controller.Forbid();
