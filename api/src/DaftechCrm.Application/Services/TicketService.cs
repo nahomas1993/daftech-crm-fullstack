@@ -95,6 +95,25 @@ public class TicketService : ITicketService
             ticket.AssignedAt = DateTimeOffset.UtcNow;
             ticket.Status = TicketStatus.Assigned;
 
+            if (request.FailureTypeId is Guid failureTypeId)
+            {
+                var failureType = await _db.FailureTypes
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(f => f.Id == failureTypeId, ct);
+
+                if (failureType is not null)
+                {
+                    // Snapshot the duration now — later admin edits to this
+                    // FailureType must not change this ticket's SLA.
+                    ticket.ExpectedResolutionMinutes =
+                        (int)failureType.ToTimeSpan().TotalMinutes;
+
+                    ticket.ExpectedResolutionBy =
+                        ticket.AssignedAt.Value.AddMinutes(
+                            ticket.ExpectedResolutionMinutes.Value);
+                }
+            }
+
             ticket.AuditTrail.Add(
                 new TicketAuditEntry
                 {
@@ -146,21 +165,49 @@ public class TicketService : ITicketService
     }
 
     /// <summary>
-    /// Loads and updates the ticket's status. Ticket.xmin is mapped as an
-    /// EF Core concurrency token (see TicketConfiguration), so
-    /// SaveChangesAsync itself detects a genuine simultaneous write — no
-    /// blind retry is needed or attempted here. A missing ticket is a 404,
-    /// not a concurrency conflict; the two are distinguished explicitly
-    /// below rather than both surfacing as the same exception.
+    /// Loads and updates the ticket's status with a single, reliable
+    /// write: find by ID (404 if missing), verify the caller is actually
+    /// the technician assigned to the ticket (Admins may update any
+    /// ticket), apply the status change, save once, then notify.
+    ///
+    /// Ticket.xmin IS configured as a genuine EF Core concurrency token
+    /// (see TicketConfiguration.UseXminAsConcurrencyToken) — that part of
+    /// the previous implementation was correct and is left in place, not
+    /// removed. What's removed is the surrounding retry/detach/DB-snapshot
+    /// logic: on a real conflict we now just report it plainly (409) with
+    /// a single log line, no blind retry and no reinterpretation of a
+    /// missing row as a conflict or vice versa. The bug reported as
+    /// "ticket not found" during a normal single-technician update was not
+    /// actually a concurrency false-positive — it was the frontend calling
+    /// a stale backend URL entirely (see environment.production.ts).
     /// </summary>
     public async Task<TicketDto> UpdateStatusAsync(
         Guid ticketId,
         UpdateTicketStatusRequest request,
+        SessionAccountType callerType,
+        Guid callerId,
         CancellationToken ct = default)
     {
         var ticket = await _db.Tickets
             .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
             ?? throw new TicketNotFoundException(ticketId);
+
+        if (callerType == SessionAccountType.Employee &&
+            ticket.AssignedEmployeeId != callerId)
+        {
+            var caller = await _db.Employees
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == callerId, ct);
+
+            var isAdmin = caller is not null &&
+                caller.Roles.Any(r => r == EmployeeRole.Admin);
+
+            if (!isAdmin)
+            {
+                throw new UnauthorizedAccessException(
+                    "You are not the technician assigned to this ticket.");
+            }
+        }
 
         try
         {
@@ -205,10 +252,11 @@ public class TicketService : ITicketService
                         $"Ticket {ticket.Id} has been marked resolved — please confirm it's working and rate your experience.",
                         ct);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     // Swallow: the ticket status is already saved. Losing this
                     // notification is not worth failing the whole request over.
+                    _logger.LogWarning(ex, "Failed to notify client for resolved ticket {TicketId}", ticket.Id);
                 }
             }
             else
@@ -229,49 +277,16 @@ public class TicketService : ITicketService
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            // xmin changed between our read and this SaveChangesAsync — the
-            // row was genuinely written by someone else in between. Do not
-            // blindly retry: silently re-applying this technician's status
-            // choice on top of whatever the other writer just did would
-            // overwrite their change without them ever knowing. Distinguish
-            // the row having been deleted entirely (404) from it having
-            // simply been modified (409) by checking whether it still
-            // exists, and log a snapshot of its current state either way so
-            // a persistent conflict is diagnosable from Render logs.
-            var entry = ex.Entries.FirstOrDefault();
-            string? dbSnapshot;
-            bool rowStillExists;
-            try
-            {
-                var dbValues = entry is not null ? await entry.GetDatabaseValuesAsync(ct) : null;
-                rowStillExists = dbValues is not null;
-                dbSnapshot = dbValues is null
-                    ? "<row no longer exists in the database>"
-                    : string.Join(", ", dbValues.Properties.Select(p => $"{p.Name}={dbValues[p]}"));
-            }
-            catch (Exception snapshotEx)
-            {
-                rowStillExists = true;
-                dbSnapshot = $"<failed to read current DB values: {snapshotEx.Message}>";
-            }
-
+            // Ticket.xmin is a real EF Core concurrency token (see
+            // TicketConfiguration.UseXminAsConcurrencyToken) — this row was
+            // genuinely written by someone else between our read and this
+            // save. No blind retry: silently re-applying this technician's
+            // status choice on top of another writer's change would
+            // overwrite it without them ever knowing.
             _logger.LogWarning(
                 ex,
-                "Concurrency conflict updating ticket {TicketId}. Conflicting entries: {Entries}. Current DB row: {DbSnapshot}",
-                ticketId,
-                string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name)),
-                dbSnapshot);
-
-            // Detach so this poisoned tracked instance can't affect any
-            // later operation reusing the same scoped context.
-            foreach (var auditEntry in ticket.AuditTrail.ToList())
-            {
-                _db.Detach(auditEntry);
-            }
-            _db.Detach(ticket);
-
-            if (!rowStillExists)
-                throw new TicketNotFoundException(ticketId);
+                "Concurrency conflict updating ticket {TicketId}",
+                ticketId);
 
             throw new ConcurrencyConflictException(
                 "This ticket was just updated by someone else — refresh the page and try again.");
@@ -280,15 +295,28 @@ public class TicketService : ITicketService
         return await LoadDtoAsync(ticket.Id, ct);
     }
 
+    /// <summary>
+    /// Records the client's response to a Resolved ticket. Only the
+    /// ticket's own client may confirm it — enforced here from the
+    /// caller's own JWT (see CallerIdentity), not trusted from anything
+    /// the client could send in the request body, matching the same
+    /// pattern used in UpdateStatusAsync for technicians.
+    /// </summary>
     public async Task<TicketDto> ConfirmResolutionAsync(
         Guid ticketId,
         ClientConfirmationRequest request,
+        Guid callerId,
         CancellationToken ct = default)
     {
         var ticket = await _db.Tickets
             .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
-            ?? throw new InvalidOperationException(
-                "Ticket not found.");
+            ?? throw new TicketNotFoundException(ticketId);
+
+        if (ticket.ClientId != callerId)
+        {
+            throw new UnauthorizedAccessException(
+                "This ticket does not belong to your account.");
+        }
 
         if (ticket.Status !=
             TicketStatus.AwaitingClientConfirmation)
@@ -653,9 +681,13 @@ public class TicketService : ITicketService
 
     private static DateTimeOffset? ExpectedResolutionBy(
         Ticket t) =>
-        t.AssignedAt is null || t.FailureType is null
-            ? null
-            : t.AssignedAt.Value + t.FailureType.ToTimeSpan();
+        // Use the snapshot taken at assignment time, not a live
+        // recalculation off FailureType's current duration (see
+        // Ticket.ExpectedResolutionBy for why). Older tickets assigned
+        // before this field existed simply have no SLA deadline shown,
+        // rather than one silently backfilled from today's FailureType
+        // settings.
+        t.ExpectedResolutionBy;
 
     public async Task<TicketDto> UploadAttachmentAsync(
         Guid ticketId,

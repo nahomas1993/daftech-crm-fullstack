@@ -1,3 +1,11 @@
+/**
+ * ⚠️ NOT CURRENTLY REACHABLE — app.routes.ts redirects 'portal/my-tickets'
+ * straight to 'portal/maintenance-history', which now owns the client's
+ * ticket-list view. Kept, not deleted, alongside submit-issue.component.ts
+ * — see that file's header comment for why. Safe to delete once
+ * MaintenanceHistoryComponent has fully absorbed anything useful this file
+ * still does that it doesn't.
+ */
 import { Component, OnDestroy, OnInit, computed } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';

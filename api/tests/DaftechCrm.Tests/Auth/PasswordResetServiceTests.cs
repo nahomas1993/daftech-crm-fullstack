@@ -175,7 +175,7 @@ public class PasswordResetServiceTests : IDisposable
         public Task<IReadOnlyList<NotificationDto>> GetForRecipientAsync(NotificationRecipientType recipientType, string recipientId, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<NotificationDto>>(new List<NotificationDto>());
 
-        public Task MarkReadAsync(Guid notificationId, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> MarkReadAsync(Guid notificationId, SessionAccountType callerType, Guid callerId, bool callerIsAdmin, CancellationToken ct = default) => Task.FromResult(true);
 
         public Task MarkAllReadAsync(NotificationRecipientType recipientType, string recipientId, CancellationToken ct = default) => Task.CompletedTask;
     }

@@ -1,4 +1,4 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
@@ -89,7 +89,7 @@ type Answer = 'fixed' | 'not-fixed' | null;
     .thanks { font-size: 0.85rem; color: var(--green); background: var(--green-bg); padding: 0.6rem 0.8rem; border-radius: 8px; }
   `],
 })
-export class ConfirmResolutionComponent {
+export class ConfirmResolutionComponent implements OnInit {
   hoverStars = signal(0);
   selectedStars = signal<Record<string, number>>({});
   answers = signal<Record<string, Answer>>({});
@@ -97,6 +97,18 @@ export class ConfirmResolutionComponent {
   lastOutcome = signal<'closed' | 'reopened' | null>(null);
 
   constructor(private auth: AuthService, private ticketsSvc: TicketService) {}
+
+  ngOnInit(): void {
+    // Pull the latest tickets from the API rather than trusting whatever
+    // was already in TicketService's in-memory signal — a technician may
+    // have just resolved a ticket in a separate session/tab, and this
+    // page must reflect that without requiring some other action to have
+    // triggered a refresh first.
+    const client = this.auth.currentClient();
+    if (client) {
+      void this.ticketsSvc.refreshMyTickets(client.id);
+    }
+  }
 
   tickets = computed(() => {
     const client = this.auth.currentClient();

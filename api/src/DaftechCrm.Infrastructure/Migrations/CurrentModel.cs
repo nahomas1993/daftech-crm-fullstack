@@ -220,6 +220,8 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid>("AgreementId").HasColumnType("uuid");
                 b.Property<Guid?>("AssignedEmployeeId").HasColumnType("uuid");
                 b.Property<DateTimeOffset?>("AssignedAt").HasColumnType("timestamp with time zone");
+                b.Property<int?>("ExpectedResolutionMinutes").HasColumnType("integer");
+                b.Property<DateTimeOffset?>("ExpectedResolutionBy").HasColumnType("timestamp with time zone");
                 b.Property<string>("AttachmentStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("AttachmentFileName").HasMaxLength(260).HasColumnType("character varying(260)");
                 b.Property<int>("Category").HasColumnType("integer");
@@ -345,20 +347,28 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
             {
+                // Client is only ever soft-deleted (ClientService.DeleteAsync
+                // sets IsDeleted/DeletedAt, never issues a real DELETE) — no
+                // application code path can trigger this cascade today.
+                // Restrict, not Cascade, so that if a real hard-delete of a
+                // client is ever added later, it fails loudly instead of
+                // silently destroying that client's whole agreement history.
                 b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
                     .WithMany("Agreements")
                     .HasForeignKey("ClientId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("Client");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementTraining", b =>
             {
+                // Same reasoning as Agreement->Client above — Client is
+                // soft-delete only in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
                     .WithMany("Trainings")
                     .HasForeignKey("ClientId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.HasOne("DaftechCrm.Domain.Entities.Agreement", "Agreement")
                     .WithMany("Trainings")
@@ -370,40 +380,50 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.DeviceSession", b =>
             {
+                // Employee is only ever soft-deleted (EmployeeService.DeleteAsync
+                // sets IsDeleted/AccountStatus=Disabled, never a real DELETE) —
+                // Restrict for the same reason as the Client relationships above.
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "Employee")
                     .WithMany("DeviceSessions")
                     .HasForeignKey("EmployeeId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("Employee");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.LoginRecord", b =>
             {
+                // Same reasoning — Employee is soft-delete only in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "Employee")
                     .WithMany("LoginRecords")
                     .HasForeignKey("EmployeeId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("Employee");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.MaintenanceRecord", b =>
             {
+                // Same reasoning — Employee is soft-delete only in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "PerformedByEmployee")
                     .WithMany("MaintenanceRecords")
                     .HasForeignKey("PerformedByEmployeeId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("PerformedByEmployee");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.SatisfactionSurvey", b =>
             {
+                // Client is soft-delete only in practice (see above);
+                // Ticket, on the other hand, is never soft-deleted at all —
+                // if a Ticket row is ever genuinely removed, its survey
+                // response is meaningless without it, so that edge stays a
+                // real Cascade.
                 b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
                     .WithMany()
                     .HasForeignKey("ClientId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.HasOne("DaftechCrm.Domain.Entities.Ticket", "Ticket")
                     .WithMany()
@@ -416,19 +436,25 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Ticket", b =>
             {
+                // Agreement is never hard-deleted by any application code path
+                // (AgreementService only ever removes stored file blobs, never
+                // the Agreement row itself) — Restrict for the same reason as
+                // the Client/Employee relationships above.
                 b.HasOne("DaftechCrm.Domain.Entities.Agreement", "Agreement")
                     .WithMany("Tickets")
                     .HasForeignKey("AgreementId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "AssignedEmployee")
                     .WithMany("AssignedTickets")
                     .HasForeignKey("AssignedEmployeeId")
                     .OnDelete(DeleteBehavior.SetNull);
+                // Client is soft-delete only in practice (see Agreement->Client
+                // above) — Restrict, not Cascade.
                 b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
                     .WithMany("Tickets")
                     .HasForeignKey("ClientId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "ForwardedByEmployee")
                     .WithMany()
@@ -447,6 +473,11 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TicketAuditEntry", b =>
             {
+                // Ticket itself is never soft- or hard-deleted by any
+                // application code path today, but if it ever were, an audit
+                // entry with no ticket to describe is meaningless — this one
+                // stays a real Cascade, unlike the Client/Employee/Agreement
+                // relationships above.
                 b.HasOne("DaftechCrm.Domain.Entities.Ticket", "Ticket")
                     .WithMany("AuditTrail")
                     .HasForeignKey("TicketId")
@@ -457,10 +488,12 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TimeLog", b =>
             {
+                // Same reasoning as DeviceSession/LoginRecord/MaintenanceRecord
+                // above — Employee is soft-delete only in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "Employee")
                     .WithMany("TimeLogs")
                     .HasForeignKey("EmployeeId")
-                    .OnDelete(DeleteBehavior.Cascade)
+                    .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("Employee");
             });

@@ -1,4 +1,4 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, signal, OnInit, OnDestroy } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { TicketService } from '../../core/services/ticket.service';
 import { EmployeeService } from '../../core/services/employee.service';
@@ -7,6 +7,16 @@ import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
+
+/** How often to re-pull the ticket list while this page is open, so a
+ * change made elsewhere (another technician updating a ticket, an Admin
+ * reassigning one, the same technician in a second tab) shows up here
+ * before the next manual action — without this, a stale row's "Update"
+ * button can send a PATCH for a ticket that's already moved on, which
+ * the server correctly (but confusingly) reports as 404. Matches the
+ * same polling approach already used on the client portal's
+ * MaintenanceHistoryComponent — there's no SignalR push wired up yet. */
+const REFRESH_INTERVAL_MS = 20_000;
 
 @Component({
   selector: 'app-tickets',
@@ -134,12 +144,31 @@ import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
     .row-in-progress td { color: var(--navy-900); }
   `],
 })
-export class TicketsComponent {
+export class TicketsComponent implements OnInit, OnDestroy {
   constructor(
     public tickets: TicketService,
     public employees: EmployeeService,
     private auth: AuthService
   ) {}
+
+  private pollHandle: ReturnType<typeof setInterval> | undefined;
+
+  ngOnInit() {
+    this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
+  }
+
+  ngOnDestroy() {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+  }
+
+  private refreshTickets() {
+    // Skip a poll tick while an update is in flight — updateStatus()
+    // already refreshes the list itself on success, and racing that with
+    // a concurrent poll-triggered refresh could otherwise briefly show
+    // stale data right after a successful update.
+    if (this.updatingTicketId()) return;
+    void this.tickets.refreshPaged();
+  }
 
   updatingTicketId = signal<string | null>(null);
   statusError = signal<{ ticketId: string; message: string } | null>(null);
@@ -151,7 +180,8 @@ export class TicketsComponent {
   // separate from the ticket's actual server-side status — so the <select>
   // stays a normal Angular-bound control instead of an uncontrolled DOM
   // element that could silently keep a stale value across a failed
-  // request and retry.
+  // request and retry. Selections here survive a background poll refresh
+  // since selectedStatusFor() always checks this map first.
   private selectedStatus = signal<Map<string, 'InProgress' | 'Resolved'>>(new Map());
 
   /** What the dropdown should show for this ticket: the technician's own pending pick if they've touched it, otherwise a sensible default from the ticket's real status (Assigned tickets default to InProgress, the first real step). */

@@ -230,7 +230,8 @@ public interface INotificationService
 {
     Task NotifyAsync(NotificationRecipientType recipientType, string recipientId, string eventType, string message, CancellationToken ct = default);
     Task<IReadOnlyList<NotificationDto>> GetForRecipientAsync(NotificationRecipientType recipientType, string recipientId, CancellationToken ct = default);
-    Task MarkReadAsync(Guid notificationId, CancellationToken ct = default);
+    /// <returns>false if the notification doesn't exist or doesn't belong to the caller — the controller maps that to a 404, same as a genuinely missing id, so a caller probing other accounts' notification ids can't distinguish "not mine" from "doesn't exist."</returns>
+    Task<bool> MarkReadAsync(Guid notificationId, SessionAccountType callerType, Guid callerId, bool callerIsAdmin, CancellationToken ct = default);
     Task MarkAllReadAsync(NotificationRecipientType recipientType, string recipientId, CancellationToken ct = default);
 }
 

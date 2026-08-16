@@ -1,3 +1,18 @@
+/**
+ * ⚠️ NOT CURRENTLY REACHABLE — app.routes.ts redirects 'portal/submit-issue'
+ * straight to 'portal/maintenance-history', which has its own, separate
+ * "Submit New Issue" panel that does NOT yet include the Failure Type
+ * dropdown this file has (see MaintenanceHistoryComponent's submit panel
+ * and its hardcoded `failureTypeId: undefined` in submitFromClient()).
+ *
+ * This file is intentionally kept, not deleted — it's the working
+ * reference implementation for that missing dropdown (see
+ * FailureTypeService usage below). Once that dropdown is added to
+ * MaintenanceHistoryComponent, this file (and my-tickets.component.ts,
+ * which the client portal's ticket list has similarly absorbed into
+ * MaintenanceHistoryComponent) should be deleted rather than left as
+ * unreachable dead code.
+ */
 import { Component, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';

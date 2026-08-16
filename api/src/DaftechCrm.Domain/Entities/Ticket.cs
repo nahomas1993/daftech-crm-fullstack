@@ -43,6 +43,21 @@ public class Ticket
     /// <summary>Set the moment auto-assignment picks an employee (see TicketAssignmentService). Basis for the on-time/late resolution report.</summary>
     public DateTimeOffset? AssignedAt { get; set; }
 
+    /// <summary>
+    /// Snapshot of FailureType.ToTimeSpan() (in minutes) taken at the
+    /// moment this ticket was assigned. Deliberately copied onto the
+    /// ticket rather than read live off FailureType at report time — if an
+    /// Admin later changes a FailureType's expected duration (e.g. "Network
+    /// Failure" from 4 hours to 8), that must not retroactively change the
+    /// SLA of tickets already assigned under the old duration. Null if the
+    /// ticket has never been assigned, or was assigned before this field
+    /// existed and before it has a FailureType.
+    /// </summary>
+    public int? ExpectedResolutionMinutes { get; set; }
+
+    /// <summary>AssignedAt + ExpectedResolutionMinutes, computed once at assignment time from the snapshot above. Null under the same conditions as ExpectedResolutionMinutes.</summary>
+    public DateTimeOffset? ExpectedResolutionBy { get; set; }
+
     public bool Chargeable { get; set; }
     public TicketStatus Status { get; set; } = TicketStatus.Submitted;
 

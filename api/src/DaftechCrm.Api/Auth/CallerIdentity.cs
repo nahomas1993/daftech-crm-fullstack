@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using DaftechCrm.Domain.Enums;
 using DaftechCrm.Infrastructure.Auth;
+using Microsoft.AspNetCore.Mvc;
 
 namespace DaftechCrm.Api.Auth;
 
@@ -14,6 +15,21 @@ namespace DaftechCrm.Api.Auth;
 /// </summary>
 public static class CallerIdentity
 {
+    /// <summary>
+    /// Header set on a 403 to mark it as a genuine, authenticated-caller
+    /// ownership/permission violation — e.g. "you're not the technician
+    /// assigned to this ticket" — as opposed to ASP.NET Core's own
+    /// auth-pipeline 403, which can occur when an expired/invalid JWT
+    /// fails OnAuthenticationFailed and the subsequent role/claim check
+    /// has no identity to check against at all. The frontend's auth
+    /// interceptor uses this to skip a pointless silent refresh-and-retry
+    /// for the former case, since a fresh token wouldn't change the
+    /// outcome — the caller's identity was valid all along, they're just
+    /// not allowed to touch this particular resource.
+    /// </summary>
+    public const string OwnershipForbiddenHeader = "X-Forbidden-Reason";
+    public const string OwnershipForbiddenValue = "not-owner";
+
     public static (SessionAccountType AccountType, Guid AccountId) Resolve(ClaimsPrincipal user)
     {
         var accountTypeClaim = user.FindFirst(DaftechClaimTypes.AccountType)?.Value
@@ -30,5 +46,22 @@ public static class CallerIdentity
             throw new InvalidOperationException("Token has an unrecognized subject claim.");
 
         return (accountType, accountId);
+    }
+}
+
+public static class ControllerBaseAuthExtensions
+{
+    /// <summary>
+    /// Returns a 403 tagged as a genuine ownership/permission violation
+    /// (see CallerIdentity.OwnershipForbiddenHeader) rather than a bare
+    /// Forbid(). Use this — not Forbid() directly — for every "caller is
+    /// authenticated but doesn't own/isn't permitted to touch this
+    /// specific resource" check, so the frontend can distinguish it from
+    /// an expired-token 403.
+    /// </summary>
+    public static IActionResult ForbidOwnership(this ControllerBase controller)
+    {
+        controller.Response.Headers[CallerIdentity.OwnershipForbiddenHeader] = CallerIdentity.OwnershipForbiddenValue;
+        return controller.Forbid();
     }
 }

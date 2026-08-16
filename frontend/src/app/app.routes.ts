@@ -106,6 +106,12 @@ export const routes: Routes = [
       { path: 'agreements', loadComponent: () => import('./portal/agreements/portal-agreements.component').then(m => m.PortalAgreementsComponent) },
       { path: 'maintenance-history', loadComponent: () => import('./portal/maintenance-history/maintenance-history.component').then(m => m.MaintenanceHistoryComponent) },
       { path: 'reports', loadComponent: () => import('./portal/reports/reports.component').then(m => m.PortalReportsComponent) },
+      // Both submit-issue.component.ts and my-tickets.component.ts still
+      // exist on disk (not deleted — see each file's header comment) but
+      // are unreachable: MaintenanceHistoryComponent absorbed both the
+      // submit-a-ticket panel and the ticket-list view. Known gap:
+      // MaintenanceHistoryComponent's submit panel doesn't yet have the
+      // Failure Type dropdown that submit-issue.component.ts does.
       { path: 'submit-issue', redirectTo: 'maintenance-history', pathMatch: 'full' },
       { path: 'my-tickets', redirectTo: 'maintenance-history', pathMatch: 'full' },
       { path: 'confirm-resolution', loadComponent: () => import('./portal/confirm-resolution/confirm-resolution.component').then(m => m.ConfirmResolutionComponent) },

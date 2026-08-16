@@ -28,9 +28,6 @@ services:
     dockerfilePath: Dockerfile
     dockerContext: .
     plan: free
-    envVars:
-      - key: API_BASE_URL
-        value: https://daftech-crm-api-new.onrender.com/api
     routes:
       - type: rewrite
         source: /*

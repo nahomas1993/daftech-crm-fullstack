@@ -52,6 +52,13 @@ public class TicketsController : ControllerBase
                 ct));
     }
 
+    /// <summary>
+    /// A client may only fetch their own ticket; any employee may fetch
+    /// any ticket (technicians need to look up tickets by id from links,
+    /// e.g. in notifications, regardless of assignment — the tickets LIST
+    /// is already scoped to "my tickets" for non-admins in GetAllPaged,
+    /// this is just a single-record lookup).
+    /// </summary>
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TicketDto>> GetById(
         Guid id,
@@ -60,36 +67,74 @@ public class TicketsController : ControllerBase
         var ticket =
             await _tickets.GetByIdAsync(id, ct);
 
-        return ticket is null
-            ? NotFound()
-            : Ok(ticket);
+        if (ticket is null)
+            return NotFound();
+
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && ticket.ClientId != callerId)
+            return NotFound();
+
+        return Ok(ticket);
     }
 
+    /// <summary>
+    /// A client may only list their own tickets — an Admin/employee
+    /// calling this on behalf of a client (e.g. from the Client Detail
+    /// page) is allowed through unrestricted, since staff already have
+    /// broader ticket access via GetAllPaged.
+    /// </summary>
     [HttpGet("client/{clientId:guid}")]
     public async Task<ActionResult<IReadOnlyList<TicketDto>>> GetForClient(
         Guid clientId,
-        CancellationToken ct) =>
-        Ok(await _tickets.GetForClientAsync(
+        CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _tickets.GetForClientAsync(
             clientId,
             ct));
+    }
 
+    /// <summary>
+    /// Non-admin employees may only list their own assigned tickets —
+    /// mirrors the same scoping GetAllPaged already applies for the main
+    /// Tickets table.
+    /// </summary>
     [HttpGet("employee/{employeeId:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<IReadOnlyList<TicketDto>>> GetForEmployee(
         Guid employeeId,
-        CancellationToken ct) =>
-        Ok(await _tickets.GetForEmployeeAsync(
+        CancellationToken ct)
+    {
+        if (!User.IsInRole(nameof(EmployeeRole.Admin)))
+        {
+            var (_, callerId) = CallerIdentity.Resolve(User);
+            if (callerId != employeeId)
+                return this.ForbidOwnership();
+        }
+
+        return Ok(await _tickets.GetForEmployeeAsync(
             employeeId,
             ct));
+    }
 
+    /// <summary>A client may only check their own awaiting-confirmation queue.</summary>
     [HttpGet("client/{clientId:guid}/awaiting-confirmation")]
     public async Task<ActionResult<IReadOnlyList<TicketDto>>>
         GetAwaitingConfirmation(
             Guid clientId,
-            CancellationToken ct) =>
-        Ok(await _tickets.GetAwaitingConfirmationForClientAsync(
+            CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _tickets.GetAwaitingConfirmationForClientAsync(
             clientId,
             ct));
+    }
 
     /// <summary>
     /// Admin review queue for tickets the client rated below
@@ -103,7 +148,13 @@ public class TicketsController : ControllerBase
 
     /// <summary>
     /// Auto-assigns to the least-loaded active technician immediately
-    /// on submission.
+    /// on submission. The client identity always comes from the caller's
+    /// own JWT (see CallerIdentity), never from request.ClientId — that
+    /// field exists on SubmitTicketRequest only because the frontend
+    /// happens to send its own logged-in client's id, not because it's
+    /// trusted; without this override, any authenticated client could
+    /// submit a ticket under a different client's identity by editing the
+    /// request body.
     /// </summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AnyClient)]
@@ -111,11 +162,14 @@ public class TicketsController : ControllerBase
         [FromBody] SubmitTicketRequest request,
         CancellationToken ct)
     {
+        var (_, callerId) = CallerIdentity.Resolve(User);
+        var effectiveRequest = request with { ClientId = callerId };
+
         try
         {
             var ticket =
                 await _tickets.SubmitFromClientAsync(
-                    request,
+                    effectiveRequest,
                     ct);
 
             return CreatedAtAction(
@@ -144,12 +198,16 @@ public class TicketsController : ControllerBase
         [FromBody] UpdateTicketStatusRequest request,
         CancellationToken ct)
     {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+
         try
         {
             return Ok(
                 await _tickets.UpdateStatusAsync(
                     id,
                     request,
+                    callerType,
+                    callerId,
                     ct));
         }
         catch (TicketNotFoundException ex)
@@ -159,6 +217,10 @@ public class TicketsController : ControllerBase
         catch (ConcurrencyConflictException ex)
         {
             return Conflict(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return this.ForbidOwnership();
         }
         catch (InvalidOperationException ex)
         {
@@ -177,13 +239,24 @@ public class TicketsController : ControllerBase
         [FromBody] ClientConfirmationRequest request,
         CancellationToken ct)
     {
+        var (_, callerId) = CallerIdentity.Resolve(User);
+
         try
         {
             return Ok(
                 await _tickets.ConfirmResolutionAsync(
                     id,
                     request,
+                    callerId,
                     ct));
+        }
+        catch (TicketNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NotFound();
         }
         catch (InvalidOperationException ex)
         {

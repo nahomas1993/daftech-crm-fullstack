@@ -134,10 +134,31 @@ builder.Services.AddAuthorization(options => options.AddDaftechPolicies());
 // ---- CORS ----
 // Allowed origins come from configuration (Cors:AllowedOrigins), not a
 // hardcoded localhost value, so the same build works in every environment.
-// appsettings.Development.json defaults this to the Angular dev server;
-// appsettings.Production.json must set it to the real deployed frontend origin(s).
+// The base appsettings.json defaults this to the Angular dev server
+// (http://localhost:4200); appsettings.Production.json's empty array does
+// NOT itself override that default (ASP.NET Core's config layering can't
+// clear an array with an empty one) — Cors__AllowedOrigins__0 must be set
+// as a real environment variable on the Render service. The check below
+// makes it loudly obvious in the logs if that env var was forgotten,
+// instead of the app silently starting up with CORS pointed at localhost.
+var devDefaultOrigin = "http://localhost:4200";
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:4200" };
+    ?? new[] { devDefaultOrigin };
+
+if (builder.Environment.IsProduction() &&
+    allowedOrigins.Length == 1 &&
+    allowedOrigins[0] == devDefaultOrigin)
+{
+    // Intentionally a startup-time Console write, not ILogger — this runs
+    // before the DI-built logging pipeline exists, and it needs to be
+    // impossible to miss (e.g. by grepping Render's boot logs), not
+    // filtered out by a log-level configuration.
+    Console.Error.WriteLine(
+        "WARNING: Running in Production with CORS still on its localhost:4200 " +
+        "development default. Set the Cors__AllowedOrigins__0 environment variable " +
+        "on this service to the real deployed frontend origin, or every browser " +
+        "request from the real frontend will be blocked by CORS.");
+}
 
 builder.Services.AddCors(options =>
 {
@@ -145,7 +166,16 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              // Response headers are NOT covered by AllowAnyHeader (that
+              // only governs which request headers the browser may send).
+              // Without this, browsers only expose the small CORS-safelisted
+              // header set to JS — CallerIdentity.OwnershipForbiddenHeader
+              // would be silently invisible to the frontend's auth
+              // interceptor in any cross-origin scenario (e.g. local dev,
+              // ng serve calling the API directly rather than through the
+              // same-origin nginx proxy used in production).
+              .WithExposedHeaders(CallerIdentity.OwnershipForbiddenHeader);
     });
 });
 

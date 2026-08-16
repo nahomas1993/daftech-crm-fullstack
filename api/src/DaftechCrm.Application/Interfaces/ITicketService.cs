@@ -17,7 +17,7 @@ public interface ITicketService
     /// Employee updates ticket status. Setting Resolved starts the client
     /// confirmation window instead of closing the ticket outright.
     /// </summary>
-    Task<TicketDto> UpdateStatusAsync(Guid ticketId, UpdateTicketStatusRequest request, CancellationToken ct = default);
+    Task<TicketDto> UpdateStatusAsync(Guid ticketId, UpdateTicketStatusRequest request, SessionAccountType callerType, Guid callerId, CancellationToken ct = default);
 
     /// <summary>
     /// Client answers whether the issue is fixed. If not, the ticket
@@ -26,7 +26,7 @@ public interface ITicketService
     /// score >= MinimumSatisfactionScore (default 90) closes the ticket,
     /// below that escalates it to Admin instead.
     /// </summary>
-    Task<TicketDto> ConfirmResolutionAsync(Guid ticketId, ClientConfirmationRequest request, CancellationToken ct = default);
+    Task<TicketDto> ConfirmResolutionAsync(Guid ticketId, ClientConfirmationRequest request, Guid callerId, CancellationToken ct = default);
 
     /// <summary>
     /// Auto-closes any ticket whose ClientConfirmationDeadline has passed

@@ -229,7 +229,8 @@ export class TicketService {
    * status code, not by echoing whatever text the server happened to send.
    * A 409 is always a genuine concurrency conflict (the ticket's xmin
    * token changed since it was read — see TicketService.UpdateStatusAsync
-   * on the backend); a 404 always means the ticket no longer exists; a 500
+   * on the backend); a 404 always means the ticket no longer exists; a 403
+   * means the caller isn't the technician assigned to this ticket; a 500
    * (or anything else unexpected) is a generic server error. This keeps
    * the concurrency message from ever appearing for an unrelated failure.
    */
@@ -238,7 +239,9 @@ export class TicketService {
       case 409:
         return 'This ticket was changed by another user. Please refresh.';
       case 404:
-        return 'Ticket not found.';
+        return 'Ticket not found. It may have been removed.';
+      case 403:
+        return 'You are not the technician assigned to this ticket.';
       case 500:
         return 'Server error. Please try again.';
       default:

@@ -14,6 +14,15 @@ const refreshCompleted$ = new BehaviorSubject<boolean>(true);
 
 const AUTH_ENDPOINTS = ['/auth/employee-login', '/auth/client-login', '/auth/refresh'];
 
+/** Set by the backend (see CallerIdentity.OwnershipForbiddenHeader) on a
+ * 403 that's a genuine "you're authenticated, but not allowed to touch
+ * this specific resource" response — as opposed to ASP.NET Core's own
+ * auth-pipeline 403, which can occur when an expired/invalid token fails
+ * authentication and a role/claim check then has no identity to check
+ * against. Refreshing the token can't change the former case's outcome,
+ * so it's excluded from the retry-after-refresh logic below. */
+const OWNERSHIP_FORBIDDEN_HEADER = 'X-Forbidden-Reason';
+
 /**
  * Attaches the current access token to every request to our own API, and
  * on a 401 response, attempts exactly one silent refresh-and-retry before
@@ -38,8 +47,21 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       // rather than 401 once a RequireClaim/RequireRole policy is involved
       // (the auth handler fails the claim check before it gets a chance to
       // report "not authenticated"). Treat both the same: attempt one
-      // silent refresh-and-retry before giving up.
-      if (!(error instanceof HttpErrorResponse) || (error.status !== 401 && error.status !== 403) || !isOwnApi || isAuthEndpoint) {
+      // silent refresh-and-retry before giving up — UNLESS the backend has
+      // already told us this 403 is a genuine ownership/permission
+      // violation (OWNERSHIP_FORBIDDEN_HEADER), in which case the caller's
+      // token is fine and a refresh would just waste a round-trip before
+      // reaching the same, correct 403.
+      const isOwnershipForbidden =
+        error instanceof HttpErrorResponse && error.status === 403 && !!error.headers?.get(OWNERSHIP_FORBIDDEN_HEADER);
+
+      if (
+        !(error instanceof HttpErrorResponse) ||
+        (error.status !== 401 && error.status !== 403) ||
+        !isOwnApi ||
+        isAuthEndpoint ||
+        isOwnershipForbidden
+      ) {
         return throwError(() => error);
       }
 

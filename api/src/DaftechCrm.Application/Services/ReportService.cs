@@ -23,11 +23,23 @@ public class ReportService : IReportService
 
     /// <summary>
     /// "On time" = ResolvedAt - AssignedAt is within the ticket's own
-    /// FailureType duration if one was chosen, otherwise the global
-    /// OnTimeResolutionTargetDays fallback. Only tickets that have both
-    /// AssignedAt and ResolvedAt set are counted (i.e. tickets that
-    /// actually reached Resolved at some point) — tickets still in
-    /// progress or never assigned don't factor in yet.
+    /// frozen SLA target (Ticket.ExpectedResolutionMinutes, snapshotted at
+    /// assignment time — see TicketService.SubmitFromClientAsync) if one
+    /// was recorded, otherwise the global OnTimeResolutionTargetDays
+    /// fallback. Only tickets that have both AssignedAt and ResolvedAt set
+    /// are counted (i.e. tickets that actually reached Resolved at some
+    /// point) — tickets still in progress or never assigned don't factor
+    /// in yet.
+    ///
+    /// Deliberately reads Ticket.ExpectedResolutionMinutes, NOT
+    /// t.FailureType.ToTimeSpan() — the latter is the FailureType's
+    /// CURRENT configured duration, which an Admin can edit at any time.
+    /// Reading it live here would silently reclassify already-resolved
+    /// tickets as on-time/late every time this report runs, based on
+    /// today's settings rather than what applied when the ticket was
+    /// actually worked. Tickets resolved before this snapshot field
+    /// existed have ExpectedResolutionMinutes = null and fall back to the
+    /// global target, same as a ticket with no FailureType at all.
     /// </summary>
     public async Task<OnTimeReportDto> GetOnTimeResolutionReportAsync(CancellationToken ct = default)
     {
@@ -36,11 +48,10 @@ public class ReportService : IReportService
         var resolvedTickets = await _db.Tickets
             .AsNoTracking()
             .Include(t => t.AssignedEmployee)
-            .Include(t => t.FailureType)
             .Where(t => t.AssignedAt != null && t.ResolvedAt != null)
             .ToListAsync(ct);
 
-        TimeSpan TargetFor(Ticket t) => t.FailureType?.ToTimeSpan() ?? fallbackSpan;
+        TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
         bool IsOnTime(Ticket t) => (t.ResolvedAt!.Value - t.AssignedAt!.Value) <= TargetFor(t);
 
         var onTime = resolvedTickets.Count(IsOnTime);
@@ -76,7 +87,7 @@ public class ReportService : IReportService
         var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId, ct)
             ?? throw new InvalidOperationException("Employee not found.");
 
-        var assignedTickets = await _db.Tickets.AsNoTracking().Include(t => t.FailureType).Where(t => t.AssignedEmployeeId == employeeId).ToListAsync(ct);
+        var assignedTickets = await _db.Tickets.AsNoTracking().Where(t => t.AssignedEmployeeId == employeeId).ToListAsync(ct);
         var resolvedOrClosed = assignedTickets.Where(t => t.ResolvedAt != null).ToList();
 
         double? avgResolutionHours = null;
@@ -84,8 +95,12 @@ public class ReportService : IReportService
         if (withBothTimestamps.Count > 0)
             avgResolutionHours = withBothTimestamps.Average(t => (t.ResolvedAt!.Value - t.AssignedAt!.Value).TotalHours);
 
+        // Same reasoning as GetOnTimeResolutionReportAsync above: read the
+        // frozen per-ticket snapshot, not FailureType's current duration,
+        // so editing a FailureType later doesn't retroactively change this
+        // employee's historical on-time rate.
         var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
-        TimeSpan TargetFor(Ticket t) => t.FailureType?.ToTimeSpan() ?? fallbackSpan;
+        TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
         var onTimeCount = withBothTimestamps.Count(t => (t.ResolvedAt!.Value - t.AssignedAt!.Value) <= TargetFor(t));
         var onTimeRate = withBothTimestamps.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBothTimestamps.Count, 1) : 0;
 

@@ -30,13 +30,22 @@ public class NotificationService : INotificationService
             .Select(n => new NotificationDto(n.Id, n.RecipientType, n.RecipientId, n.EventType, n.Message, n.DateSent, n.ReadStatus))
             .ToListAsync(ct);
 
-    public async Task MarkReadAsync(Guid notificationId, CancellationToken ct = default)
+    public async Task<bool> MarkReadAsync(Guid notificationId, SessionAccountType callerType, Guid callerId, bool callerIsAdmin, CancellationToken ct = default)
     {
         var n = await _db.Notifications.FirstOrDefaultAsync(x => x.Id == notificationId, ct);
-        if (n is null) return;
+        if (n is null) return false;
+
+        var ownsRecipient =
+            (n.RecipientType == NotificationRecipientType.Admin && callerIsAdmin) ||
+            (n.RecipientType == NotificationRecipientType.Employee && callerType == SessionAccountType.Employee && n.RecipientId == callerId.ToString()) ||
+            (n.RecipientType == NotificationRecipientType.Client && callerType == SessionAccountType.Client && n.RecipientId == callerId.ToString());
+
+        if (!ownsRecipient) return false;
+
         n.ReadStatus = true;
         _db.Update(n);
         await _db.SaveChangesAsync(ct);
+        return true;
     }
 
     public async Task MarkAllReadAsync(NotificationRecipientType recipientType, string recipientId, CancellationToken ct = default)

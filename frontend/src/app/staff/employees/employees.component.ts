@@ -117,11 +117,18 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
         <tbody>
           @for (e of displayedEmployees(); track e.id) {
             <tr>
-              <td class="mono">{{ e.accountRefId }}</td>
+              <td class="mono" title="Assigned once at account creation — reflects the employee's role at that time, not necessarily their current roles below.">{{ e.accountRefId }}</td>
               <td>{{ e.fullName }}</td>
               <td class="text-muted">{{ e.email }}</td>
               <td>{{ e.specialization }}</td>
-              <td>{{ allRoleLabels(e) }}</td>
+              <td>
+                @for (r of e.roles; track r) {
+                  <span class="role-chip role-chip-real" [title]="'Real permission-granting role'">{{ roleLabel(r) }}</span>
+                }
+                @for (label of e.extraRoleLabels; track label) {
+                  <span class="role-chip role-chip-label" [title]="'Custom label only — grants no permissions'">{{ label }}</span>
+                }
+              </td>
               <td class="mono">{{ e.openTicketCount }}</td>
               <td><app-badge [status]="e.accountStatus"></app-badge></td>
               <td class="actions-cell">
@@ -208,6 +215,15 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
     .edit-row td { background: var(--slate-50, #f8fafc); padding: 1rem; }
     .edit-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; align-items: end; }
     .edit-actions { display: flex; gap: 0.5rem; }
+    /* Real roles (grant real permissions) vs extraRoleLabels (org-chart
+       labels only, e.g. "Team Lead" — see Employee.ExtraRoleLabels) must
+       never look the same, or an Admin scanning this table could mistake
+       a decorative label for an actual permission. Real roles get a
+       solid, permission-looking chip; labels get a clearly lighter,
+       outlined one — reinforced by the title tooltip on each. */
+    .role-chip { display: inline-block; font-size: 0.78rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 999px; margin: 0.1rem 0.25rem 0.1rem 0; white-space: nowrap; }
+    .role-chip-real { background: var(--navy-900); color: white; }
+    .role-chip-label { background: transparent; border: 1px dashed var(--slate-500); color: var(--slate-500); }
   `],
 })
 export class EmployeesComponent {
@@ -237,11 +253,6 @@ export class EmployeesComponent {
   constructor(public employeeService: EmployeeService, public locations: LocationService) {}
 
   roleLabel = (r: EmployeeRole) => EMPLOYEE_ROLE_LABELS[r];
-
-  /** Hardcoded roles + any admin-defined extra role labels, comma-joined for the table cell. Angular templates can't use spread syntax, so this lives here instead of inline. */
-  allRoleLabels(e: { roles: EmployeeRole[]; extraRoleLabels: string[] }): string {
-    return e.roles.map(this.roleLabel).concat(e.extraRoleLabels).join(', ');
-  }
 
   filtered = computed(() => {
     const q = this.query().toLowerCase().trim();

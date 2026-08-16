@@ -23,10 +23,20 @@ public class ClientsController : ControllerBase
     public async Task<ActionResult<PagedResult<ClientDto>>> GetAllPaged([FromQuery] PaginationQuery query, CancellationToken ct) =>
         Ok(await _clients.GetAllPagedAsync(query, ct));
 
+    /// <summary>
+    /// A client may only fetch their own record (this is also what
+    /// AuthService.restoreSession calls on the frontend after decoding its
+    /// own JWT) — any employee may fetch any client, needed for the staff
+    /// Client Detail page.
+    /// </summary>
     [HttpGet("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AnyAuthenticated)]
     public async Task<ActionResult<ClientDto>> GetById(Guid id, CancellationToken ct)
     {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != id)
+            return NotFound();
+
         var c = await _clients.GetByIdAsync(id, ct);
         return c is null ? NotFound() : Ok(c);
     }
@@ -112,9 +122,16 @@ public class AgreementsController : ControllerBase
     public async Task<ActionResult<PagedResult<AgreementDto>>> GetAllPaged([FromQuery] PaginationQuery query, CancellationToken ct) =>
         Ok(await _agreements.GetAllPagedAsync(query, ct));
 
+    /// <summary>A client may only list their own agreements; any employee may list any client's.</summary>
     [HttpGet("client/{clientId:guid}")]
-    public async Task<ActionResult<IReadOnlyList<AgreementDto>>> GetForClient(Guid clientId, CancellationToken ct) =>
-        Ok(await _agreements.GetForClientAsync(clientId, ct));
+    public async Task<ActionResult<IReadOnlyList<AgreementDto>>> GetForClient(Guid clientId, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _agreements.GetForClientAsync(clientId, ct));
+    }
 
     [HttpGet("expiring-soon")]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
@@ -141,16 +158,33 @@ public class AgreementsController : ControllerBase
         }
     }
 
-    /// <summary>Whether the client has at least one training with an End Date set — the precondition for signing an agreement.</summary>
+    /// <summary>
+    /// Whether the client has at least one training with an End Date set —
+    /// the precondition for signing an agreement. A client may only check
+    /// their own status; any employee may check any client's.
+    /// </summary>
     [HttpGet("client/{clientId:guid}/training-complete")]
-    public async Task<ActionResult<bool>> ClientHasCompletedTraining(Guid clientId, CancellationToken ct) =>
-        Ok(await _agreements.ClientHasCompletedTrainingAsync(clientId, ct));
+    public async Task<ActionResult<bool>> ClientHasCompletedTraining(Guid clientId, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
 
+        return Ok(await _agreements.ClientHasCompletedTrainingAsync(clientId, ct));
+    }
+
+    /// <summary>A client may only fetch their own agreement by id; any employee may fetch any agreement.</summary>
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<AgreementDto>> GetById(Guid id, CancellationToken ct)
     {
         var a = await _agreements.GetByIdAsync(id, ct);
-        return a is null ? NotFound() : Ok(a);
+        if (a is null) return NotFound();
+
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != a.ClientId)
+            return NotFound();
+
+        return Ok(a);
     }
 
     /// <summary>
@@ -183,10 +217,18 @@ public class AgreementsController : ControllerBase
         }
     }
 
-    /// <summary>Streams the agreement's scanned file back to the caller with its original content type.</summary>
+    /// <summary>Streams the agreement's scanned file back to the caller with its original content type. A client may only download their own agreement's file.</summary>
     [HttpGet("{id:guid}/scanned-file")]
     public async Task<IActionResult> DownloadScannedFile(Guid id, CancellationToken ct)
     {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client)
+        {
+            var owning = await _agreements.GetByIdAsync(id, ct);
+            if (owning is null || owning.ClientId != callerId)
+                return NotFound();
+        }
+
         var file = await _agreements.DownloadScannedFileAsync(id, ct);
         return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
@@ -207,9 +249,16 @@ public class ClientTrainingsController : ControllerBase
     private readonly IAgreementService _agreements;
     public ClientTrainingsController(IAgreementService agreements) => _agreements = agreements;
 
+    /// <summary>A client may only list their own trainings; any employee may list any client's.</summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AgreementTrainingDto>>> GetForClient(Guid clientId, CancellationToken ct) =>
-        Ok(await _agreements.GetTrainingsForClientAsync(clientId, ct));
+    public async Task<ActionResult<IReadOnlyList<AgreementTrainingDto>>> GetForClient(Guid clientId, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _agreements.GetTrainingsForClientAsync(clientId, ct));
+    }
 
     /// <summary>Adds a new, empty training row for the client — filled in and saved independently via PUT.</summary>
     [HttpPost]
@@ -267,10 +316,14 @@ public class ClientTrainingsController : ControllerBase
         }
     }
 
-    /// <summary>Streams a training row's scan back to the caller with its original content type.</summary>
+    /// <summary>Streams a training row's scan back to the caller with its original content type. A client may only download their own training's scan.</summary>
     [HttpGet("{trainingId:guid}/scan")]
     public async Task<IActionResult> DownloadTrainingScan(Guid clientId, Guid trainingId, CancellationToken ct)
     {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return NotFound();
+
         var file = await _agreements.DownloadTrainingScanAsync(clientId, trainingId, ct);
         return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
@@ -308,25 +361,60 @@ public class TimeLogsController : ControllerBase
     private readonly ITimeLogService _timeLogs;
     public TimeLogsController(ITimeLogService timeLogs) => _timeLogs = timeLogs;
 
+    /// <summary>
+    /// Resolves the effective employeeId filter for a non-admin caller: a
+    /// non-admin may only ever see their own logs, regardless of what (if
+    /// anything) they passed in the query string — an omitted or
+    /// someone-else's employeeId is silently narrowed to the caller's own
+    /// id rather than rejected, since the frontend never intentionally
+    /// omits it for a non-admin (see time-tracking.component.ts) and this
+    /// keeps a stray/old request from a non-admin from ever exposing
+    /// another employee's clock-in/out history.
+    /// </summary>
+    private Guid? EffectiveEmployeeFilter(Guid? requested)
+    {
+        if (User.IsInRole(nameof(EmployeeRole.Admin)))
+            return requested;
+
+        var (_, callerId) = CallerIdentity.Resolve(User);
+        return callerId;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<TimeLogDto>>> GetAll([FromQuery] Guid? employeeId, CancellationToken ct) =>
-        Ok(await _timeLogs.GetAllAsync(employeeId, ct));
+        Ok(await _timeLogs.GetAllAsync(EffectiveEmployeeFilter(employeeId), ct));
 
     /// <summary>Paged time log listing for the Time Tracking table (query: employeeId, page, pageSize).</summary>
     [HttpGet("paged")]
     public async Task<ActionResult<PagedResult<TimeLogDto>>> GetAllPaged([FromQuery] Guid? employeeId, [FromQuery] PaginationQuery query, CancellationToken ct) =>
-        Ok(await _timeLogs.GetAllPagedAsync(employeeId, query, ct));
+        Ok(await _timeLogs.GetAllPagedAsync(EffectiveEmployeeFilter(employeeId), query, ct));
 
+    /// <summary>A non-admin employee may only clock themselves in.</summary>
     [HttpPost("{employeeId:guid}/clock-in")]
     public async Task<IActionResult> ClockIn(Guid employeeId, CancellationToken ct)
     {
+        if (!User.IsInRole(nameof(EmployeeRole.Admin)))
+        {
+            var (_, callerId) = CallerIdentity.Resolve(User);
+            if (callerId != employeeId)
+                return this.ForbidOwnership();
+        }
+
         await _timeLogs.ClockInAsync(employeeId, ct);
         return NoContent();
     }
 
+    /// <summary>A non-admin employee may only clock themselves out.</summary>
     [HttpPost("{employeeId:guid}/clock-out")]
     public async Task<IActionResult> ClockOut(Guid employeeId, CancellationToken ct)
     {
+        if (!User.IsInRole(nameof(EmployeeRole.Admin)))
+        {
+            var (_, callerId) = CallerIdentity.Resolve(User);
+            if (callerId != employeeId)
+                return this.ForbidOwnership();
+        }
+
         await _timeLogs.ClockOutAsync(employeeId, ct);
         return NoContent();
     }
@@ -340,21 +428,57 @@ public class NotificationsController : ControllerBase
     private readonly INotificationService _notifications;
     public NotificationsController(INotificationService notifications) => _notifications = notifications;
 
+    /// <summary>
+    /// Verifies the caller may see notifications addressed to
+    /// (recipientType, recipientId): Employee/Client notifications must be
+    /// addressed to the caller's own account id; Admin (broadcast, e.g.
+    /// "ALL_ADMIN") notifications are visible to any Admin. Without this,
+    /// any authenticated user could read or mark-read another account's
+    /// notifications just by passing a different recipientId.
+    /// </summary>
+    private bool CallerOwnsRecipient(NotificationRecipientType recipientType, string recipientId)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+
+        if (recipientType == NotificationRecipientType.Admin)
+            return User.IsInRole(nameof(EmployeeRole.Admin));
+
+        if (recipientType == NotificationRecipientType.Employee)
+            return callerType == SessionAccountType.Employee && callerId.ToString() == recipientId;
+
+        if (recipientType == NotificationRecipientType.Client)
+            return callerType == SessionAccountType.Client && callerId.ToString() == recipientId;
+
+        return false;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<NotificationDto>>> GetForRecipient(
-        [FromQuery] NotificationRecipientType recipientType, [FromQuery] string recipientId, CancellationToken ct) =>
-        Ok(await _notifications.GetForRecipientAsync(recipientType, recipientId, ct));
+        [FromQuery] NotificationRecipientType recipientType, [FromQuery] string recipientId, CancellationToken ct)
+    {
+        if (!CallerOwnsRecipient(recipientType, recipientId))
+            return this.ForbidOwnership();
 
+        return Ok(await _notifications.GetForRecipientAsync(recipientType, recipientId, ct));
+    }
+
+    /// <summary>A caller may only mark their own notification read (Admins may mark any Admin-broadcast notification read).</summary>
     [HttpPost("{id:guid}/read")]
     public async Task<IActionResult> MarkRead(Guid id, CancellationToken ct)
     {
-        await _notifications.MarkReadAsync(id, ct);
-        return NoContent();
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        var isAdmin = User.IsInRole(nameof(EmployeeRole.Admin));
+
+        var ok = await _notifications.MarkReadAsync(id, callerType, callerId, isAdmin, ct);
+        return ok ? NoContent() : NotFound();
     }
 
     [HttpPost("mark-all-read")]
     public async Task<IActionResult> MarkAllRead([FromQuery] NotificationRecipientType recipientType, [FromQuery] string recipientId, CancellationToken ct)
     {
+        if (!CallerOwnsRecipient(recipientType, recipientId))
+            return this.ForbidOwnership();
+
         await _notifications.MarkAllReadAsync(recipientType, recipientId, ct);
         return NoContent();
     }
@@ -450,18 +574,35 @@ public class SatisfactionSurveysController : ControllerBase
     public async Task<ActionResult<PagedResult<SatisfactionSurveyDto>>> GetAllPaged([FromQuery] PaginationQuery query, CancellationToken ct) =>
         Ok(await _surveys.GetAllPagedAsync(query, ct));
 
+    /// <summary>A client may only view their own ticket's survey; any employee may view any ticket's survey.</summary>
     [HttpGet("ticket/{ticketId:guid}")]
     public async Task<ActionResult<SatisfactionSurveyDto>> GetForTicket(Guid ticketId, CancellationToken ct)
     {
         var survey = await _surveys.GetForTicketAsync(ticketId, ct);
-        return survey is null ? NotFound() : Ok(survey);
+        if (survey is null) return NotFound();
+
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != survey.ClientId)
+            return NotFound();
+
+        return Ok(survey);
     }
 
+    /// <summary>
+    /// The client identity always comes from the caller's own JWT (see
+    /// CallerIdentity), never from request.ClientId — same reasoning as
+    /// TicketsController.Submit: without this override, any authenticated
+    /// client could submit a survey response under a different client's
+    /// identity by editing the request body.
+    /// </summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AnyClient)]
     public async Task<ActionResult<SatisfactionSurveyDto>> Submit([FromBody] SubmitSatisfactionSurveyRequest request, CancellationToken ct)
     {
-        try { return Ok(await _surveys.SubmitAsync(request, ct)); }
+        var (_, callerId) = CallerIdentity.Resolve(User);
+        var effectiveRequest = request with { ClientId = callerId };
+
+        try { return Ok(await _surveys.SubmitAsync(effectiveRequest, ct)); }
         catch (ArgumentOutOfRangeException ex) { return BadRequest(ex.Message); }
     }
 }
