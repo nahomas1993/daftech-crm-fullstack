@@ -12,7 +12,7 @@ import { AuthService } from '../services/auth.service';
 let refreshInProgress = false;
 const refreshCompleted$ = new BehaviorSubject<boolean>(true);
 
-const AUTH_ENDPOINTS = ['/auth/employee-login', '/auth/client-login', '/auth/refresh'];
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/employee-login', '/auth/client-login', '/auth/refresh'];
 
 /** Set by the backend (see CallerIdentity.OwnershipForbiddenHeader) on a
  * 403 that's a genuine "you're authenticated, but not allowed to touch
