@@ -129,7 +129,17 @@ export class AuthService {
         success: boolean; message?: string; accountType: 'Employee' | 'Client' | null;
         employee: Employee | null; client: Client | null;
         mustChangePassword: boolean; tokens: AuthTokenResultDto | null;
-      }>(`${API_BASE_URL}/auth/login`, { username, password, deviceType, deviceIdentifier })
+      }>(`${API_BASE_URL}/auth/login`, { username, password, deviceType, deviceIdentifier }).pipe(
+        // Without this, a request that never reaches the server (network
+        // failure, the /api/ proxy failing to resolve/reach the backend,
+        // a non-JSON error body, etc.) surfaces here as a raw HttpErrorResponse
+        // rather than a clean Error — which some paths upstream then try to
+        // read .success off, producing "Cannot read properties of null
+        // (reading 'success')" instead of a useful message. Normalize it to
+        // an Error with a real message so callers' catch blocks (see
+        // LoginComponent.attempt()) always get something sane to display.
+        catchError((err) => throwError(() => new Error(err?.error?.message ?? 'Could not reach the server.')))
+      )
     );
 
     if (result.success && result.accountType === 'Employee' && result.employee) {
