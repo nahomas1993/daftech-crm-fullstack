@@ -236,14 +236,17 @@ export class TicketService {
 
         if (err?.status !== 409 || attempt === maxAttempts) break;
 
-        await this.refreshAll();
-
-        // The intent may already be satisfied by whoever won the race — that
-        // is a success, so stop and never show a conflict message.
-        if (this.hasReached(ticketId, status)) {
+        // Authoritative check: ask the server for THIS ticket instead of
+        // hunting for it in a cached/paged/filtered list. A resolved ticket
+        // usually leaves the technician's open-ticket page entirely, and the
+        // old list lookup then reported "not found" -> "changed by another
+        // user" for an update that had actually succeeded.
+        if (await this.serverHasReached(ticketId, status)) {
           lastError = null;
           break;
         }
+
+        await this.refreshAll();
       }
     }
 
@@ -252,12 +255,46 @@ export class TicketService {
     await this.refreshAll();
 
     if (lastError) {
-      // Final safety net: if the change actually landed server-side, the
-      // update succeeded and no error must be shown.
-      if (this.hasReached(ticketId, status)) return;
+      // Final safety net: re-read the single ticket from the API. Only a
+      // fresh read that still shows a different status counts as a real
+      // conflict; anything else is treated as success so a landed update can
+      // never surface a red error.
+      if (await this.serverHasReached(ticketId, status)) return;
 
       throw new Error(TicketService.describeStatusUpdateError(lastError));
     }
+  }
+
+  /**
+   * Reads one ticket straight from the API (never from a cached list).
+   * Returns null when the read itself fails, so callers can tell
+   * "definitely not there yet" from "couldn't check".
+   */
+  private async fetchOne(ticketId: string): Promise<Ticket | null> {
+    try {
+      return await firstValueFrom(
+        this.http.get<Ticket>(`${API_BASE_URL}/tickets/${ticketId}`)
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** True when the server's own copy of the ticket already reflects the requested change. */
+  private async serverHasReached(
+    ticketId: string,
+    status: TicketStatus
+  ): Promise<boolean> {
+    const fresh = await this.fetchOne(ticketId);
+    if (!fresh) return false;
+
+    if (status === 'Resolved') {
+      return fresh.status === 'AwaitingClientConfirmation'
+        || fresh.status === 'Closed'
+        || fresh.status === 'Escalated';
+    }
+
+    return fresh.status === status;
   }
 
   private async refreshAll(): Promise<void> {
@@ -265,27 +302,6 @@ export class TicketService {
       this.refresh(),
       this.refreshPaged()
     ]);
-  }
-
-  /**
-   * True when the freshly loaded ticket already reflects the requested
-   * change. "Resolved" is special: the server does not store Resolved — it
-   * moves the ticket to AwaitingClientConfirmation and starts the client
-   * confirmation window, so anything at or beyond that point counts as done.
-   */
-  private hasReached(ticketId: string, status: TicketStatus): boolean {
-    const current = this._tickets().find(t => t.id === ticketId)
-      ?? this._pagedTickets().find(t => t.id === ticketId);
-
-    if (!current) return false;
-
-    if (status === 'Resolved') {
-      return current.status === 'AwaitingClientConfirmation'
-        || current.status === 'Closed'
-        || current.status === 'Escalated';
-    }
-
-    return current.status === status;
   }
 
   private async patchStatus(
@@ -316,7 +332,7 @@ export class TicketService {
   private static describeStatusUpdateError(err: any): string {
     switch (err?.status) {
       case 409:
-        return 'This ticket was changed by another user. The list has been refreshed — please try again.';
+        return 'Could not save this change right now — the list has been refreshed, please try again.';
       case 404:
         return 'Ticket not found. It may have been removed.';
       case 403:

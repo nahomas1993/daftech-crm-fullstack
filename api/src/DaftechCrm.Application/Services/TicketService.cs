@@ -317,6 +317,19 @@ public class TicketService : ITicketService
                         attempt,
                         ticketId);
 
+                    // Last word goes to the database, not to the failed
+                    // write: if the ticket already sits at the status we
+                    // wanted, the intent is satisfied and this is a success.
+                    // Only a row that genuinely still differs is a conflict.
+                    var authoritative = await _db.Tickets
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(t => t.Id == ticketId, ct);
+
+                    if (authoritative is not null && authoritative.Status == targetStatus)
+                    {
+                        return await LoadDtoAsync(ticketId, ct);
+                    }
+
                     throw new ConcurrencyConflictException(
                         "This ticket was just updated by someone else — refresh the page and try again.");
                 }
