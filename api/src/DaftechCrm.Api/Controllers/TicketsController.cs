@@ -18,8 +18,16 @@ public class TicketsController : ControllerBase
     public TicketsController(ITicketService tickets)
         => _tickets = tickets;
 
+    /// <summary>
+    /// Unscoped full ticket dump — Admin-only. Non-admin technicians must
+    /// use GetAllPaged, which scopes results to their own assigned
+    /// tickets from the caller's JWT. This endpoint previously had no
+    /// role restriction beyond "any employee," which meant any
+    /// technician's browser could pull every ticket in the system
+    /// (including other technicians' and Admin-only tickets) into memory.
+    /// </summary>
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<IReadOnlyList<TicketDto>>> GetAll(
         CancellationToken ct) =>
         Ok(await _tickets.GetAllAsync(ct));

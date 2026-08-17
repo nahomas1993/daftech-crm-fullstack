@@ -38,6 +38,14 @@ export class TicketService {
   }
 
   async refresh(): Promise<void> {
+    // GET /api/tickets is Admin-only (it returns every ticket in the
+    // system, unscoped) — non-admin technicians must rely solely on
+    // refreshPaged(), which the backend scopes to their own assigned
+    // tickets. Skipping the call here (rather than letting it 403) keeps
+    // _tickets() simply empty for non-admins instead of surfacing an
+    // error for a call they were never meant to make.
+    if (!this.auth.currentEmployee()?.roles.includes('Admin')) return;
+
     const list = await firstValueFrom(
       this.http.get<Ticket[]>(`${API_BASE_URL}/tickets`)
     );
@@ -94,8 +102,13 @@ export class TicketService {
   }
 
   forEmployee(employeeId: string): Ticket[] {
-    return this._tickets()
-      .filter(t => t.assignedEmployeeId === employeeId);
+    // _tickets() is Admin-only data (see refresh()) and is empty for
+    // non-admins — fall back to pagedTickets(), which for a non-admin
+    // caller is already server-scoped to their own assigned tickets, so
+    // this still returns the right set for e.g. a technician's own
+    // dashboard tiles.
+    const source = this._tickets().length > 0 ? this._tickets() : this._pagedTickets();
+    return source.filter(t => t.assignedEmployeeId === employeeId);
   }
 
   awaitingConfirmationForClient(clientId: string): Ticket[] {
