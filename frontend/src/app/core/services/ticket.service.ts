@@ -205,23 +205,48 @@ export class TicketService {
     actorName: string
   ): Promise<void> {
     try {
-      await firstValueFrom(
-        this.http.patch<Ticket>(
-          `${API_BASE_URL}/tickets/${ticketId}/status`,
-          {
-            status,
-            actorName
-          }
-        )
-      );
+      await this.patchStatus(ticketId, status, actorName);
     } catch (err: any) {
-      throw new Error(TicketService.describeStatusUpdateError(err));
+      // A 409 means the server saw the row change between its read and its
+      // write. That is recoverable: pull fresh data and send the change once
+      // more before bothering the technician with an error. The backend's
+      // resolve path is idempotent, so a retry can never double-apply.
+      if (err?.status === 409) {
+        await Promise.all([
+          this.refresh(),
+          this.refreshPaged()
+        ]);
+
+        try {
+          await this.patchStatus(ticketId, status, actorName);
+        } catch (retryErr: any) {
+          throw new Error(TicketService.describeStatusUpdateError(retryErr));
+        }
+      } else {
+        throw new Error(TicketService.describeStatusUpdateError(err));
+      }
     }
 
     await Promise.all([
       this.refresh(),
       this.refreshPaged()
     ]);
+  }
+
+  private async patchStatus(
+    ticketId: string,
+    status: TicketStatus,
+    actorName: string
+  ): Promise<void> {
+    await firstValueFrom(
+      this.http.patch<Ticket>(
+        `${API_BASE_URL}/tickets/${ticketId}/status`,
+        {
+          status,
+          actorName
+        }
+      )
+    );
   }
 
   /**
@@ -237,7 +262,7 @@ export class TicketService {
   private static describeStatusUpdateError(err: any): string {
     switch (err?.status) {
       case 409:
-        return 'This ticket was changed by another user. Please refresh.';
+        return 'This ticket was changed by another user. The list has been refreshed — please try again.';
       case 404:
         return 'Ticket not found. It may have been removed.';
       case 403:

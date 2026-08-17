@@ -118,13 +118,24 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.HasIndex(x => x.Status);
         b.HasIndex(x => x.ClientConfirmationDeadline);
 
-        // Optimistic concurrency: use Postgres's built-in xmin system column
-        // (updated by Postgres on every row write) as the EF Core concurrency
-        // token instead of a hand-rolled version column. This needs no new
-        // column/migration DDL and gives a real, accurate conflict signal —
-        // SaveChanges now throws DbUpdateConcurrencyException only when the
-        // row was genuinely modified by someone else since it was read.
-        b.UseXminAsConcurrencyToken();
+        // NOTE: Ticket previously used Postgres's xmin system column as an EF
+        // Core concurrency token (b.UseXminAsConcurrencyToken()). That is
+        // deliberately removed.
+        //
+        // A ticket is owned by exactly one assigned technician, and the only
+        // writers are (a) that technician's status update, (b) the client's
+        // confirmation, (c) the auto-close sweep. None of these need
+        // last-write-detection, but the xmin token made every UPDATE a
+        // conditional "... AND xmin = @token" write: any row touched between
+        // the read and the save (background sweep tick, a second browser tab,
+        // a poll-triggered refresh, a connection served a slightly different
+        // snapshot) turned into DbUpdateConcurrencyException -> HTTP 409, which
+        // surfaced in the technician UI as "This ticket was changed by another
+        // user. Please refresh." and made "Resolved" impossible to save.
+        //
+        // Status transitions are validated server-side against the caller's
+        // identity and the ticket's current state, so a plain update-by-id is
+        // both safe and reliable here.
     }
 }
 

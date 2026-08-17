@@ -165,21 +165,25 @@ public class TicketService : ITicketService
     }
 
     /// <summary>
-    /// Loads and updates the ticket's status with a single, reliable
-    /// write: find by ID (404 if missing), verify the caller is actually
-    /// the technician assigned to the ticket (Admins may update any
-    /// ticket), apply the status change, save once, then notify.
+    /// Applies a technician's status change to a ticket.
     ///
-    /// Ticket.xmin IS configured as a genuine EF Core concurrency token
-    /// (see TicketConfiguration.UseXminAsConcurrencyToken) — that part of
-    /// the previous implementation was correct and is left in place, not
-    /// removed. What's removed is the surrounding retry/detach/DB-snapshot
-    /// logic: on a real conflict we now just report it plainly (409) with
-    /// a single log line, no blind retry and no reinterpretation of a
-    /// missing row as a conflict or vice versa. The bug reported as
-    /// "ticket not found" during a normal single-technician update was not
-    /// actually a concurrency false-positive — it was the frontend calling
-    /// a stale backend URL entirely (see environment.production.ts).
+    /// Flow: find by ID (404 if missing), verify the caller is the assigned
+    /// technician (Admins may update any ticket), apply the change, save,
+    /// then notify.
+    ///
+    /// Two things that used to break "Resolved" are handled here:
+    ///
+    /// 1. Ticket no longer carries an xmin concurrency token (see
+    ///    TicketConfiguration), so the UPDATE is a plain update-by-id and can
+    ///    no longer fail as a phantom 409 just because the row was touched
+    ///    between the read and the save. Should any concurrency exception
+    ///    still surface (e.g. another writer deleted the row), we reload once
+    ///    and retry rather than dumping "changed by another user" on the
+    ///    technician.
+    /// 2. The move to Resolved is idempotent: if the ticket is already
+    ///    AwaitingClientConfirmation (or beyond), the call succeeds and simply
+    ///    returns the current ticket instead of erroring, so a retry after a
+    ///    flaky response never leaves the UI stuck on a red message.
     /// </summary>
     public async Task<TicketDto> UpdateStatusAsync(
         Guid ticketId,
@@ -209,87 +213,155 @@ public class TicketService : ITicketService
             }
         }
 
+        var wantsResolved = request.Status == TicketStatus.Resolved;
+
+        // Idempotent no-op: the resolve already landed (possibly on a previous
+        // attempt whose response the browser never saw). Report success.
+        if (wantsResolved &&
+            (ticket.Status == TicketStatus.AwaitingClientConfirmation ||
+             ticket.Status == TicketStatus.Closed ||
+             ticket.Status == TicketStatus.Escalated))
+        {
+            return await LoadDtoAsync(ticket.Id, ct);
+        }
+
+        if (!wantsResolved && ticket.Status == request.Status)
+        {
+            return await LoadDtoAsync(ticket.Id, ct);
+        }
+
+        var notifyClientOfResolution = false;
+
+        if (wantsResolved)
+        {
+            ticket.Status = TicketStatus.AwaitingClientConfirmation;
+            ticket.ResolvedAt = DateTimeOffset.UtcNow;
+
+            // A missing/zero/garbage setting used to produce a deadline of
+            // "right now", which the 15-minute auto-close sweep then closed
+            // immediately — the client never got a chance to confirm. Fall
+            // back to the documented 5-day window instead.
+            var confirmationWindowDays =
+                await _config.GetIntAsync(
+                    "TicketWorkflow.ClientConfirmationWindowDays",
+                    ct);
+
+            if (confirmationWindowDays <= 0)
+            {
+                _logger.LogWarning(
+                    "TicketWorkflow.ClientConfirmationWindowDays resolved to {Days}; falling back to 5 days.",
+                    confirmationWindowDays);
+
+                confirmationWindowDays = 5;
+            }
+
+            ticket.ClientConfirmationDeadline =
+                ticket.ResolvedAt.Value.AddDays(confirmationWindowDays);
+
+            ticket.AuditTrail.Add(
+                new TicketAuditEntry
+                {
+                    TicketId = ticket.Id,
+                    Actor = request.ActorName,
+                    Action =
+                        $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {ticket.ClientConfirmationDeadline:u})"
+                });
+
+            notifyClientOfResolution = true;
+        }
+        else
+        {
+            ticket.Status = request.Status;
+
+            ticket.AuditTrail.Add(
+                new TicketAuditEntry
+                {
+                    TicketId = ticket.Id,
+                    Actor = request.ActorName,
+                    Action = $"Status changed to {request.Status}"
+                });
+        }
+
+        var targetStatus = ticket.Status;
+        var resolvedAt = ticket.ResolvedAt;
+        var deadline = ticket.ClientConfirmationDeadline;
+
         try
         {
-            if (request.Status == TicketStatus.Resolved)
-            {
-                ticket.Status =
-                    TicketStatus.AwaitingClientConfirmation;
-
-                ticket.ResolvedAt =
-                    DateTimeOffset.UtcNow;
-
-                var confirmationWindowDays =
-                    await _config.GetIntAsync(
-                        "TicketWorkflow.ClientConfirmationWindowDays",
-                        ct);
-
-                ticket.ClientConfirmationDeadline =
-                    ticket.ResolvedAt.Value.AddDays(
-                        confirmationWindowDays);
-
-                ticket.AuditTrail.Add(
-                    new TicketAuditEntry
-                    {
-                        TicketId = ticket.Id,
-                        Actor = request.ActorName,
-                        Action =
-                            $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {ticket.ClientConfirmationDeadline:u})"
-                    });
-
-                await _db.SaveChangesAsync(ct);
-
-                // The status change is already committed above — a failure here
-                // (e.g. notification write) must never surface as a failed status
-                // update, since from the caller's point of view the update already
-                // succeeded.
-                try
-                {
-                    await _notifications.NotifyAsync(
-                        NotificationRecipientType.Client,
-                        ticket.ClientId.ToString(),
-                        "awaiting_confirmation",
-                        $"Ticket {ticket.Id} has been marked resolved — please confirm it's working and rate your experience.",
-                        ct);
-                }
-                catch (Exception ex)
-                {
-                    // Swallow: the ticket status is already saved. Losing this
-                    // notification is not worth failing the whole request over.
-                    _logger.LogWarning(ex, "Failed to notify client for resolved ticket {TicketId}", ticket.Id);
-                }
-            }
-            else
-            {
-                ticket.Status = request.Status;
-
-                ticket.AuditTrail.Add(
-                    new TicketAuditEntry
-                    {
-                        TicketId = ticket.Id,
-                        Actor = request.ActorName,
-                        Action =
-                            $"Status changed to {request.Status}"
-                    });
-
-                await _db.SaveChangesAsync(ct);
-            }
+            await _db.SaveChangesAsync(ct);
         }
         catch (DbUpdateConcurrencyException ex)
         {
-            // Ticket.xmin is a real EF Core concurrency token (see
-            // TicketConfiguration.UseXminAsConcurrencyToken) — this row was
-            // genuinely written by someone else between our read and this
-            // save. No blind retry: silently re-applying this technician's
-            // status choice on top of another writer's change would
-            // overwrite it without them ever knowing.
             _logger.LogWarning(
                 ex,
-                "Concurrency conflict updating ticket {TicketId}",
+                "Concurrency exception updating ticket {TicketId}; reloading and retrying once.",
                 ticketId);
 
-            throw new ConcurrencyConflictException(
-                "This ticket was just updated by someone else — refresh the page and try again.");
+            _db.Detach(ticket);
+
+            var fresh = await _db.Tickets
+                .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+                ?? throw new TicketNotFoundException(ticketId);
+
+            // Someone else already put it where we wanted it — nothing to do.
+            if (fresh.Status == targetStatus)
+            {
+                return await LoadDtoAsync(fresh.Id, ct);
+            }
+
+            fresh.Status = targetStatus;
+
+            if (wantsResolved)
+            {
+                fresh.ResolvedAt = resolvedAt;
+                fresh.ClientConfirmationDeadline = deadline;
+            }
+
+            fresh.AuditTrail.Add(
+                new TicketAuditEntry
+                {
+                    TicketId = fresh.Id,
+                    Actor = request.ActorName,
+                    Action = wantsResolved
+                        ? $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {deadline:u})"
+                        : $"Status changed to {targetStatus}"
+                });
+
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException retryEx)
+            {
+                _logger.LogError(
+                    retryEx,
+                    "Concurrency conflict persisted on retry for ticket {TicketId}",
+                    ticketId);
+
+                throw new ConcurrencyConflictException(
+                    "This ticket was just updated by someone else — refresh the page and try again.");
+            }
+
+            ticket = fresh;
+        }
+
+        if (notifyClientOfResolution)
+        {
+            // The status change is already committed — a notification failure
+            // must never surface as a failed status update.
+            try
+            {
+                await _notifications.NotifyAsync(
+                    NotificationRecipientType.Client,
+                    ticket.ClientId.ToString(),
+                    "awaiting_confirmation",
+                    $"Ticket {ticket.Id} has been marked resolved — please confirm it's working and rate your experience.",
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify client for resolved ticket {TicketId}", ticket.Id);
+            }
         }
 
         return await LoadDtoAsync(ticket.Id, ct);

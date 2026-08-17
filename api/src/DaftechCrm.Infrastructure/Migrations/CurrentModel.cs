@@ -240,7 +240,6 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("Status").HasColumnType("integer");
                 b.Property<string>("VoiceNoteStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("VoiceNoteFileName").HasMaxLength(300).HasColumnType("character varying(300)");
-                b.Property<uint>("xmin").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("xid");
                 b.HasKey("Id");
                 b.HasIndex("AgreementId");
                 b.HasIndex("AssignedEmployeeId");
