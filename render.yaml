@@ -10,6 +10,15 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      # CORS — the frontend now calls this API cross-origin (absolute URL in
+      # frontend/src/environments/environment.production.ts), so the real
+      # frontend origin(s) MUST be listed here. Add another indexed key
+      # (Cors__AllowedOrigins__2, ...) for a custom domain such as
+      # https://crm.daftech.et.
+      - key: Cors__AllowedOrigins__0
+        value: https://daftech-crm-frontend.onrender.com
+      - key: Cors__AllowedOrigins__1
+        value: https://daftech-crm.onrender.com
 
   # ---------- Frontend (Angular via Docker + Nginx) ----------
   # nginx.conf already handles the SPA fallback (try_files ... /index.html)

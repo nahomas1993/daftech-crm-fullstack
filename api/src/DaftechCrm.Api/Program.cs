@@ -142,29 +142,81 @@ builder.Services.AddAuthorization(options => options.AddDaftechPolicies());
 // makes it loudly obvious in the logs if that env var was forgotten,
 // instead of the app silently starting up with CORS pointed at localhost.
 var devDefaultOrigin = "http://localhost:4200";
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { devDefaultOrigin };
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? Array.Empty<string>();
 
-if (builder.Environment.IsProduction() &&
-    allowedOrigins.Length == 1 &&
-    allowedOrigins[0] == devDefaultOrigin)
+// Production fallback: the deployed frontend calls this API cross-origin
+// (absolute apiBaseUrl in frontend/src/environments/environment.production.ts),
+// so falling through to the localhost:4200 dev default would block every real
+// login with a CORS error that looks, in the browser, exactly like "could not
+// reach the server". A forgotten Cors__AllowedOrigins__0 env var must not be
+// able to take production down: fall back to the known deployed frontend
+// origins instead of localhost. Setting the env var still overrides this
+// (e.g. for a custom domain like https://crm.daftech.et).
+var productionFallbackOrigins = new[]
 {
-    // Intentionally a startup-time Console write, not ILogger — this runs
-    // before the DI-built logging pipeline exists, and it needs to be
-    // impossible to miss (e.g. by grepping Render's boot logs), not
-    // filtered out by a log-level configuration.
+    "https://daftech-crm-frontend.onrender.com",
+    "https://daftech-crm.onrender.com"
+};
+
+var effectiveConfigured = configuredOrigins
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .Select(o => o.TrimEnd('/'))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
+var isDevDefaultOnly = effectiveConfigured.Length == 0 ||
+    (effectiveConfigured.Length == 1 &&
+     string.Equals(effectiveConfigured[0], devDefaultOrigin, StringComparison.OrdinalIgnoreCase));
+
+string[] allowedOrigins;
+if (builder.Environment.IsProduction() && isDevDefaultOnly)
+{
+    allowedOrigins = productionFallbackOrigins;
     Console.Error.WriteLine(
-        "WARNING: Running in Production with CORS still on its localhost:4200 " +
-        "development default. Set the Cors__AllowedOrigins__0 environment variable " +
-        "on this service to the real deployed frontend origin, or every browser " +
-        "request from the real frontend will be blocked by CORS.");
+        "WARNING: Cors__AllowedOrigins__0 is not set on this service; falling back to the " +
+        "known deployed frontend origins (" + string.Join(", ", productionFallbackOrigins) + "). " +
+        "Set Cors__AllowedOrigins__0 explicitly to the real frontend origin (including any " +
+        "custom domain) so browser requests are not blocked by CORS.");
 }
+else
+{
+    allowedOrigins = effectiveConfigured.Length > 0 ? effectiveConfigured : new[] { devDefaultOrigin };
+}
+
+var isProductionEnvironment = builder.Environment.IsProduction();
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicy, policy =>
     {
-        policy.WithOrigins(allowedOrigins)
+        // SetIsOriginAllowed rather than a plain WithOrigins list: besides the
+        // explicitly configured origins, any *.onrender.com origin is accepted
+        // in Production. The frontend is Render-hosted and its subdomain has
+        // changed across redeploys/recreations, and a stale or mistyped
+        // Cors__AllowedOrigins__0 makes the browser drop the login response
+        // with no CORS header — which the UI can only report as "Could not
+        // reach the server", exactly the reported bug. No credentials/cookies
+        // are used (auth is a Bearer JWT), so this does not widen any
+        // cookie-based attack surface.
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  if (string.IsNullOrWhiteSpace(origin)) return false;
+
+                  var normalized = origin.TrimEnd('/');
+                  if (allowedOrigins.Any(o =>
+                          string.Equals(o.TrimEnd('/'), normalized, StringComparison.OrdinalIgnoreCase)))
+                  {
+                      return true;
+                  }
+
+                  if (!isProductionEnvironment) return false;
+
+                  return Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+                      && uri.Scheme == Uri.UriSchemeHttps
+                      && (uri.Host.EndsWith(".onrender.com", StringComparison.OrdinalIgnoreCase)
+                          || uri.Host.EndsWith(".daftech.et", StringComparison.OrdinalIgnoreCase));
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               // Response headers are NOT covered by AllowAnyHeader (that
