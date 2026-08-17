@@ -286,63 +286,85 @@ public class TicketService : ITicketService
         var resolvedAt = ticket.ResolvedAt;
         var deadline = ticket.ClientConfirmationDeadline;
 
-        try
+        var auditAction = wantsResolved
+            ? $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {deadline:u})"
+            : $"Status changed to {targetStatus}";
+
+        // Bounded reload-and-retry loop. Every attempt re-reads the row so the
+        // write is always applied on top of the LATEST ticket data, and any
+        // half-applied tracked state (the ticket plus the audit entry we just
+        // added) is detached first so a retry can never insert a duplicate
+        // audit row. Only if every attempt loses the race do we surface a
+        // conflict — a transient overlap with the auto-close sweep, a second
+        // tab, or a polling refresh resolves silently instead of showing the
+        // technician a red "changed by another user" message.
+        const int maxAttempts = 4;
+
+        for (var attempt = 1; ; attempt++)
         {
-            await _db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateConcurrencyException ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Concurrency exception updating ticket {TicketId}; reloading and retrying once.",
-                ticketId);
-
-            _db.Detach(ticket);
-
-            var fresh = await _db.Tickets
-                .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
-                ?? throw new TicketNotFoundException(ticketId);
-
-            // Someone else already put it where we wanted it — nothing to do.
-            if (fresh.Status == targetStatus)
-            {
-                return await LoadDtoAsync(fresh.Id, ct);
-            }
-
-            fresh.Status = targetStatus;
-
-            if (wantsResolved)
-            {
-                fresh.ResolvedAt = resolvedAt;
-                fresh.ClientConfirmationDeadline = deadline;
-            }
-
-            fresh.AuditTrail.Add(
-                new TicketAuditEntry
-                {
-                    TicketId = fresh.Id,
-                    Actor = request.ActorName,
-                    Action = wantsResolved
-                        ? $"Marked Resolved by {request.ActorName}; awaiting client confirmation (deadline {deadline:u})"
-                        : $"Status changed to {targetStatus}"
-                });
-
             try
             {
                 await _db.SaveChangesAsync(ct);
+                break;
             }
-            catch (DbUpdateConcurrencyException retryEx)
+            catch (DbUpdateConcurrencyException ex)
             {
-                _logger.LogError(
-                    retryEx,
-                    "Concurrency conflict persisted on retry for ticket {TicketId}",
-                    ticketId);
+                if (attempt >= maxAttempts)
+                {
+                    _logger.LogError(
+                        ex,
+                        "Concurrency conflict persisted after {Attempts} attempts for ticket {TicketId}",
+                        attempt,
+                        ticketId);
 
-                throw new ConcurrencyConflictException(
-                    "This ticket was just updated by someone else — refresh the page and try again.");
+                    throw new ConcurrencyConflictException(
+                        "This ticket was just updated by someone else — refresh the page and try again.");
+                }
+
+                _logger.LogWarning(
+                    ex,
+                    "Concurrency exception updating ticket {TicketId} (attempt {Attempt}); reloading latest data and retrying.",
+                    ticketId,
+                    attempt);
+
+                // Drop the stale tracked graph: the ticket AND the audit entry
+                // queued against it, so the retry starts from a clean slate.
+                foreach (var pending in ticket.AuditTrail.ToList())
+                {
+                    _db.Detach(pending);
+                }
+
+                _db.Detach(ticket);
+
+                var fresh = await _db.Tickets
+                    .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+                    ?? throw new TicketNotFoundException(ticketId);
+
+                // Someone else already put it where we wanted it — the intent
+                // is satisfied, so this is a success, not a conflict.
+                if (fresh.Status == targetStatus)
+                {
+                    return await LoadDtoAsync(fresh.Id, ct);
+                }
+
+                fresh.Status = targetStatus;
+
+                if (wantsResolved)
+                {
+                    fresh.ResolvedAt = resolvedAt;
+                    fresh.ClientConfirmationDeadline = deadline;
+                }
+
+                fresh.AuditTrail.Add(
+                    new TicketAuditEntry
+                    {
+                        TicketId = fresh.Id,
+                        Actor = request.ActorName,
+                        Action = auditAction
+                    });
+
+                ticket = fresh;
             }
-
-            ticket = fresh;
         }
 
         if (notifyClientOfResolution)

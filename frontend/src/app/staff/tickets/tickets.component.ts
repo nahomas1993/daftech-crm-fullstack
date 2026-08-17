@@ -133,7 +133,7 @@ const REFRESH_INTERVAL_MS = 20_000;
   `,
   styles: [`
     .status-error { color: var(--red); font-size: 0.76rem; margin: 0.35rem 0 0; }
-    .status-success { color: var(--blue); font-size: 0.76rem; margin: 0.35rem 0 0; }
+    .status-success { color: #0f7b3d; background: rgba(16, 145, 74, 0.1); border: 1px solid rgba(16, 145, 74, 0.28); border-radius: 6px; font-size: 0.78rem; line-height: 1.35; font-weight: 600; margin: 0.4rem 0 0; padding: 0.35rem 0.5rem; }
     .row-faded { opacity: 0.45; filter: grayscale(35%); }
     .row-faded:hover { opacity: 0.75; filter: none; }
     /* Resolved tickets recede visually so a piled-up queue reads as "handled" at a glance — blur clears on hover/focus so the row is still fully readable when needed (e.g. re-checking details). */
@@ -254,14 +254,16 @@ export class TicketsComponent implements OnInit, OnDestroy {
       this.selectedStatus.set(next);
 
       // Marking "Resolved" doesn't set the ticket to a Resolved status — the server
-      // moves it to AwaitingClientConfirmation and starts the confirmation window.
-      // Without this message the row just looks unchanged, so we spell out what happened.
-      if (status === 'Resolved') {
-        this.statusSuccess.set({
-          ticketId,
-          message: 'Marked resolved — waiting on client confirmation.',
-        });
-      }
+      // moves it to AwaitingClientConfirmation, notifies the client and starts the
+      // confirmation window. Spell that out so the technician knows what happened next.
+      this.statusSuccess.set({
+        ticketId,
+        message:
+          status === 'Resolved'
+            ? '✓ Sent to the client for confirmation — the client has been notified and must confirm the work is done.'
+            : `✓ Ticket updated to ${status}.`,
+      });
+
     } catch (err: any) {
       // TicketService.updateStatus() already maps the failure to a
       // user-facing message by HTTP status code (409/404/500) and throws

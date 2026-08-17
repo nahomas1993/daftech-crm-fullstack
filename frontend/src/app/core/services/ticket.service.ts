@@ -204,33 +204,75 @@ export class TicketService {
     status: TicketStatus,
     actorName: string
   ): Promise<void> {
-    try {
-      await this.patchStatus(ticketId, status, actorName);
-    } catch (err: any) {
-      // A 409 means the server saw the row change between its read and its
-      // write. That is recoverable: pull fresh data and send the change once
-      // more before bothering the technician with an error. The backend's
-      // resolve path is idempotent, so a retry can never double-apply.
-      if (err?.status === 409) {
-        await Promise.all([
-          this.refresh(),
-          this.refreshPaged()
-        ]);
+    // Send the change against the latest server state, and retry a couple of
+    // times on 409 before ever showing an error. A 409 only means "the row
+    // moved between the server's read and its write" — it is recoverable and
+    // the backend's resolve path is idempotent, so retrying can never
+    // double-apply. Between attempts we reload the list so the next PATCH is
+    // built from fresh ticket data.
+    const maxAttempts = 3;
+    let lastError: any = null;
 
-        try {
-          await this.patchStatus(ticketId, status, actorName);
-        } catch (retryErr: any) {
-          throw new Error(TicketService.describeStatusUpdateError(retryErr));
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.patchStatus(ticketId, status, actorName);
+        lastError = null;
+        break;
+      } catch (err: any) {
+        lastError = err;
+
+        if (err?.status !== 409 || attempt === maxAttempts) break;
+
+        await this.refreshAll();
+
+        // The intent may already be satisfied by whoever won the race — that
+        // is a success, so stop and never show a conflict message.
+        if (this.hasReached(ticketId, status)) {
+          lastError = null;
+          break;
         }
-      } else {
-        throw new Error(TicketService.describeStatusUpdateError(err));
       }
     }
 
+    // Always resync from the server, whatever happened, so the list the
+    // technician sees (and any follow-up retry) reflects the latest data.
+    await this.refreshAll();
+
+    if (lastError) {
+      // Final safety net: if the change actually landed server-side, the
+      // update succeeded and no error must be shown.
+      if (this.hasReached(ticketId, status)) return;
+
+      throw new Error(TicketService.describeStatusUpdateError(lastError));
+    }
+  }
+
+  private async refreshAll(): Promise<void> {
     await Promise.all([
       this.refresh(),
       this.refreshPaged()
     ]);
+  }
+
+  /**
+   * True when the freshly loaded ticket already reflects the requested
+   * change. "Resolved" is special: the server does not store Resolved — it
+   * moves the ticket to AwaitingClientConfirmation and starts the client
+   * confirmation window, so anything at or beyond that point counts as done.
+   */
+  private hasReached(ticketId: string, status: TicketStatus): boolean {
+    const current = this._tickets().find(t => t.id === ticketId)
+      ?? this._pagedTickets().find(t => t.id === ticketId);
+
+    if (!current) return false;
+
+    if (status === 'Resolved') {
+      return current.status === 'AwaitingClientConfirmation'
+        || current.status === 'Closed'
+        || current.status === 'Escalated';
+    }
+
+    return current.status === status;
   }
 
   private async patchStatus(
@@ -252,12 +294,11 @@ export class TicketService {
   /**
    * Maps a failed status-update request to a user-facing message by HTTP
    * status code, not by echoing whatever text the server happened to send.
-   * A 409 is always a genuine concurrency conflict (the ticket's xmin
-   * token changed since it was read — see TicketService.UpdateStatusAsync
-   * on the backend); a 404 always means the ticket no longer exists; a 403
-   * means the caller isn't the technician assigned to this ticket; a 500
-   * (or anything else unexpected) is a generic server error. This keeps
-   * the concurrency message from ever appearing for an unrelated failure.
+   * This is only ever reached after every retry lost the race AND a fresh
+   * read confirmed the change did not land (see updateStatus), so the
+   * conflict wording can never appear for a successful update or for an
+   * unrelated failure. 404 means the ticket no longer exists; 403 means the
+   * caller isn't the assigned technician; anything else is a server error.
    */
   private static describeStatusUpdateError(err: any): string {
     switch (err?.status) {
