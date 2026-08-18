@@ -7,6 +7,7 @@ import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
+import { formatRemaining } from '../../portal/maintenance-history/maintenance-history.component';
 
 /** How often to re-pull the ticket list while this page is open, so a
  * change made elsewhere (another technician updating a ticket, an Admin
@@ -55,7 +56,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -79,6 +80,9 @@ const REFRESH_INTERVAL_MS = 20_000;
                 } @else {
                   —
                 }
+              </td>
+              <td style="font-size:0.8rem;" [class.sla-overdue]="isOverdue(t)" [class.sla-soon]="isDueSoon(t)">
+                {{ countdownLabel(t) }}
               </td>
               <td class="text-muted">{{ t.satisfactionScore != null ? t.satisfactionScore + '/100' : '—' }}</td>
               <td>
@@ -110,7 +114,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="11" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -142,6 +146,9 @@ const REFRESH_INTERVAL_MS = 20_000;
     /* In-progress tickets stand out as active work still needing attention. */
     .row-in-progress { font-weight: 700; }
     .row-in-progress td { color: var(--navy-900); }
+    /* SLA countdown emphasis: red once the expected resolution time has run out, amber in the final hour. */
+    .sla-overdue { color: var(--red, #b3261e); font-weight: 700; }
+    .sla-soon { color: #b06a00; font-weight: 700; }
   `],
 })
 export class TicketsComponent implements OnInit, OnDestroy {
@@ -155,10 +162,12 @@ export class TicketsComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
+    this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
 
   ngOnDestroy() {
     if (this.pollHandle) clearInterval(this.pollHandle);
+    if (this.tickHandle) clearInterval(this.tickHandle);
   }
 
   private refreshTickets() {
@@ -210,6 +219,44 @@ export class TicketsComponent implements OnInit, OnDestroy {
    * presentational: the deadline itself is always the value the API
    * returned, never recalculated here.
    */
+  /** Ticks every second so the countdown below visibly runs down. */
+  nowTick = signal(Date.now());
+  private tickHandle: ReturnType<typeof setInterval> | undefined;
+
+  private remainingMs(t: { expectedResolutionBy?: string }): number | null {
+    this.nowTick();
+    if (!t.expectedResolutionBy) return null;
+    return new Date(t.expectedResolutionBy).getTime() - Date.now();
+  }
+
+  private isRunning(t: { status: TicketStatus }): boolean {
+    return ['Submitted', 'Assigned', 'InProgress'].includes(t.status);
+  }
+
+  /**
+   * Live SLA countdown for the assigned technician: starts the moment the
+   * ticket is assigned and runs against the deadline the server computed
+   * from the failure type the client chose (AssignedAt + the admin's
+   * expected resolution time). Stops once the work is handed back.
+   */
+  countdownLabel(t: { status: TicketStatus; expectedResolutionBy?: string; assignedAt?: string }): string {
+    const remaining = this.remainingMs(t);
+    if (remaining === null) return t.assignedAt ? '—' : 'Not started';
+    if (!this.isRunning(t)) return 'Stopped';
+    return remaining <= 0 ? 'Overdue' : formatRemaining(remaining);
+  }
+
+  isOverdue(t: { status: TicketStatus; expectedResolutionBy?: string }): boolean {
+    const remaining = this.remainingMs(t);
+    return remaining !== null && this.isRunning(t) && remaining <= 0;
+  }
+
+  /** Within the last hour before the deadline — visual warning for the technician. */
+  isDueSoon(t: { status: TicketStatus; expectedResolutionBy?: string }): boolean {
+    const remaining = this.remainingMs(t);
+    return remaining !== null && this.isRunning(t) && remaining > 0 && remaining <= 3_600_000;
+  }
+
   resolutionDeadlineLabel(expectedResolutionBy: string): string {
     const deadline = new Date(expectedResolutionBy);
     const now = new Date();

@@ -5,6 +5,7 @@ import { RouterLink, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
+import { FailureTypeService } from '../../core/services/failure-type.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TICKET_CATEGORY_LABELS, TicketCategory, TicketStatus } from '../../core/models';
@@ -45,6 +46,29 @@ const REFRESH_INTERVAL_MS = 20_000;
               <option value="Bug">Bug</option>
               <option value="Other">Other</option>
             </select>
+          </div>
+          <div class="field" style="margin-top:0.8rem;">
+            <label>Failure Type</label>
+            @if (failureTypes.types().length > 0) {
+              <select [ngModel]="failureTypeId()" (ngModelChange)="failureTypeId.set($event)">
+                <option value="">Not sure / other…</option>
+                @for (f of failureTypes.types(); track f.id) {
+                  <option [value]="f.id">{{ f.name }}</option>
+                }
+              </select>
+              @if (selectedFailureType(); as ft) {
+                <span class="text-muted" style="font-size:0.75rem;">
+                  Expected resolution time: {{ durationLabel(ft.durationValue, ft.durationUnit) }} once a technician is assigned.@if (ft.description) { <span> — {{ ft.description }}</span> }
+                </span>
+              }
+            } @else if (failureTypes.loading()) {
+              <span class="text-muted" style="font-size:0.78rem;">Loading failure types…</span>
+            } @else {
+              <span class="text-muted" style="font-size:0.78rem;">
+                {{ failureTypes.error() ?? 'No failure types have been configured yet by DAFTECH.' }}
+              </span>
+              <button type="button" class="btn btn-outline btn-sm" style="margin-top:0.4rem; align-self:flex-start;" (click)="reloadFailureTypes()">Retry</button>
+            }
           </div>
           <div class="field" style="margin-top:0.8rem;">
             <label>Description</label>
@@ -105,15 +129,17 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     <div class="panel panel-pad" style="margin-top:1rem;">
       <div class="table-scroll"><table>
-        <thead><tr><th>Ticket #</th><th>Category</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
+        <thead><tr><th>Ticket #</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
         <tbody>
           @for (t of filteredTickets(); track t.id) {
             <tr>
               <td class="mono">{{ t.id.slice(0,8).toUpperCase() }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
+              <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
               <td class="text-muted">{{ t.assignedEmployeeName || '—' }}</td>
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
+              <td class="text-muted" style="font-size:0.8rem;">{{ countdownLabel(t) }}</td>
               <td><app-badge [status]="t.status"></app-badge></td>
               <td class="text-muted">{{ t.satisfactionStars ? (t.satisfactionStars + '★') : '—' }}</td>
               <td>
@@ -132,7 +158,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="9" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
+          @empty { <tr><td colspan="11" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
         </tbody>
       </table></div>
     </div>
@@ -167,6 +193,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
   category = signal<TicketCategory>('Bug');
+  failureTypeId = signal<string>('');
   description = signal('');
   selectedFile = signal<File | null>(null);
   submittedId = signal<string | null>(null);
@@ -196,8 +223,34 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     private auth: AuthService,
     private ticketsSvc: TicketService,
     private agreementsSvc: AgreementService,
-    private route: ActivatedRoute
+    private route: ActivatedRoute,
+    public failureTypes: FailureTypeService
   ) {}
+
+  selectedFailureType = computed(() =>
+    this.failureTypes.types().find(f => f.id === this.failureTypeId())
+  );
+
+  durationLabel(value: number, unit: string): string {
+    const noun = unit === 'Hours' ? 'hour' : unit === 'Days' ? 'day' : 'month';
+    return `${value} ${noun}${value === 1 ? '' : 's'}`;
+  }
+
+  /**
+   * Live countdown against the server-computed expected resolution
+   * deadline (AssignedAt + the failure type's expected resolution time).
+   * `nowTick` re-evaluates this every second so the timer visibly runs.
+   */
+  countdownLabel(t: { status: TicketStatus; expectedResolutionBy?: string }): string {
+    this.nowTick();
+    if (!t.expectedResolutionBy) return '—';
+    if (['Resolved', 'AwaitingClientConfirmation', 'Closed'].includes(t.status)) return 'Done';
+    const remainingMs = new Date(t.expectedResolutionBy).getTime() - Date.now();
+    return remainingMs <= 0 ? 'Overdue' : formatRemaining(remainingMs);
+  }
+
+  nowTick = signal(Date.now());
+  private tickHandle: ReturnType<typeof setInterval> | undefined;
 
   private pollHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -206,11 +259,14 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     if (q && ['all', 'pending', 'accomplished', 'escalated'].includes(q)) this.filter.set(q);
 
     this.refreshTickets();
+    this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
+    void this.failureTypes.refresh();
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
   }
 
   ngOnDestroy() {
     if (this.pollHandle) clearInterval(this.pollHandle);
+    if (this.tickHandle) clearInterval(this.tickHandle);
   }
 
   private refreshTickets() {
@@ -218,8 +274,13 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     if (client) void this.ticketsSvc.refreshMyTickets(client.id);
   }
 
+  reloadFailureTypes() {
+    void this.failureTypes.refresh();
+  }
+
   toggleSubmitPanel() {
     this.showSubmitPanel.update(v => !v);
+    if (!this.showSubmitPanel()) { /* closing — nothing to refresh */ } else { void this.failureTypes.refresh(); }
     this.submittedId.set(null);
     this.selectedFile.set(null);
     this.uploadError.set(null);
@@ -382,7 +443,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
       }
 
       const ticket = await this.ticketsSvc.submitFromClient(
-        client.id, agreement.id, this.description().trim(), this.category(), undefined, voiceNote
+        client.id, agreement.id, this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote
       );
 
       const file = this.selectedFile();
@@ -396,10 +457,24 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
 
       this.submittedId.set(ticket.id);
       this.description.set('');
+      this.failureTypeId.set('');
       this.selectedFile.set(null);
       this.discardRecording();
     } finally {
       this.submitting.set(false);
     }
   }
+}
+
+/** Formats a remaining-time span as a human countdown (e.g. "2d 04h", "03:12:45"). */
+export function formatRemaining(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return days > 0
+    ? `${days}d ${pad(hours)}h ${pad(minutes)}m`
+    : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }

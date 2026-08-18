@@ -16,13 +16,31 @@ export class FailureTypeService {
   private readonly _types = signal<FailureType[]>([]);
   readonly types = this._types.asReadonly();
 
+  private readonly _loading = signal(false);
+  readonly loading = this._loading.asReadonly();
+
+  private readonly _error = signal<string | null>(null);
+  readonly error = this._error.asReadonly();
+
   constructor(private http: HttpClient) {
     void this.refresh();
   }
 
+  /**
+   * Never throws — the UI shows an inline error + retry instead of silently
+   * rendering an empty dropdown when the list cannot be loaded.
+   */
   async refresh(): Promise<void> {
-    const result = await firstValueFrom(this.http.get<FailureType[]>(`${API_BASE_URL}/failure-types`));
-    this._types.set(result);
+    this._loading.set(true);
+    try {
+      const result = await firstValueFrom(this.http.get<FailureType[]>(`${API_BASE_URL}/failure-types`));
+      this._types.set(result ?? []);
+      this._error.set(null);
+    } catch {
+      this._error.set('Could not load failure types. Check your connection and try again.');
+    } finally {
+      this._loading.set(false);
+    }
   }
 
   async create(name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {

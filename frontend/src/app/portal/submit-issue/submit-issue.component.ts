@@ -42,17 +42,24 @@ import { TicketCategory } from '../../core/models';
             <option value="Other">Other</option>
           </select>
         </div>
-        @if (failureTypes.types().length > 0) {
-          <div class="field" style="margin-top:0.8rem;">
-            <label>What kind of failure is this? (optional)</label>
+        <div class="field" style="margin-top:0.8rem;">
+          <label>What kind of failure is this? (optional)</label>
+          @if (failureTypes.types().length > 0) {
             <select [ngModel]="failureTypeId()" (ngModelChange)="failureTypeId.set($event)">
               <option value="">Not sure / other…</option>
               @for (f of failureTypes.types(); track f.id) {
                 <option [value]="f.id">{{ f.name }}</option>
               }
             </select>
-          </div>
-        }
+          } @else if (failureTypes.loading()) {
+            <span class="text-muted" style="font-size:0.78rem;">Loading failure types…</span>
+          } @else {
+            <span class="text-muted" style="font-size:0.78rem;">
+              {{ failureTypes.error() ?? 'No failure types have been configured yet by DAFTECH.' }}
+            </span>
+            <button type="button" class="btn btn-outline btn-sm" style="margin-top:0.4rem; align-self:flex-start;" (click)="failureTypes.refresh()">Retry</button>
+          }
+        </div>
         <div class="field" style="margin-top:0.8rem;">
           <label>Description</label>
           <textarea rows="5" maxlength="1000" [ngModel]="description()" (ngModelChange)="description.set($event)" placeholder="Describe what happened, when, and any error messages…"></textarea>
