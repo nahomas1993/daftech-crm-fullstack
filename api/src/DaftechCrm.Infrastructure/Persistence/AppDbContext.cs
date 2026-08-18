@@ -49,14 +49,47 @@ public class AppDbContext : DbContext, IAppDbContext
     public IQueryable<FailureType> FailureTypes => FailureTypesSet;
     public IQueryable<StoredFile> StoredFiles => StoredFilesSet;
 
-    public void Add<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Add(entity);
-    public void Update<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Update(entity);
-    public void Remove<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Remove(entity);
+    public new void Add<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Add(entity);
+    public new void Update<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Update(entity);
+    public new void Remove<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Remove(entity);
     public void Detach<TEntity>(TEntity entity) where TEntity : class => Entry(entity).State = EntityState.Detached;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // Every entity in this model assigns its own primary key in the
+        // property initializer (`public Guid Id { get; set; } = Guid.NewGuid();`)
+        // — the database never generates one. EF Core, however, defaults Guid
+        // keys to ValueGenerated.OnAdd, and it uses exactly that flag to decide
+        // the state of an untracked entity it discovers through a navigation
+        // property: a store-generated key that already holds a non-default
+        // value means "this row exists" -> EntityState.Modified.
+        //
+        // That is what broke every ticket status change. `ticket.AuditTrail.Add(
+        // new TicketAuditEntry { ... })` produced
+        //     UPDATE ticket_audit_entries SET ... WHERE "Id" = @p
+        // instead of an INSERT. The row did not exist, the batch reported 0
+        // rows affected, EF raised DbUpdateConcurrencyException, and
+        // TicketService turned that into HTTP 409 — with no concurrency token
+        // anywhere in the model.
+        //
+        // Marking client-assigned Guid keys as ValueGeneratedNever tells EF the
+        // truth, so a populated Id no longer implies an existing row and the
+        // audit entry is correctly INSERTed. No DDL change: these columns never
+        // had a database default.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            var key = entityType.FindPrimaryKey();
+            if (key is null) continue;
+
+            foreach (var property in key.Properties)
+            {
+                if (property.ClrType == typeof(Guid))
+                    property.ValueGenerated = Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never;
+            }
+        }
+
         base.OnModelCreating(modelBuilder);
     }
 }
