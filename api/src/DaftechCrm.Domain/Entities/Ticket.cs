@@ -63,7 +63,7 @@ public class Ticket
 
     // --- Client confirmation / satisfaction ---
 
-    /// <summary>Set when the employee marks the ticket Resolved; starts the client-response clock.</summary
+    /// <summary>Set when the employee marks the ticket Resolved; starts the client-response clock.</summary>
     public DateTimeOffset? ResolvedAt { get; set; }
 
     /// <summary>Deadline after which an unanswered confirmation auto-closes the ticket (ResolvedAt + N days).</summary>
