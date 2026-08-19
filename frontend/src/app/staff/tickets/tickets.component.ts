@@ -56,7 +56,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>Description</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -66,6 +66,7 @@ const REFRESH_INTERVAL_MS = 20_000;
             >
               <td class="mono">{{ t.id.slice(0,8) }}</td>
               <td>{{ t.clientName }}</td>
+              <td class="text-muted" style="font-size:0.8rem; max-width:22rem; white-space:pre-wrap;">{{ t.description || '—' }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
               <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
@@ -114,7 +115,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
