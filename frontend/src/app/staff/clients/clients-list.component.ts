@@ -1,5 +1,5 @@
 import { Component, computed, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
 import { LocationService } from '../../core/services/location.service';
@@ -37,6 +37,14 @@ import { ClientRegisteredResult } from '../../core/models';
                 }
               </select>
             </div>
+            <div class="field"><label>Zone</label>
+              <select [ngModel]="form.zone" (ngModelChange)="form.zone = $event">
+                <option value="">Select zone…</option>
+                @for (z of locations.options().zones; track z.id) {
+                  <option [value]="z.name">{{ z.name }}</option>
+                }
+              </select>
+            </div>
             <div class="field"><label>City</label>
               <select [ngModel]="form.city" (ngModelChange)="form.city = $event">
                 <option value="">Select city…</option>
@@ -67,7 +75,7 @@ import { ClientRegisteredResult } from '../../core/models';
           <div class="credential-panel">
             <h4>✅ Account created — share these credentials now</h4>
             <p class="text-muted" style="font-size:0.82rem; margin: 0.3rem 0 0.9rem;">
-              This one-time password will not be shown again.
+              This one-time password will not be shown again. Continuing will take you straight to this client's Agreement page to set up their System/Product and sign an agreement.
               @if (justRegistered()!.emailSent) {
                 An email with these details was also sent to {{ justRegistered()!.client.email }}.
               } @else {
@@ -82,7 +90,7 @@ import { ClientRegisteredResult } from '../../core/models';
                   {{ resending() ? 'Retrying…' : 'Retry Email' }}
                 </button>
               }
-              <button class="btn btn-secondary btn-sm" (click)="closeCredentialPanel()">Done</button>
+              <button class="btn btn-primary btn-sm" (click)="continueToAgreement()">Continue to Agreement →</button>
             </div>
           </div>
         }
@@ -136,6 +144,14 @@ import { ClientRegisteredResult } from '../../core/models';
                         <option value="">Select region…</option>
                         @for (r of locations.options().regions; track r.id) {
                           <option [value]="r.name">{{ r.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="field"><label>Zone</label>
+                      <select [ngModel]="editForm.zone" (ngModelChange)="editForm.zone = $event">
+                        <option value="">Select zone…</option>
+                        @for (z of locations.options().zones; track z.id) {
+                          <option [value]="z.name">{{ z.name }}</option>
                         }
                       </select>
                     </div>
@@ -223,11 +239,11 @@ export class ClientsListComponent {
   savingEdit = signal(false);
   editError = signal('');
   deleting = signal<string | null>(null);
-  editForm = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+  editForm = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
 
-  form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+  form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
 
-  constructor(public clients: ClientService, public locations: LocationService) {}
+  constructor(public clients: ClientService, public locations: LocationService, private router: Router) {}
 
   filtered = computed(() => {
     const q = this.query().toLowerCase().trim();
@@ -260,7 +276,7 @@ export class ClientsListComponent {
         itSupportContact: this.form.itSupportContact || undefined,
       });
       this.justRegistered.set(result);
-      this.form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+      this.form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
     } catch (err: any) {
       this.registerError.set(err?.error?.error ?? 'Registration failed — please check the details and try again.');
     } finally {
@@ -286,15 +302,32 @@ export class ClientsListComponent {
     this.showForm.set(false);
   }
 
+  /**
+   * After Admin registers a new client, this takes them straight to that
+   * client's Agreement page (requirement: no self-signup step needed —
+   * the Admin sets up the client's first System/Product and signs their
+   * first agreement right away). Navigates to the Client Detail page's
+   * Agreements tab, which is where System/Product + Agreement creation
+   * lives — see ClientDetailComponent.
+   */
+  continueToAgreement() {
+    const clientId = this.justRegistered()?.client.id;
+    this.justRegistered.set(null);
+    this.showForm.set(false);
+    if (clientId) {
+      void this.router.navigate(['/admin/clients', clientId], { queryParams: { tab: 'agreements' } });
+    }
+  }
+
   startEdit(c: {
     id: string; name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; city?: string; woreda?: string; kycType: string; kycContact: string; itSupportContact?: string;
+    region?: string; zone?: string; city?: string; woreda?: string; kycType: string; kycContact: string; itSupportContact?: string;
   }) {
     this.editingId.set(c.id);
     this.editError.set('');
     this.editForm = {
       name: c.name, phoneNumber: c.phoneNumber, email: c.email, office: c.office, location: c.location,
-      region: c.region ?? '', city: c.city ?? '', woreda: c.woreda ?? '',
+      region: c.region ?? '', zone: c.zone ?? '', city: c.city ?? '', woreda: c.woreda ?? '',
       kycType: c.kycType, kycContact: c.kycContact, itSupportContact: c.itSupportContact ?? '',
     };
   }

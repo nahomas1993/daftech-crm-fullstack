@@ -16,6 +16,7 @@ public class TicketService : ITicketService
     private readonly INotificationService _notifications;
     private readonly ISystemConfigurationService _config;
     private readonly IFileStorageService _storage;
+    private readonly IEthiopianTimeService _officeTime;
     private readonly ILogger<TicketService> _logger;
 
     public TicketService(
@@ -24,6 +25,7 @@ public class TicketService : ITicketService
         INotificationService notifications,
         ISystemConfigurationService config,
         IFileStorageService storage,
+        IEthiopianTimeService officeTime,
         ILogger<TicketService> logger)
     {
         _db = db;
@@ -31,6 +33,7 @@ public class TicketService : ITicketService
         _notifications = notifications;
         _config = config;
         _storage = storage;
+        _officeTime = officeTime;
         _logger = logger;
     }
 
@@ -86,20 +89,40 @@ public class TicketService : ITicketService
                 });
         }
 
-        var assignee =
-            await _assignment.SelectAssigneeAsync(ct);
+        // Office-hours-aware assignment: a ticket is only handed to a
+        // technician during working hours (see IEthiopianTimeService). One
+        // submitted during lunch or after close is still accepted and
+        // saved immediately — DateSubmitted is untouched, preserving the
+        // real submission time for audit/reporting — it just stays
+        // Status=Submitted with no assignee until a working moment is
+        // reached, at which point TicketAssignmentSweepHostedService picks
+        // it up. DateSubmitted itself is never used to decide assignment
+        // timing; "now" (DateTimeOffset.UtcNow) is.
+        var now = DateTimeOffset.UtcNow;
 
-        if (assignee is not null)
+        FailureType? failureType = null;
+        if (request.FailureTypeId is Guid requestedFailureTypeId)
         {
-            ticket.AssignedEmployeeId = assignee.Id;
-            ticket.AssignedAt = DateTimeOffset.UtcNow;
-            ticket.Status = TicketStatus.Assigned;
+            failureType = await _db.FailureTypes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == requestedFailureTypeId, ct);
+        }
 
-            if (request.FailureTypeId is Guid failureTypeId)
+        var canAssignNow = _officeTime.IsWorkingMoment(now) && FitsBeforeCloseIfSaturday(now, failureType);
+
+        Employee? assignee = null;
+        var queuedForOfficeHours = false;
+
+        if (canAssignNow)
+        {
+            assignee =
+                await _assignment.SelectAssigneeAsync(ct);
+
+            if (assignee is not null)
             {
-                var failureType = await _db.FailureTypes
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(f => f.Id == failureTypeId, ct);
+                ticket.AssignedEmployeeId = assignee.Id;
+                ticket.AssignedAt = now;
+                ticket.Status = TicketStatus.Assigned;
 
                 if (failureType is not null)
                 {
@@ -108,19 +131,35 @@ public class TicketService : ITicketService
                     ticket.ExpectedResolutionMinutes =
                         (int)failureType.ToTimeSpan().TotalMinutes;
 
+                    // Working-minutes deadline, not wall-clock — skips
+                    // lunch/off-hours/weekends so a ticket assigned at
+                    // 11:00 with a 2-hour SLA doesn't get an unreachable
+                    // same-day deadline.
                     ticket.ExpectedResolutionBy =
-                        ticket.AssignedAt.Value.AddMinutes(
-                            ticket.ExpectedResolutionMinutes.Value);
+                        _officeTime.AddWorkingMinutes(ticket.AssignedAt.Value, ticket.ExpectedResolutionMinutes.Value);
                 }
-            }
 
+                ticket.AuditTrail.Add(
+                    new TicketAuditEntry
+                    {
+                        TicketId = ticket.Id,
+                        Actor = "System",
+                        Action =
+                            $"Auto-assigned to {assignee.FullName} on submission (lowest open-ticket count)"
+                    });
+            }
+        }
+        else
+        {
+            queuedForOfficeHours = true;
+            var nextAssignable = _officeTime.NextAssignableMoment(now);
             ticket.AuditTrail.Add(
                 new TicketAuditEntry
                 {
                     TicketId = ticket.Id,
                     Actor = "System",
                     Action =
-                        $"Auto-assigned to {assignee.FullName} on submission (lowest open-ticket count)"
+                        $"Received outside office hours — queued for assignment at {nextAssignable.ToOffset(TimeSpan.FromHours(3)):yyyy-MM-dd HH:mm} local time"
                 });
         }
 
@@ -151,6 +190,12 @@ public class TicketService : ITicketService
                 $"Your ticket {ticket.Id} has been assigned to a technician.",
                 ct);
         }
+        else if (queuedForOfficeHours)
+        {
+            // Not a failure — just queued. No admin alert needed; the
+            // sweep will assign it once office hours resume. Avoids
+            // paging Admins every time a ticket lands overnight.
+        }
         else
         {
             await _notifications.NotifyAsync(
@@ -162,6 +207,32 @@ public class TicketService : ITicketService
         }
 
         return await LoadDtoAsync(ticket.Id, ct);
+    }
+
+    /// <summary>
+    /// Saturday is a half-day (2:30-6:00 LT, no lunch) — a ticket is only
+    /// assigned immediately on a Saturday if its FailureType's expected
+    /// duration fits before 6:00 close; otherwise it queues for Monday
+    /// 2:30 LT even though it's technically still "office hours" right
+    /// now. Any other working day: always fits (no early-close
+    /// constraint). No FailureType chosen: always fits — there's no
+    /// duration to check against, so the ticket goes to a technician
+    /// immediately as before.
+    /// </summary>
+    private bool FitsBeforeCloseIfSaturday(DateTimeOffset nowUtc, FailureType? failureType)
+    {
+        var nowLocal = nowUtc.ToOffset(TimeSpan.FromHours(3));
+        if (nowLocal.DayOfWeek != DayOfWeek.Saturday || failureType is null)
+            return true;
+
+        var minutesNeeded = (int)failureType.ToTimeSpan().TotalMinutes;
+        var deadlineIfAssignedNow = _officeTime.AddWorkingMinutes(nowUtc, minutesNeeded);
+        var deadlineLocal = deadlineIfAssignedNow.ToOffset(TimeSpan.FromHours(3));
+
+        // AddWorkingMinutes rolls over to Monday once Saturday's close is
+        // reached — if the computed deadline landed on the same Saturday
+        // calendar day as "now", the work fit before close.
+        return deadlineLocal.Date == nowLocal.Date;
     }
 
     /// <summary>
@@ -402,6 +473,19 @@ public class TicketService : ITicketService
         return await LoadDtoAsync(ticket.Id, ct);
     }
 
+    /// <summary>See ITicketService.SetPriorityAsync. A plain field update — no status/audit-trail interaction, no notification, unlike UpdateStatusAsync above.</summary>
+    public async Task<TicketDto> SetPriorityAsync(Guid ticketId, SetTicketPriorityRequest request, CancellationToken ct = default)
+    {
+        var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+            ?? throw new InvalidOperationException("Ticket not found.");
+
+        ticket.Priority = request.Priority;
+        _db.Update(ticket);
+        await _db.SaveChangesAsync(ct);
+
+        return await LoadDtoAsync(ticket.Id, ct);
+    }
+
     /// <summary>
     /// Records the client's response to a Resolved ticket. Only the
     /// ticket's own client may confirm it — enforced here from the
@@ -471,15 +555,16 @@ public class TicketService : ITicketService
             return await LoadDtoAsync(ticket.Id, ct);
         }
 
-        if (request.SatisfactionStars is not (>= 1 and <= 5))
+        if (request.SatisfactionStars is not (>= 1 and <= 5) ||
+            (request.SatisfactionStars.Value * 2) % 1 != 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request),
-                "Satisfaction rating must be between 1 and 5 stars.");
+                "Satisfaction rating must be between 1 and 5 stars, in half-star increments (e.g. 3.5).");
         }
 
         var stars = request.SatisfactionStars!.Value;
-        var score = stars * 20;
+        var score = (int)(stars * 20);
 
         ticket.SatisfactionStars = stars;
         ticket.SatisfactionScore = score;
@@ -606,6 +691,75 @@ public class TicketService : ITicketService
         return overdue.Count;
     }
 
+    /// <summary>
+    /// See ITicketService.AssignQueuedTicketsAsync. Only does work at all
+    /// if we're currently in a working moment — checked once up front so a
+    /// sweep tick that lands during lunch/off-hours is a fast no-op rather
+    /// than repeatedly re-checking IsWorkingMoment per ticket for no
+    /// reason (they'd all be false anyway).
+    /// </summary>
+    public async Task<int> AssignQueuedTicketsAsync(CancellationToken ct = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!_officeTime.IsWorkingMoment(now))
+            return 0;
+
+        var queued = await _db.Tickets
+            .Where(t => t.Status == TicketStatus.Submitted && t.AssignedEmployeeId == null)
+            .OrderBy(t => t.DateSubmitted) // Oldest-queued gets assigned first within this sweep.
+            .ToListAsync(ct);
+
+        var assignedCount = 0;
+
+        foreach (var ticket in queued)
+        {
+            // Re-fetch the FailureType per ticket (not batched) — sweeps run
+            // at most every few minutes and the queue is expected to be
+            // small (only tickets that arrived outside office hours), so
+            // the extra round trips are not a real cost here.
+            FailureType? failureType = ticket.FailureTypeId is Guid ftId
+                ? await _db.FailureTypes.AsNoTracking().FirstOrDefaultAsync(f => f.Id == ftId, ct)
+                : null;
+
+            if (!FitsBeforeCloseIfSaturday(now, failureType))
+                continue; // Still queued — will pick up Monday's sweep.
+
+            var assignee = await _assignment.SelectAssigneeAsync(ct);
+            if (assignee is null)
+                break; // No eligible technician at all right now — nothing else in the queue will fare better this tick.
+
+            ticket.AssignedEmployeeId = assignee.Id;
+            ticket.AssignedAt = now;
+            ticket.Status = TicketStatus.Assigned;
+
+            if (failureType is not null)
+            {
+                ticket.ExpectedResolutionMinutes = (int)failureType.ToTimeSpan().TotalMinutes;
+                ticket.ExpectedResolutionBy = _officeTime.AddWorkingMinutes(now, ticket.ExpectedResolutionMinutes.Value);
+            }
+
+            ticket.AuditTrail.Add(new TicketAuditEntry
+            {
+                TicketId = ticket.Id,
+                Actor = "System",
+                Action = $"Auto-assigned to {assignee.FullName} once office hours resumed (lowest open-ticket count)",
+            });
+
+            _db.Update(ticket);
+            assignedCount++;
+
+            await _notifications.NotifyAsync(NotificationRecipientType.Employee, assignee.Id.ToString(), "ticket_assigned",
+                $"You were assigned ticket {ticket.Id}.", ct);
+            await _notifications.NotifyAsync(NotificationRecipientType.Client, ticket.ClientId.ToString(), "ticket_assigned",
+                $"Your ticket {ticket.Id} has been assigned to a technician.", ct);
+        }
+
+        if (assignedCount > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return assignedCount;
+    }
+
     public async Task<IReadOnlyList<TicketDto>> GetAllAsync(
         CancellationToken ct = default) =>
         await ProjectAsync(_db.Tickets, ct);
@@ -656,6 +810,7 @@ public class TicketService : ITicketService
                     ExpectedResolutionBy(t),
                     t.Chargeable,
                     t.Status,
+                    t.Priority,
                     t.ResolvedAt,
                     t.ClientConfirmationDeadline,
                     t.SatisfactionStars,
@@ -766,6 +921,7 @@ public class TicketService : ITicketService
                     ExpectedResolutionBy(t),
                     t.Chargeable,
                     t.Status,
+                    t.Priority,
                     t.ResolvedAt,
                     t.ClientConfirmationDeadline,
                     t.SatisfactionStars,

@@ -21,9 +21,10 @@ public record TicketDto(
     DateTimeOffset? ExpectedResolutionBy,
     bool Chargeable,
     TicketStatus Status,
+    TicketPriority Priority,
     DateTimeOffset? ResolvedAt,
     DateTimeOffset? ClientConfirmationDeadline,
-    int? SatisfactionStars,
+    decimal? SatisfactionStars,
     int? SatisfactionScore,
     ClosureReason? ClosureReason,
     /// <summary>Original filename of the optional attachment (screenshot/document), or null if none was uploaded. Fetch/upload via TicketsController's /attachment endpoints — this DTO only carries the display name, not the file itself.</summary>
@@ -49,6 +50,9 @@ public record SubmitTicketRequest(Guid ClientId, Guid AgreementId, string Descri
 
 public record UpdateTicketStatusRequest(TicketStatus Status, string ActorName);
 
+/// <summary>Admin or an assigned technician can set/change a ticket's priority at any time — used by workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService).</summary>
+public record SetTicketPriorityRequest(TicketPriority Priority);
+
 /// <summary>
 /// Client's response to the "did this actually get fixed?" confirmation step.
 /// Stars are 1-5; the service converts to a 0-100 score (stars * 20) and
@@ -58,7 +62,7 @@ public record UpdateTicketStatusRequest(TicketStatus Status, string ActorName);
 /// Client's response to the "did this actually get fixed?" confirmation step.
 /// SRS v2.0 §4.5.1: IsFixed is answered first — if false, the ticket
 /// reopens to the assigned employee and SatisfactionStars is ignored (not
-/// required). If true, SatisfactionStars (1-5) is required and the service
+/// required). If true, SatisfactionStars (1-5, half-star increments allowed, e.g. 3.5) is required and the service
 /// converts it to a 0-100 score, applying the 90/100 escalation threshold.
 /// </summary>
-public record ClientConfirmationRequest(bool IsFixed, int? SatisfactionStars);
+public record ClientConfirmationRequest(bool IsFixed, decimal? SatisfactionStars);

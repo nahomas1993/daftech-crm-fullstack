@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Ticket, TicketCategory, TicketStatus, PagedResult } from '../models';
+import { Ticket, TicketCategory, TicketStatus, TicketPriority, PagedResult } from '../models';
 import { API_BASE_URL } from './api-base';
 import { AuthService } from './auth.service';
 
@@ -210,6 +210,12 @@ export class TicketService {
         { responseType: 'blob' }
       )
     );
+  }
+
+  /** Sets a ticket's priority (Low/Medium/High) — any employee may set this. Feeds workload-aware Trainer assignment's "high-priority tickets" dimension; has no effect on technician auto-assignment. */
+  async setPriority(ticketId: string, priority: TicketPriority): Promise<void> {
+    await firstValueFrom(this.http.patch<Ticket>(`${API_BASE_URL}/tickets/${ticketId}/priority`, { priority }));
+    await this.refresh();
   }
 
   async updateStatus(

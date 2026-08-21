@@ -19,6 +19,9 @@ public interface ITicketService
     /// </summary>
     Task<TicketDto> UpdateStatusAsync(Guid ticketId, UpdateTicketStatusRequest request, SessionAccountType callerType, Guid callerId, CancellationToken ct = default);
 
+    /// <summary>Sets a ticket's priority (Low/Medium/High) — an Admin or the assigned employee can change this at any time. Feeds workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService); has no effect on technician auto-assignment order.</summary>
+    Task<TicketDto> SetPriorityAsync(Guid ticketId, SetTicketPriorityRequest request, CancellationToken ct = default);
+
     /// <summary>
     /// Client answers whether the issue is fixed. If not, the ticket
     /// reopens to the assigned employee and no rating is recorded. If
@@ -35,6 +38,18 @@ public interface ITicketService
     /// was never a rating to gate on.
     /// </summary>
     Task<int> AutoCloseUnansweredTicketsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Assigns any ticket still sitting Status=Submitted with no assignee
+    /// (queued because it arrived during lunch/off-hours/weekend — see
+    /// SubmitFromClientAsync) whose queued-until moment has now been
+    /// reached. Intended to run on a background timer (see
+    /// TicketAssignmentSweepHostedService), same pattern as
+    /// AutoCloseUnansweredTicketsAsync. Returns how many tickets were
+    /// assigned this sweep. A no-op outside office hours — every queued
+    /// ticket simply waits for the next sweep after office hours resume.
+    /// </summary>
+    Task<int> AssignQueuedTicketsAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<TicketDto>> GetAllAsync(CancellationToken ct = default);
 

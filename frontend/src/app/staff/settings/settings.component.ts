@@ -286,6 +286,7 @@ export class SettingsComponent implements OnInit {
   // --- Locations tab ---
   readonly locationGroups: { type: LocationType; label: string; context: string }[] = [
     { type: 'Region', label: 'Regions', context: 'client registration and signup' },
+    { type: 'Zone', label: 'Zones', context: 'client registration and signup' },
     { type: 'City', label: 'Cities', context: 'client registration and signup' },
     { type: 'Woreda', label: 'Woredas', context: 'client registration and signup' },
     { type: 'Specialization', label: 'Specializations', context: 'the employee form' },
@@ -293,7 +294,7 @@ export class SettingsComponent implements OnInit {
   ];
   savingLocations = signal(false);
   locationsError = signal<string | null>(null);
-  private newEntryNames = signal<Record<LocationType, string>>({ Region: '', City: '', Woreda: '', Specialization: '', CustomRole: '' });
+  private newEntryNames = signal<Record<LocationType, string>>({ Region: '', Zone: '', City: '', Woreda: '', Specialization: '', CustomRole: '' });
   editingId = signal<string | null>(null);
   editingName = signal('');
 
@@ -393,6 +394,7 @@ export class SettingsComponent implements OnInit {
   entriesFor(type: LocationType) {
     const opts = this.locations.options();
     if (type === 'Region') return opts.regions;
+    if (type === 'Zone') return opts.zones;
     if (type === 'City') return opts.cities;
     if (type === 'Woreda') return opts.woredas;
     if (type === 'Specialization') return opts.specializations;

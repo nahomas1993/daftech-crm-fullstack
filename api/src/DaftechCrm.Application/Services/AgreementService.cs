@@ -18,97 +18,118 @@ public class AgreementService : IAgreementService
         _referenceNumbers = referenceNumbers;
     }
 
-    public async Task<bool> ClientHasCompletedTrainingAsync(Guid clientId, CancellationToken ct = default) =>
-        await _db.AgreementTrainings.AnyAsync(t => t.ClientId == clientId && t.EndDate.HasValue, ct);
+    public async Task<bool> SystemProductHasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default) =>
+        await _db.Agreements
+            .Where(a => a.SystemProductId == systemProductId && a.AgreementType.Name == AgreementTypeNames.Training)
+            .Join(_db.TrainingSessions, a => a.Id, t => t.AgreementId, (a, t) => t)
+            .AnyAsync(t => t.EndDate.HasValue, ct);
 
     /// <summary>
-    /// Creating the Agreement IS the admin's act of signing it: SignDate is
-    /// always set to today, never accepted from the caller. Training is
-    /// mandatory and must finish first — this throws if the client has no
-    /// training with an EndDate yet, so a support agreement can never be
-    /// signed ahead of training (which was the source of client-side
-    /// complaints about staff not being trained on the system before
-    /// support began). Any of the client's completed trainings are linked
-    /// to the new agreement for record-keeping.
+    /// Creates (signs) a new agreement — always an insert, never overwrites
+    /// or updates an existing agreement, even a prior one for the same
+    /// SystemProduct/AgreementType. If the resolved AgreementType is
+    /// Support, requires the same SystemProduct to already have a
+    /// completed Training agreement (see SystemProductHasCompletedTrainingAsync) —
+    /// training must finish before support can be signed, per system/product,
+    /// not client-wide. A Training-type agreement gets an empty TrainingSession
+    /// row created alongside it, ready to be filled in via SaveTrainingSessionAsync.
     /// </summary>
     public async Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default)
     {
-        var completedTrainings = await _db.AgreementTrainings
-            .Where(t => t.ClientId == request.ClientId && t.EndDate.HasValue)
-            .ToListAsync(ct);
+        var systemProduct = await _db.SystemProducts.Include(s => s.Client)
+            .FirstOrDefaultAsync(s => s.Id == request.SystemProductId && !s.IsDeleted, ct)
+            ?? throw new InvalidOperationException("System/Product not found.");
 
-        if (completedTrainings.Count == 0)
-            throw new InvalidOperationException("This client has no completed training yet. Training must finish (an End Date must be set) before the support agreement can be signed.");
+        var agreementType = await _db.AgreementTypes.FirstOrDefaultAsync(t => t.Id == request.AgreementTypeId, ct)
+            ?? throw new InvalidOperationException("Agreement type not found.");
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var expiry = request.ExpiryDate ?? today.AddYears(1);
+        if (agreementType.Name == AgreementTypeNames.Support)
+        {
+            var trained = await SystemProductHasCompletedTrainingAsync(request.SystemProductId, ct);
+            if (!trained)
+                throw new InvalidOperationException("This system/product has no completed training yet. A Training agreement must finish (an End Date must be set) before a Support agreement can be signed for it.");
+        }
+
+        var expiry = request.ExpiryDate ?? request.SignDate.AddYears(1);
 
         var agreement = new Agreement
         {
-            ClientId = request.ClientId,
+            SystemProductId = request.SystemProductId,
+            AgreementTypeId = request.AgreementTypeId,
             DocumentNumber = await _referenceNumbers.GenerateAgreementDocumentNumberAsync(ct),
             // A scanned file is attached later via UploadScannedFileAsync, not at creation —
             // any client-provided value here is ignored to keep this null until a real
-            // upload happens (see Final_version_fix.docx item 1: "ensure ScannedFileUrl is null").
+            // upload happens.
             ScannedFileUrl = null,
             AgreementPlace = request.AgreementPlace,
-            // The admin creating this agreement is the signing act — always today,
-            // never derived and never accepted from the request.
-            SignDate = today,
+            SignDate = request.SignDate,
             ExpiryDate = expiry,
             SupportWindowMonths = request.SupportWindowMonths,
             BillingTier = request.BillingTier,
+            Details = request.Details,
         };
         _db.Add(agreement);
 
-        foreach (var training in completedTrainings)
+        if (agreementType.Name == AgreementTypeNames.Training)
         {
-            training.AgreementId = agreement.Id;
-            _db.Update(training);
+            _db.Add(new TrainingSession { AgreementId = agreement.Id });
         }
 
         await _db.SaveChangesAsync(ct);
 
-        agreement.Trainings = completedTrainings;
-        return ToDto(agreement);
+        agreement.SystemProduct = systemProduct;
+        agreement.AgreementType = agreementType;
+        return await ToDtoAsync(agreement, ct);
     }
 
-    public async Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default) =>
-        (await _db.Agreements.AsNoTracking().Include(a => a.Trainings).ToListAsync(ct)).Select(ToDto).ToList();
+    public async Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default)
+    {
+        var agreements = await AgreementQuery().ToListAsync(ct);
+        return await ToDtosAsync(agreements, ct);
+    }
 
     public async Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
         var totalCount = await _db.Agreements.CountAsync(ct);
 
-        var items = await _db.Agreements
-            .AsNoTracking()
-            .Include(a => a.Trainings)
+        var agreements = await AgreementQuery()
             .OrderByDescending(a => a.ExpiryDate)
             .Skip(query.Skip)
             .Take(query.PageSize)
             .ToListAsync(ct);
 
-        return new PagedResult<AgreementDto>(items.Select(ToDto).ToList(), query.Page, query.PageSize, totalCount);
+        var dtos = await ToDtosAsync(agreements, ct);
+        return new PagedResult<AgreementDto>(dtos, query.Page, query.PageSize, totalCount);
     }
 
-    public async Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default) =>
-        (await _db.Agreements.AsNoTracking().Include(a => a.Trainings).Where(a => a.ClientId == clientId).ToListAsync(ct)).Select(ToDto).ToList();
+    public async Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default)
+    {
+        var agreements = await AgreementQuery().Where(a => a.SystemProduct.ClientId == clientId).ToListAsync(ct);
+        return await ToDtosAsync(agreements, ct);
+    }
+
+    public async Task<IReadOnlyList<AgreementDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default)
+    {
+        var agreements = await AgreementQuery().Where(a => a.SystemProductId == systemProductId).ToListAsync(ct);
+        return await ToDtosAsync(agreements, ct);
+    }
 
     public async Task<IReadOnlyList<AgreementDto>> GetExpiringSoonAsync(CancellationToken ct = default)
     {
         var in30 = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
-        return (await _db.Agreements.AsNoTracking().Include(a => a.Trainings).Where(a => a.ExpiryDate <= in30).ToListAsync(ct)).Select(ToDto).ToList();
+        var agreements = await AgreementQuery().Where(a => a.ExpiryDate <= in30).ToListAsync(ct);
+        return await ToDtosAsync(agreements, ct);
     }
 
     public async Task<AgreementDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var agreement = await _db.Agreements.AsNoTracking().Include(a => a.Trainings).FirstOrDefaultAsync(a => a.Id == id, ct);
-        return agreement is null ? null : ToDto(agreement);
+        var agreement = await AgreementQuery().FirstOrDefaultAsync(a => a.Id == id, ct);
+        return agreement is null ? null : await ToDtoAsync(agreement, ct);
     }
 
     public async Task<AgreementDto> UploadScannedFileAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
-        var agreement = await _db.Agreements.Include(a => a.Trainings).FirstOrDefaultAsync(a => a.Id == agreementId, ct)
+        var agreement = await AgreementQuery().FirstOrDefaultAsync(a => a.Id == agreementId, ct)
             ?? throw new InvalidOperationException("Agreement not found.");
 
         var previousStorageKey = agreement.ScannedFileUrl;
@@ -125,7 +146,7 @@ public class AgreementService : IAgreementService
         if (!string.IsNullOrEmpty(previousStorageKey))
             await _storage.DeleteAsync(previousStorageKey, ct);
 
-        return ToDto(agreement);
+        return await ToDtoAsync(agreement, ct);
     }
 
     public async Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default)
@@ -137,94 +158,118 @@ public class AgreementService : IAgreementService
         return await _storage.GetAsync(agreement.ScannedFileUrl, ct);
     }
 
-    public async Task<IReadOnlyList<AgreementTrainingDto>> GetTrainingsForClientAsync(Guid clientId, CancellationToken ct = default) =>
-        (await _db.AgreementTrainings.AsNoTracking().Where(t => t.ClientId == clientId).ToListAsync(ct))
-            .Select(ToTrainingDto).ToList();
-
-    /// <summary>Creates a new, empty training row for a client — not attached to any agreement, since training happens before an agreement can even be signed. Details are filled in afterward via SaveTrainingAsync/UploadTrainingScanAsync.</summary>
-    public async Task<AgreementTrainingDto> AddTrainingAsync(Guid clientId, CancellationToken ct = default)
+    public async Task<TrainingSessionDto?> GetTrainingSessionAsync(Guid agreementId, CancellationToken ct = default)
     {
-        var clientExists = await _db.Clients.AnyAsync(c => c.Id == clientId, ct);
-        if (!clientExists)
-            throw new InvalidOperationException("Client not found.");
-
-        var training = new AgreementTraining { ClientId = clientId };
-        _db.Add(training);
-        await _db.SaveChangesAsync(ct);
-        return ToTrainingDto(training);
+        var session = await _db.TrainingSessions.AsNoTracking()
+            .Include(t => t.TrainerEmployee)
+            .FirstOrDefaultAsync(t => t.AgreementId == agreementId, ct);
+        return session is null ? null : ToTrainingSessionDto(session);
     }
 
-    /// <summary>Sets/updates one training row's description and timeline. EndDate stays editable after being set (e.g. the admin extends it if training runs long due to unforeseen delays) — no separate "completed" flag, EndDate being set is what completion means.</summary>
-    public async Task<AgreementTrainingDto> SaveTrainingAsync(Guid clientId, Guid trainingId, SaveAgreementTrainingRequest request, CancellationToken ct = default)
+    /// <summary>Updates the TrainingSession fields for a Training-type agreement. Throws if the agreement isn't a Training agreement (no TrainingSession row exists for it — see CreateAsync, which always creates one alongside a Training agreement).</summary>
+    public async Task<TrainingSessionDto> SaveTrainingSessionAsync(Guid agreementId, SaveTrainingSessionRequest request, CancellationToken ct = default)
     {
-        if (request.Description is { Length: > 1000 })
-            throw new ValidationException("Description must be 1000 characters or fewer.");
+        var session = await _db.TrainingSessions.Include(t => t.TrainerEmployee).FirstOrDefaultAsync(t => t.AgreementId == agreementId, ct)
+            ?? throw new InvalidOperationException("This agreement has no training session — it isn't a Training-type agreement.");
 
-        var training = await _db.AgreementTrainings.FirstOrDefaultAsync(t => t.Id == trainingId && t.ClientId == clientId, ct)
-            ?? throw new InvalidOperationException("Training not found for this client.");
+        if (request.TrainerEmployeeId.HasValue)
+        {
+            var trainer = await _db.Employees.FirstOrDefaultAsync(e => e.Id == request.TrainerEmployeeId.Value && !e.IsDeleted, ct)
+                ?? throw new InvalidOperationException("Trainer not found.");
+            if (!trainer.Roles.Contains(Domain.Enums.EmployeeRole.Trainer))
+                throw new InvalidOperationException("This employee does not have the Trainer responsibility assigned.");
+        }
 
-        training.Description = request.Description;
-        training.StartDate = request.StartDate;
-        training.EndDate = request.EndDate;
+        session.TrainerEmployeeId = request.TrainerEmployeeId;
+        session.StartDate = request.StartDate;
+        session.EndDate = request.EndDate;
+        session.Location = request.Location;
+        session.Participants = request.Participants;
+        session.Attendance = request.Attendance;
+        session.TopicsCovered = request.TopicsCovered;
+        session.IssuesOrQuestions = request.IssuesOrQuestions;
+        session.TrainerComments = request.TrainerComments;
+        session.ClientRepresentativeConfirmation = request.ClientRepresentativeConfirmation;
+        session.ClientRepresentativeComments = request.ClientRepresentativeComments;
+        session.CompletionStatus = request.CompletionStatus;
+        session.FollowUpRequired = request.FollowUpRequired;
+        session.FollowUpNotes = request.FollowUpNotes;
 
-        _db.Update(training);
+        _db.Update(session);
         await _db.SaveChangesAsync(ct);
-        return ToTrainingDto(training);
+
+        // The trainer navigation may be stale after changing TrainerEmployeeId — reload for an accurate DTO.
+        session.TrainerEmployee = request.TrainerEmployeeId.HasValue
+            ? await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == request.TrainerEmployeeId.Value, ct)
+            : null;
+
+        return ToTrainingSessionDto(session);
     }
 
-    /// <summary>Deletes a training row (and its scan file, if any).</summary>
-    public async Task DeleteTrainingAsync(Guid clientId, Guid trainingId, CancellationToken ct = default)
+    public async Task<TrainingSessionDto> UploadTrainingScanAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
-        var training = await _db.AgreementTrainings.FirstOrDefaultAsync(t => t.Id == trainingId && t.ClientId == clientId, ct)
-            ?? throw new InvalidOperationException("Training not found for this client.");
+        var session = await _db.TrainingSessions.Include(t => t.TrainerEmployee).FirstOrDefaultAsync(t => t.AgreementId == agreementId, ct)
+            ?? throw new InvalidOperationException("This agreement has no training session — it isn't a Training-type agreement.");
 
-        var storageKey = training.ScanStorageKey;
-
-        _db.Remove(training);
-        await _db.SaveChangesAsync(ct);
-
-        if (!string.IsNullOrEmpty(storageKey))
-            await _storage.DeleteAsync(storageKey, ct);
-    }
-
-    /// <summary>Uploads (or replaces) the scanned document for one specific training row — a separate file from the signed-agreement scan.</summary>
-    public async Task<AgreementTrainingDto> UploadTrainingScanAsync(Guid clientId, Guid trainingId, Stream content, string fileName, string contentType, CancellationToken ct = default)
-    {
-        var training = await _db.AgreementTrainings.FirstOrDefaultAsync(t => t.Id == trainingId && t.ClientId == clientId, ct)
-            ?? throw new InvalidOperationException("Training not found for this client.");
-
-        var previousStorageKey = training.ScanStorageKey;
+        var previousStorageKey = session.ScanStorageKey;
 
         var result = await _storage.SaveAsync(content, fileName, contentType, ct);
 
-        training.ScanStorageKey = result.StorageKey;
-        training.ScanFileName = result.OriginalFileName;
-        _db.Update(training);
+        session.ScanStorageKey = result.StorageKey;
+        session.ScanFileName = result.OriginalFileName;
+        _db.Update(session);
         await _db.SaveChangesAsync(ct);
 
         if (!string.IsNullOrEmpty(previousStorageKey))
             await _storage.DeleteAsync(previousStorageKey, ct);
 
-        return ToTrainingDto(training);
+        return ToTrainingSessionDto(session);
     }
 
-    public async Task<RetrievedFile?> DownloadTrainingScanAsync(Guid clientId, Guid trainingId, CancellationToken ct = default)
+    public async Task<RetrievedFile?> DownloadTrainingScanAsync(Guid agreementId, CancellationToken ct = default)
     {
-        var training = await _db.AgreementTrainings.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Id == trainingId && t.ClientId == clientId, ct);
-        if (training is null || string.IsNullOrEmpty(training.ScanStorageKey))
+        var session = await _db.TrainingSessions.AsNoTracking().FirstOrDefaultAsync(t => t.AgreementId == agreementId, ct);
+        if (session is null || string.IsNullOrEmpty(session.ScanStorageKey))
             return null;
 
-        return await _storage.GetAsync(training.ScanStorageKey, ct);
+        return await _storage.GetAsync(session.ScanStorageKey, ct);
     }
 
-    private static AgreementDto ToDto(Agreement a) => new(
-        a.Id, a.ClientId, a.DocumentNumber, a.ScannedFileUrl, a.AgreementPlace,
+    private IQueryable<Agreement> AgreementQuery() =>
+        _db.Agreements.AsNoTracking()
+            .Include(a => a.SystemProduct).ThenInclude(s => s.Client)
+            .Include(a => a.AgreementType);
+
+    private async Task<IReadOnlyList<AgreementDto>> ToDtosAsync(IReadOnlyList<Agreement> agreements, CancellationToken ct)
+    {
+        var agreementIds = agreements.Select(a => a.Id).ToList();
+        var sessions = await _db.TrainingSessions.AsNoTracking().Include(t => t.TrainerEmployee)
+            .Where(t => agreementIds.Contains(t.AgreementId)).ToListAsync(ct);
+        var sessionsByAgreement = sessions.ToDictionary(t => t.AgreementId);
+
+        return agreements.Select(a => ToDto(a, sessionsByAgreement.GetValueOrDefault(a.Id))).ToList();
+    }
+
+    private async Task<AgreementDto> ToDtoAsync(Agreement a, CancellationToken ct)
+    {
+        var session = await _db.TrainingSessions.AsNoTracking().Include(t => t.TrainerEmployee)
+            .FirstOrDefaultAsync(t => t.AgreementId == a.Id, ct);
+        return ToDto(a, session);
+    }
+
+    private static AgreementDto ToDto(Agreement a, TrainingSession? session) => new(
+        a.Id, a.SystemProductId, a.SystemProduct.ClientId, a.SystemProduct.Client.Name, a.SystemProduct.Name,
+        a.AgreementTypeId, a.AgreementType.Name,
+        a.DocumentNumber, a.ScannedFileUrl, a.AgreementPlace,
         a.SignDate, a.ExpiryDate, a.SupportWindowMonths, a.Status, a.BillingTier,
-        a.Trainings.Select(ToTrainingDto).ToList()
+        a.Details, session is null ? null : ToTrainingSessionDto(session)
     );
 
-    private static AgreementTrainingDto ToTrainingDto(AgreementTraining t) => new(
-        t.Id, t.ClientId, t.AgreementId, t.Description, t.StartDate, t.EndDate, t.ScanFileName
+    private static TrainingSessionDto ToTrainingSessionDto(TrainingSession t) => new(
+        t.AgreementId, t.TrainerEmployeeId, t.TrainerEmployee?.FullName,
+        t.StartDate, t.EndDate, t.Location, t.Participants, t.Attendance,
+        t.TopicsCovered, t.IssuesOrQuestions, t.TrainerComments,
+        t.ClientRepresentativeConfirmation, t.ClientRepresentativeComments,
+        t.CompletionStatus, t.FollowUpRequired, t.FollowUpNotes, t.ScanFileName
     );
 }

@@ -94,8 +94,19 @@ export class FilePreviewModalComponent implements OnChanges {
       const blob = await this.load();
       this.objectUrl = URL.createObjectURL(blob);
       this._safeUrl.set(this.objectUrl);
-    } catch {
-      this.error.set('Could not load this file — please try again.');
+    } catch (err: any) {
+      // Surface the real cause where we can — a stale/expired session
+      // (401, or a 403 the auth interceptor's silent refresh already gave
+      // up on) needs a different fix (re-login) than the file genuinely
+      // being gone (404), and a bare "please try again" hides that
+      // distinction from whoever's debugging a report of this happening.
+      if (err?.status === 401 || err?.status === 403) {
+        this.error.set('Your session has expired — please refresh the page and sign in again to view this file.');
+      } else if (err?.status === 404) {
+        this.error.set('This file could not be found — it may have been removed.');
+      } else {
+        this.error.set('Could not load this file — please try again.');
+      }
     } finally {
       this.loading.set(false);
     }

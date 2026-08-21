@@ -10,7 +10,7 @@ import { EmployeeRegisteredResult, EmployeeRole, EMPLOYEE_ROLE_LABELS } from '..
 // when creating/editing an employee. Kept off this list even though the
 // EmployeeRole type still technically allows it (see core/models.ts) so any
 // existing employee record with that role can still deserialize/display correctly.
-const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
+const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
 
 @Component({
   selector: 'app-employees',
@@ -163,6 +163,18 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician'];
                         }
                       </select>
                     </div>
+                    <div class="field" style="grid-column: 1 / -1;">
+                      <label>Responsibilities</label>
+                      <div class="role-checks">
+                        @for (r of allRoles; track r) {
+                          <label class="role-check">
+                            <input type="checkbox" [checked]="editResponsibilities.includes(r)" (change)="toggleEditResponsibility(r)" />
+                            {{ roleLabel(r) }}
+                          </label>
+                        }
+                      </div>
+                      <span class="text-muted" style="font-size:0.72rem;">An employee can hold Technician and Trainer at once. Changes here take effect immediately on Save.</span>
+                    </div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(e.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
                       <button class="btn btn-secondary btn-sm" (click)="cancelEdit()">Cancel</button>
@@ -244,6 +256,7 @@ export class EmployeesComponent {
   editError = signal('');
   deleting = signal<string | null>(null);
   editForm = { fullName: '', email: '', phoneNumber: '', specialization: '' };
+  editResponsibilities: EmployeeRole[] = [];
 
   form = {
     fullName: '', phoneNumber: '', email: '', specialization: '',
@@ -350,10 +363,11 @@ export class EmployeesComponent {
     }
   }
 
-  startEdit(e: { id: string; fullName: string; email: string; phoneNumber: string; specialization: string }) {
+  startEdit(e: { id: string; fullName: string; email: string; phoneNumber: string; specialization: string; roles: EmployeeRole[] }) {
     this.editingId.set(e.id);
     this.editError.set('');
     this.editForm = { fullName: e.fullName, email: e.email, phoneNumber: e.phoneNumber, specialization: e.specialization };
+    this.editResponsibilities = [...e.roles];
   }
 
   cancelEdit() {
@@ -361,11 +375,22 @@ export class EmployeesComponent {
     this.editError.set('');
   }
 
+  toggleEditResponsibility(r: EmployeeRole) {
+    const idx = this.editResponsibilities.indexOf(r);
+    if (idx === -1) this.editResponsibilities = [...this.editResponsibilities, r];
+    else this.editResponsibilities = this.editResponsibilities.filter(x => x !== r);
+  }
+
   async saveEdit(id: string) {
+    if (this.editResponsibilities.length === 0) {
+      this.editError.set('An employee must have at least one responsibility.');
+      return;
+    }
     this.savingEdit.set(true);
     this.editError.set('');
     try {
       await this.employeeService.updateEmployee(id, { ...this.editForm });
+      await this.employeeService.setResponsibilities(id, this.editResponsibilities);
       this.editingId.set(null);
     } catch (err: any) {
       this.editError.set(err?.error?.error ?? err?.error ?? 'Could not save these changes — please try again.');

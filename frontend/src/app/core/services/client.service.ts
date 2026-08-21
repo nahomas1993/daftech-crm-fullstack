@@ -65,7 +65,7 @@ export class ClientService {
 
   async submitSignup(data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; city?: string; woreda?: string;
+    region?: string; zone?: string; city?: string; woreda?: string;
   }): Promise<Client> {
     const client = await firstValueFrom(this.http.post<Client>(`${API_BASE_URL}/clients/signup`, data));
     await Promise.all([this.refresh(), this.refreshPaged()]);
@@ -79,7 +79,7 @@ export class ClientService {
    */
   async registerClient(data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; city?: string; woreda?: string;
+    region?: string; zone?: string; city?: string; woreda?: string;
     kycType: string; kycContact: string; itSupportContact?: string;
   }): Promise<ClientRegisteredResult> {
     const result = await firstValueFrom(this.http.post<ClientRegisteredResult>(`${API_BASE_URL}/clients/register`, data));
@@ -104,7 +104,7 @@ export class ClientService {
   /** Edits the plain profile fields. Account status/credentials go through approve/reject/resendCredentialEmail instead. */
   async updateClient(id: string, data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; city?: string; woreda?: string;
+    region?: string; zone?: string; city?: string; woreda?: string;
     kycType: string; kycContact: string; itSupportContact?: string;
   }): Promise<void> {
     await firstValueFrom(this.http.put<Client>(`${API_BASE_URL}/clients/${id}`, data));

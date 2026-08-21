@@ -134,11 +134,16 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IClientService, ClientService>();
+        services.AddScoped<ISystemProductService, SystemProductService>();
+        services.AddScoped<IAgreementTypeService, AgreementTypeService>();
         services.AddScoped<IAgreementService, AgreementService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IMaintenanceService, MaintenanceService>();
         services.AddScoped<ITimeLogService, TimeLogService>();
         services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<ITicketReportService, TicketReportService>();
+        services.AddSingleton<IEthiopianTimeService, EthiopianTimeService>();
+        services.AddScoped<ITrainerWorkloadService, TrainerWorkloadService>();
         services.AddScoped<ISessionService, SessionService>();
 
         services.Configure<AiReportingOptions>(
@@ -171,19 +176,49 @@ public static class DependencyInjection
 
         await db.Database.MigrateAsync();
 
+        // AgreementTypes (Support/Training) must exist before anything else
+        // seeds an Agreement against them, AND must exist on every startup
+        // (not just a fresh database) since the training-before-support
+        // gate depends on them by name — see EnsureCoreAgreementTypesAsync.
+        await EnsureCoreAgreementTypesAsync(db);
+
         if (!await db.EmployeesSet.AnyAsync())
         {
             db.EmployeesSet.AddRange(SeedData.Employees());
             db.ClientsSet.AddRange(SeedData.Clients());
-            // Trainings before Agreements — an agreement can only reference
-            // a training via AgreementId once that training row exists.
-            db.AgreementTrainingsSet.AddRange(SeedData.Trainings());
-            db.AgreementsSet.AddRange(SeedData.Agreements());
+            db.SystemProductsSet.AddRange(SeedData.SystemProducts());
+            await db.SaveChangesAsync();
 
+            // Agreements before TrainingSessions — a TrainingSession's key
+            // IS its Agreement's id (one-to-one), so the Agreement row must
+            // exist first.
+            db.AgreementsSet.AddRange(SeedData.Agreements());
+            await db.SaveChangesAsync();
+
+            db.TrainingSessionsSet.AddRange(SeedData.TrainingSessions());
             await db.SaveChangesAsync();
         }
 
         await EnsureDemoAccountsAsync(db);
+    }
+
+    /// <summary>
+    /// Guarantees the two business-rule-critical AgreementTypes (Support,
+    /// Training — see AgreementTypeNames) exist, on every startup,
+    /// regardless of whether the database is fresh or already has data.
+    /// Upserts by Name rather than by the fixed seed Guid, since an older
+    /// deploy predating this migration won't have the row at all yet.
+    /// </summary>
+    private static async Task EnsureCoreAgreementTypesAsync(AppDbContext db)
+    {
+        foreach (var coreType in SeedData.CoreAgreementTypes())
+        {
+            var exists = await db.AgreementTypesSet.AnyAsync(t => t.Name == coreType.Name);
+            if (!exists)
+                db.AgreementTypesSet.Add(coreType);
+        }
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>

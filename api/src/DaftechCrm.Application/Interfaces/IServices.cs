@@ -51,6 +51,18 @@ public interface IEmployeeService
     /// <summary>Updates the plain profile fields (name, email, phone, specialization). Roles/IPs/status have their own dedicated endpoints.</summary>
     Task<EmployeeDto> UpdateAsync(Guid employeeId, UpdateEmployeeRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Replaces this employee's full set of responsibilities (Admin,
+    /// EmployeeTechnician, Trainer) with the given list — an Admin can add,
+    /// remove, or change responsibilities at any time; an employee can
+    /// hold Technician and Trainer simultaneously (see EmployeeRole). Does
+    /// not touch profile fields, IP allowlist, or account status. Removing
+    /// Trainer from an employee currently assigned to an in-progress
+    /// TrainingSession does not un-assign them — see AgreementService — an
+    /// Admin who wants that must reassign the training separately.
+    /// </summary>
+    Task<EmployeeDto> SetResponsibilitiesAsync(Guid employeeId, SetEmployeeResponsibilitiesRequest request, CancellationToken ct = default);
+
     /// <summary>Soft-deletes the account (removes it from active lists/login, revokes sessions) — tickets/time logs/etc. it's referenced by are left intact.</summary>
     Task DeleteAsync(Guid employeeId, CancellationToken ct = default);
 
@@ -143,14 +155,18 @@ public interface ITokenService
     Task RevokeAsync(string rawRefreshToken, string ipAddress, CancellationToken ct = default);
 }
 
+/// <summary>Manages the SystemProduct layer between Client and Agreement — see SystemProduct.</summary>
 public interface IAgreementService
 {
     /// <summary>
-    /// Creates (signs) the support agreement. SignDate is always set to
-    /// today by the server — creating an Agreement IS the admin's act of
-    /// signing it. Throws InvalidOperationException if the client has no
-    /// training with EndDate set yet, since training is mandatory and must
-    /// finish before the agreement can be signed.
+    /// Creates (signs) an agreement for a Client → SystemProduct, under the
+    /// given AgreementType. SignDate is admin-entered (not forced to
+    /// today). If AgreementTypeId resolves to the Support type, throws
+    /// InvalidOperationException unless the same SystemProduct already has
+    /// a Training agreement with TrainingSession.EndDate set — training
+    /// must finish first, per-SystemProduct. Always inserts a new row —
+    /// never updates or replaces an existing agreement, even a prior one
+    /// for the same SystemProduct/AgreementType.
     /// </summary>
     Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default);
@@ -159,11 +175,12 @@ public interface IAgreementService
     Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
 
     Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
+    Task<IReadOnlyList<AgreementDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
     Task<IReadOnlyList<AgreementDto>> GetExpiringSoonAsync(CancellationToken ct = default);
     Task<AgreementDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>True if the client has at least one training with EndDate set — the precondition for signing an agreement. Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
-    Task<bool> ClientHasCompletedTrainingAsync(Guid clientId, CancellationToken ct = default);
+    /// <summary>True if the given SystemProduct has a Training agreement with EndDate set — the precondition for signing a Support agreement for that SAME system/product. Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
+    Task<bool> SystemProductHasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default);
 
     /// <summary>
     /// Uploads and attaches a scanned document to the agreement. If the
@@ -176,35 +193,134 @@ public interface IAgreementService
     /// <summary>Retrieves the agreement's attached scanned file, or null if none is attached or the agreement doesn't exist.</summary>
     Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
 
-    /// <summary>All trainings recorded for a client, regardless of whether an agreement has been signed yet.</summary>
-    Task<IReadOnlyList<AgreementTrainingDto>> GetTrainingsForClientAsync(Guid clientId, CancellationToken ct = default);
+    /// <summary>The TrainingSession for a Training-type agreement, or null if the agreement isn't a Training agreement or doesn't exist.</summary>
+    Task<TrainingSessionDto?> GetTrainingSessionAsync(Guid agreementId, CancellationToken ct = default);
+
+    /// <summary>Sets/updates the TrainingSession fields for a Training-type agreement. All fields optional/incremental. Throws if the agreement isn't a Training agreement.</summary>
+    Task<TrainingSessionDto> SaveTrainingSessionAsync(Guid agreementId, SaveTrainingSessionRequest request, CancellationToken ct = default);
+
+    /// <summary>Uploads/replaces the scanned document (e.g. sign-in sheet) for a Training agreement's session.</summary>
+    Task<TrainingSessionDto> UploadTrainingScanAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>Retrieves a training session's attached scan, or null if none is attached or the agreement doesn't exist.</summary>
+    Task<RetrievedFile?> DownloadTrainingScanAsync(Guid agreementId, CancellationToken ct = default);
+}
+
+/// <summary>Manages the SystemProduct layer between Client and Agreement — see SystemProduct.</summary>
+public interface ISystemProductService
+{
+    /// <summary>Creates a new system/product for a client. Never overwrites or replaces an existing one — a client accumulates as many as it has.</summary>
+    Task<SystemProductDto> CreateAsync(CreateSystemProductRequest request, CancellationToken ct = default);
+    Task<IReadOnlyList<SystemProductDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
+    Task<SystemProductDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<SystemProductDto> UpdateAsync(Guid id, UpdateSystemProductRequest request, CancellationToken ct = default);
+
+    /// <summary>Soft-deletes — agreements under this system/product are left intact for history.</summary>
+    Task DeleteAsync(Guid id, CancellationToken ct = default);
+}
+
+/// <summary>Manages the admin-editable AgreementType lookup (Support/Training always present — see AgreementTypeNames — plus any custom types an Admin adds).</summary>
+/// <summary>
+/// Workload-aware Trainer assignment — surfaces every eligible Trainer's
+/// current workload (open/pending/high-priority/overdue tickets, plus
+/// existing training assignments) and recommends the one with the most
+/// reasonable workload, without enforcing that choice. See
+/// TrainerWorkloadDtos.cs for the exact fields and weighting rationale.
+/// </summary>
+public interface ITrainerWorkloadService
+{
+    /// <summary>
+    /// Every Employee currently holding the Trainer responsibility (see
+    /// EmployeeRole.Trainer), each with their current workload snapshot,
+    /// plus which one the system recommends (the lowest WorkloadScore).
+    /// Disabled employees are excluded even if they still have the
+    /// Trainer role — they can't be assigned regardless. Returns an empty
+    /// EligibleTrainers list (RecommendedTrainerEmployeeId = null) if no
+    /// active employee currently holds the Trainer responsibility.
+    /// </summary>
+    Task<TrainerAssignmentRecommendationDto> GetEligibleTrainersAsync(CancellationToken ct = default);
+}
+
+public interface IAgreementTypeService
+{
+    Task<IReadOnlyList<AgreementTypeDto>> GetAllAsync(CancellationToken ct = default);
+    Task<AgreementTypeDto> CreateAsync(CreateAgreementTypeRequest request, CancellationToken ct = default);
+    Task<AgreementTypeDto> UpdateAsync(Guid id, UpdateAgreementTypeRequest request, CancellationToken ct = default);
+
+    /// <summary>Throws if the type is system-defined (Support/Training) or still has agreements referencing it.</summary>
+    Task DeleteAsync(Guid id, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Table-only reports for the Reports module (see TicketReportFilter and
+/// the six *ReportRow DTOs) — deliberately separate from IReportService,
+/// which backs the Dashboard's charts/KPIs. This split mirrors the
+/// product requirement that Reports = tables and Dashboard = charts/KPIs,
+/// and keeps the two from silently drifting onto shared query logic that
+/// would make the split hard to enforce later.
+/// </summary>
+public interface ITicketReportService
+{
+    Task<TableReportResult<CustomerSupportReportRow>> GetCustomerSupportReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+    Task<TableReportResult<EmployeePerformanceReportRow>> GetEmployeePerformanceReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+    Task<TableReportResult<RegionalReportRow>> GetRegionalReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+    Task<TableReportResult<FailureTypeReportRow>> GetFailureTypeReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+    Task<TableReportResult<ResolutionTimeReportRow>> GetResolutionTimeReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+    Task<TableReportResult<CustomerRatingReportRow>> GetCustomerRatingReportAsync(TicketReportFilter filter, PaginationQuery paging, CancellationToken ct = default);
+
+    /// <summary>Renders any one of the six reports as a PDF, given the same filter/rows the table view would show. reportType selects which of the six (case-insensitive: "customer-support", "employee-performance", "regional", "failure-type", "resolution-time", "customer-rating").</summary>
+    Task<byte[]> ExportPdfAsync(string reportType, TicketReportFilter filter, CancellationToken ct = default);
+
+    /// <summary>Renders any one of the six reports as CSV — the same filtered/unpaged row set as ExportPdfAsync, for spreadsheet use.</summary>
+    Task<string> ExportCsvAsync(string reportType, TicketReportFilter filter, CancellationToken ct = default);
+}
+{
+    /// <summary>
+    /// Creates (signs) an agreement for a Client → SystemProduct, under the
+    /// given AgreementType. SignDate is admin-entered (not forced to
+    /// today). If AgreementTypeId resolves to the Support type, throws
+    /// InvalidOperationException unless the same SystemProduct already has
+    /// a Training agreement with TrainingSession.EndDate set — training
+    /// must finish first, per-SystemProduct. Always inserts a new row —
+    /// never updates or replaces an existing agreement, even a prior one
+    /// for the same SystemProduct/AgreementType.
+    /// </summary>
+    Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default);
+    Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default);
+
+    /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Agreements table UI.</summary>
+    Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
+
+    Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
+    Task<IReadOnlyList<AgreementDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
+    Task<IReadOnlyList<AgreementDto>> GetExpiringSoonAsync(CancellationToken ct = default);
+    Task<AgreementDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>True if the given SystemProduct has a Training agreement with EndDate set — the precondition for signing a Support agreement for that SAME system/product. Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
+    Task<bool> SystemProductHasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default);
 
     /// <summary>
-    /// Creates a new, empty training row for a client — independent of any
-    /// agreement, since training must happen (and finish) before an
-    /// agreement can be signed at all. Fill in details afterward via
-    /// SaveTrainingAsync / UploadTrainingScanAsync.
+    /// Uploads and attaches a scanned document to the agreement. If the
+    /// agreement already has a file attached, the old one is deleted after
+    /// the new one is successfully saved (never before — a failed upload
+    /// should never destroy the existing file).
     /// </summary>
-    Task<AgreementTrainingDto> AddTrainingAsync(Guid clientId, CancellationToken ct = default);
+    Task<AgreementDto> UploadScannedFileAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
 
-    /// <summary>Sets/updates one training row's description and timeline. All fields optional; can be filled in incrementally. EndDate stays editable afterward (e.g. to push it out if training runs long).</summary>
-    Task<AgreementTrainingDto> SaveTrainingAsync(Guid clientId, Guid trainingId, SaveAgreementTrainingRequest request, CancellationToken ct = default);
+    /// <summary>Retrieves the agreement's attached scanned file, or null if none is attached or the agreement doesn't exist.</summary>
+    Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
 
-    /// <summary>Deletes a training row (and its scan file, if any).</summary>
-    Task DeleteTrainingAsync(Guid clientId, Guid trainingId, CancellationToken ct = default);
+    /// <summary>The TrainingSession for a Training-type agreement, or null if the agreement isn't a Training agreement or doesn't exist.</summary>
+    Task<TrainingSessionDto?> GetTrainingSessionAsync(Guid agreementId, CancellationToken ct = default);
 
-    /// <summary>
-    /// Uploads and attaches the scanned training document to a specific
-    /// training row — a separate file from the signed-agreement scan
-    /// above, since training is documented independently (scan +
-    /// description + timeline) per training session, before any agreement
-    /// exists. Same upload-then-delete-old-file-after-success pattern as
-    /// UploadScannedFileAsync.
-    /// </summary>
-    Task<AgreementTrainingDto> UploadTrainingScanAsync(Guid clientId, Guid trainingId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+    /// <summary>Sets/updates the TrainingSession fields for a Training-type agreement. All fields optional/incremental. Throws if the agreement isn't a Training agreement.</summary>
+    Task<TrainingSessionDto> SaveTrainingSessionAsync(Guid agreementId, SaveTrainingSessionRequest request, CancellationToken ct = default);
 
-    /// <summary>Retrieves a training row's attached scan, or null if none is attached or the training doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadTrainingScanAsync(Guid clientId, Guid trainingId, CancellationToken ct = default);
+    /// <summary>Uploads/replaces the scanned document (e.g. sign-in sheet) for a Training agreement's session.</summary>
+    Task<TrainingSessionDto> UploadTrainingScanAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>Retrieves a training session's attached scan, or null if none is attached or the agreement doesn't exist.</summary>
+    Task<RetrievedFile?> DownloadTrainingScanAsync(Guid agreementId, CancellationToken ct = default);
 }
 
 public interface IMaintenanceService
@@ -256,6 +372,17 @@ public interface IReportService
 
     /// <summary>System-wide snapshot for the admin Reports page's "Overall Operations" pie chart — every ticket by current status, plus headline counts.</summary>
     Task<OperationsOverviewDto> GetOperationsOverviewAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Everything the Dashboard's charts/KPI cards need in one call — bar
+    /// charts (region, failure type, employee performance), donut charts
+    /// (ticket status, rating distribution), line chart (monthly tickets/
+    /// resolved/on-time rate), and KPI cards. All computed live from
+    /// current ticket data and scoped by the given filter. Deliberately
+    /// separate from ITicketReportService (the Reports module's six
+    /// table-only reports) per the product's Reports-vs-Dashboard split.
+    /// </summary>
+    Task<DashboardDataDto> GetDashboardDataAsync(DashboardFilter filter, CancellationToken ct = default);
 }
 
 public interface ISatisfactionSurveyService

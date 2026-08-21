@@ -63,13 +63,22 @@ public class EmployeesController : ControllerBase
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
     }
 
-    /// <summary>Edits an existing employee's profile fields (name/email/phone/specialization). Roles, IP allow-list, and enable/disable each have their own endpoints.</summary>
+    /// <summary>Edits an existing employee's profile fields (name/email/phone/specialization). Responsibilities, IP allow-list, and enable/disable each have their own endpoints.</summary>
     [HttpPut("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<EmployeeDto>> Update(Guid id, [FromBody] UpdateEmployeeRequest request, CancellationToken ct)
     {
         try { return Ok(await _employees.UpdateAsync(id, request, ct)); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Replaces the employee's full set of responsibilities (Admin/EmployeeTechnician/Trainer) — an Admin can add, remove, or change these at any time. Not merged with the previous set — send the complete new list.</summary>
+    [HttpPut("{id:guid}/responsibilities")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<EmployeeDto>> SetResponsibilities(Guid id, [FromBody] SetEmployeeResponsibilitiesRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _employees.SetResponsibilitiesAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     /// <summary>Soft-deletes the account — removes it from the Employees list and blocks login, but keeps tickets/time logs/etc. it's referenced by intact.</summary>

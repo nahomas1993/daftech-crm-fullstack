@@ -5,7 +5,6 @@ import { EmployeeService } from '../../core/services/employee.service';
 import { AuthService } from '../../core/services/auth.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
-import { FailureTypeService } from '../../core/services/failure-type.service';
 import { MaintenanceCategory, MaintenanceStatus } from '../../core/models';
 
 const CATEGORIES: MaintenanceCategory[] = ['SQL/Database error', 'Front-end error', 'Back-end/server error', 'Security patch', 'Performance update'];
@@ -115,16 +114,11 @@ export class MaintenanceComponent {
   customCategory = '';
   extraCategories = signal<string[]>([]);
 
-  form: { category: string; performedByEmployeeId: string; status: MaintenanceStatus; description: string; remarks: string } = {
+  form: { category: MaintenanceCategory; performedByEmployeeId: string; status: MaintenanceStatus; description: string; remarks: string } = {
     category: 'SQL/Database error', performedByEmployeeId: '', status: 'InProgress', description: '', remarks: '',
   };
 
-  constructor(
-    public maintenance: MaintenanceService,
-    public employees: EmployeeService,
-    private auth: AuthService,
-    public failureTypes: FailureTypeService,
-  ) {
+  constructor(public maintenance: MaintenanceService, public employees: EmployeeService, private auth: AuthService) {
     effect(() => {
       const list = employees.activeEmployees();
       if (list.length > 0 && !this.form.performedByEmployeeId) {
@@ -133,19 +127,7 @@ export class MaintenanceComponent {
     });
   }
 
-  /**
-   * Built-in categories + admin-configured failure types (Settings -> Failure
-   * Types & SLA) + any custom category typed on this screen, de-duplicated so
-   * an admin-configured name that matches a built-in appears only once.
-   */
-  categories = computed<string[]>(() => {
-    const names = [
-      ...CATEGORIES,
-      ...this.failureTypes.types().map(f => f.name),
-      ...this.extraCategories(),
-    ];
-    return [...new Set(names.filter(n => !!n && n.trim().length > 0))];
-  });
+  categories = computed(() => [...CATEGORIES, ...this.extraCategories()]);
 
   filtered = computed(() => {
     const filter = this.categoryFilter();

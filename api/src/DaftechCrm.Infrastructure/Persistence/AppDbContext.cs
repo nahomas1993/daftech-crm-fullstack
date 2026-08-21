@@ -9,8 +9,10 @@ public class AppDbContext : DbContext, IAppDbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<Client> ClientsSet => Set<Client>();
+    public DbSet<SystemProduct> SystemProductsSet => Set<SystemProduct>();
+    public DbSet<AgreementType> AgreementTypesSet => Set<AgreementType>();
     public DbSet<Agreement> AgreementsSet => Set<Agreement>();
-    public DbSet<AgreementTraining> AgreementTrainingsSet => Set<AgreementTraining>();
+    public DbSet<TrainingSession> TrainingSessionsSet => Set<TrainingSession>();
     public DbSet<Ticket> TicketsSet => Set<Ticket>();
     public DbSet<TicketAuditEntry> TicketAuditEntriesSet => Set<TicketAuditEntry>();
     public DbSet<Employee> EmployeesSet => Set<Employee>();
@@ -30,8 +32,10 @@ public class AppDbContext : DbContext, IAppDbContext
 
     // IAppDbContext — exposed as IQueryable so Application services never depend on DbSet<T> directly.
     public IQueryable<Client> Clients => ClientsSet;
+    public IQueryable<SystemProduct> SystemProducts => SystemProductsSet;
+    public IQueryable<AgreementType> AgreementTypes => AgreementTypesSet;
     public IQueryable<Agreement> Agreements => AgreementsSet;
-    public IQueryable<AgreementTraining> AgreementTrainings => AgreementTrainingsSet;
+    public IQueryable<TrainingSession> TrainingSessions => TrainingSessionsSet;
     public IQueryable<Ticket> Tickets => TicketsSet;
     public IQueryable<TicketAuditEntry> TicketAuditEntries => TicketAuditEntriesSet;
     public IQueryable<Employee> Employees => EmployeesSet;

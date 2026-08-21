@@ -187,6 +187,26 @@ public class EmployeeService : IEmployeeService
         return await ToDto(employee, ct);
     }
 
+    /// <summary>See IEmployeeService.SetResponsibilitiesAsync. Replaces the full Roles list — an Admin adding Trainer to an existing Technician sends [EmployeeTechnician, Trainer], not just [Trainer].</summary>
+    public async Task<EmployeeDto> SetResponsibilitiesAsync(Guid employeeId, SetEmployeeResponsibilitiesRequest request, CancellationToken ct = default)
+    {
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Employee not found.");
+
+        if (request.Roles.Count == 0)
+            throw new InvalidOperationException("An employee must have at least one responsibility.");
+
+        // De-duplicate defensively — the request is client-supplied and
+        // Roles is stored as a delimited string (see EntityConfigurations),
+        // so a duplicate here would otherwise silently double up in that
+        // string rather than being rejected.
+        employee.Roles = request.Roles.Distinct().ToList();
+
+        _db.Update(employee);
+        await _db.SaveChangesAsync(ct);
+        return await ToDto(employee, ct);
+    }
+
     public async Task DeleteAsync(Guid employeeId, CancellationToken ct = default)
     {
         var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted, ct)

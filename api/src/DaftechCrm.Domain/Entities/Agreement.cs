@@ -2,24 +2,41 @@ using DaftechCrm.Domain.Enums;
 
 namespace DaftechCrm.Domain.Entities;
 
+/// <summary>
+/// One agreement, signed for a specific Client → SystemProduct, under a
+/// specific AgreementType (Support, Training, or any admin-defined type).
+/// A SystemProduct can carry multiple agreements (e.g. one Training
+/// agreement and one Support agreement, or several Support agreements
+/// over time as each expires and is renewed) — creating a new Agreement
+/// never overwrites or replaces an existing one; each has its own
+/// SignDate/dates/status/details and its own row (see
+/// AgreementService.CreateAsync, which only ever inserts).
+///
+/// Client is still reachable via SystemProduct.Client, but no longer
+/// stored directly on Agreement — that FK moved to SystemProduct when the
+/// SystemProduct layer was introduced (see SeedData/migration
+/// 20260819000000_AddSystemProductAndAgreementType, which backfills one
+/// SystemProduct per client for every pre-existing agreement).
+/// </summary>
 public class Agreement
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid ClientId { get; set; }
-    public Client Client { get; set; } = default!;
+
+    public Guid SystemProductId { get; set; }
+    public SystemProduct SystemProduct { get; set; } = default!;
+
+    public Guid AgreementTypeId { get; set; }
+    public AgreementType AgreementType { get; set; } = default!;
 
     public string DocumentNumber { get; set; } = default!;
     public string? ScannedFileUrl { get; set; }
     public string AgreementPlace { get; set; } = default!;
 
     /// <summary>
-    /// The support agreement's signing/start date. Admin-entered — set to
-    /// today when the admin signs the agreement (see
-    /// AgreementService.CreateAsync). An Agreement can only be created once
-    /// the client has at least one completed training (a Training with
-    /// EndDate set), since training is mandatory and must finish before
-    /// Daftech and the client sign the support agreement — see
-    /// AgreementService.CreateAsync for the enforcement of that rule.
+    /// The date this agreement was signed. Admin-entered directly (no
+    /// longer forced to "today" — see requirement: Admin can record the
+    /// actual signed date, including backdating a paper agreement signed
+    /// earlier). Still defaults to today in the UI as a convenience.
     /// </summary>
     public DateOnly SignDate { get; set; }
 
@@ -28,16 +45,16 @@ public class Agreement
     public AgreementStatus Status { get; set; } = AgreementStatus.Active;
     public BillingTier BillingTier { get; set; }
 
+    /// <summary>Free-text notes/details specific to this agreement — e.g. scope clarifications, special terms. Optional.</summary>
+    public string? Details { get; set; }
+
     /// <summary>
-    /// Trainings delivered to this agreement's client that were already
-    /// completed as of signing time (see AgreementService.CreateAsync,
-    /// which links the client's completed trainings here). Not the source
-    /// of truth for a client's full training history — that lives on
-    /// AgreementTraining.ClientId regardless of AgreementId, since training
-    /// can be recorded before any agreement exists. This collection is
-    /// "which trainings had happened as of this agreement being signed."
+    /// Populated only for a Training-type agreement: the full training
+    /// workflow record (participants, attendance, topics, trainer, etc.)
+    /// backing this agreement. Null for a Support (or other non-Training)
+    /// agreement. See TrainingSession.
     /// </summary>
-    public ICollection<AgreementTraining> Trainings { get; set; } = new List<AgreementTraining>();
+    public TrainingSession? TrainingSession { get; set; }
 
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
 
@@ -45,7 +62,8 @@ public class Agreement
     /// A ticket raised against this agreement is Free while today falls within
     /// [SignDate, SignDate + SupportWindowMonths]; Chargeable afterward.
     /// Mirrors the frontend's AgreementService.isWithinSupportWindow so both
-    /// sides agree on the derived chargeable flag.
+    /// sides agree on the derived chargeable flag. Meaningful for Support
+    /// agreements; Training agreements don't carry tickets.
     /// </summary>
     public bool IsWithinSupportWindow(DateOnly onDate)
     {

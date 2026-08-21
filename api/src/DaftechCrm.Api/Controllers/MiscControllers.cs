@@ -1,6 +1,7 @@
 using DaftechCrm.Api.Auth;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
+using DaftechCrm.Domain.Entities;
 using DaftechCrm.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -105,12 +106,126 @@ public class ClientsController : ControllerBase
 }
 
 [ApiController]
+[Route("api/system-products")]
+[Authorize(Policy = AuthorizationPolicies.AnyAuthenticated)]
+public class SystemProductsController : ControllerBase
+{
+    private readonly ISystemProductService _systemProducts;
+    public SystemProductsController(ISystemProductService systemProducts) => _systemProducts = systemProducts;
+
+    /// <summary>A client may only list their own systems/products; any employee may list any client's.</summary>
+    [HttpGet("client/{clientId:guid}")]
+    public async Task<ActionResult<IReadOnlyList<SystemProductDto>>> GetForClient(Guid clientId, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _systemProducts.GetForClientAsync(clientId, ct));
+    }
+
+    /// <summary>Creates a new system/product for a client. Never overwrites or replaces one the client already has.</summary>
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> Create([FromBody] CreateSystemProductRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.CreateAsync(request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>A client may only fetch their own system/product; any employee may fetch any.</summary>
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<SystemProductDto>> GetById(Guid id, CancellationToken ct)
+    {
+        var sp = await _systemProducts.GetByIdAsync(id, ct);
+        if (sp is null) return NotFound();
+
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != sp.ClientId)
+            return NotFound();
+
+        return Ok(sp);
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> Update(Guid id, [FromBody] UpdateSystemProductRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Soft-deletes — the system/product's agreement and training history stays intact under the client, just hidden from the active list.</summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _systemProducts.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+}
+
+[ApiController]
+[Route("api/agreement-types")]
+[Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+public class AgreementTypesController : ControllerBase
+{
+    private readonly IAgreementTypeService _agreementTypes;
+    public AgreementTypesController(IAgreementTypeService agreementTypes) => _agreementTypes = agreementTypes;
+
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<AgreementTypeDto>>> GetAll(CancellationToken ct) => Ok(await _agreementTypes.GetAllAsync(ct));
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<AgreementTypeDto>> Create([FromBody] CreateAgreementTypeRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _agreementTypes.CreateAsync(request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<AgreementTypeDto>> Update(Guid id, [FromBody] UpdateAgreementTypeRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _agreementTypes.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _agreementTypes.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+}
+
+[ApiController]
 [Route("api/agreements")]
 [Authorize(Policy = AuthorizationPolicies.AnyAuthenticated)]
 public class AgreementsController : ControllerBase
 {
     private readonly IAgreementService _agreements;
-    public AgreementsController(IAgreementService agreements) => _agreements = agreements;
+    private readonly ITrainerWorkloadService _trainerWorkload;
+    public AgreementsController(IAgreementService agreements, ITrainerWorkloadService trainerWorkload)
+    {
+        _agreements = agreements;
+        _trainerWorkload = trainerWorkload;
+    }
+
+    /// <summary>
+    /// Every eligible Trainer's current workload plus a recommendation —
+    /// shown to Admin when assigning (or reassigning) a Training
+    /// agreement's TrainingSession.TrainerEmployeeId (see
+    /// SaveTrainingSession below). Not scoped to one agreement/system-
+    /// product — workload is about the Trainer's overall current load,
+    /// not this specific assignment.
+    /// </summary>
+    [HttpGet("trainer-workload")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<TrainerAssignmentRecommendationDto>> GetTrainerWorkload(CancellationToken ct) =>
+        Ok(await _trainerWorkload.GetEligibleTrainersAsync(ct));
 
     [HttpGet]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
@@ -133,15 +248,22 @@ public class AgreementsController : ControllerBase
         return Ok(await _agreements.GetForClientAsync(clientId, ct));
     }
 
+    /// <summary>Any employee may list a system/product's agreements. Ownership is enforced one level up (via the client), so this endpoint is employee-only — the client portal calls GetForClient instead.</summary>
+    [HttpGet("system-product/{systemProductId:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    public async Task<ActionResult<IReadOnlyList<AgreementDto>>> GetForSystemProduct(Guid systemProductId, CancellationToken ct) =>
+        Ok(await _agreements.GetForSystemProductAsync(systemProductId, ct));
+
     [HttpGet("expiring-soon")]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<IReadOnlyList<AgreementDto>>> GetExpiringSoon(CancellationToken ct) => Ok(await _agreements.GetExpiringSoonAsync(ct));
 
     /// <summary>
-    /// Creates (signs) the support agreement. Rejected with 409 if the
-    /// client has no completed training yet — training is mandatory and
-    /// must finish before Daftech and the client sign the support
-    /// agreement.
+    /// Creates (signs) an agreement for a Client's System/Product, under the
+    /// given AgreementType. Rejected with 409 if a Support agreement is
+    /// requested but the same system/product has no completed training yet
+    /// — training must finish first, per system/product. Always inserts a
+    /// new row — never overwrites an existing agreement.
     /// </summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
@@ -159,19 +281,15 @@ public class AgreementsController : ControllerBase
     }
 
     /// <summary>
-    /// Whether the client has at least one training with an End Date set —
-    /// the precondition for signing an agreement. A client may only check
-    /// their own status; any employee may check any client's.
+    /// Whether the given system/product has a Training agreement with an
+    /// End Date set — the precondition for signing a Support agreement for
+    /// that SAME system/product. Any employee may check any system/product
+    /// (ownership is enforced one level up, via the client).
     /// </summary>
-    [HttpGet("client/{clientId:guid}/training-complete")]
-    public async Task<ActionResult<bool>> ClientHasCompletedTraining(Guid clientId, CancellationToken ct)
-    {
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client && callerId != clientId)
-            return this.ForbidOwnership();
-
-        return Ok(await _agreements.ClientHasCompletedTrainingAsync(clientId, ct));
-    }
+    [HttpGet("system-product/{systemProductId:guid}/training-complete")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    public async Task<ActionResult<bool>> SystemProductHasCompletedTraining(Guid systemProductId, CancellationToken ct) =>
+        Ok(await _agreements.SystemProductHasCompletedTrainingAsync(systemProductId, ct));
 
     /// <summary>A client may only fetch their own agreement by id; any employee may fetch any agreement.</summary>
     [HttpGet("{id:guid}")]
@@ -232,70 +350,49 @@ public class AgreementsController : ControllerBase
         var file = await _agreements.DownloadScannedFileAsync(id, ct);
         return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
-}
 
-/// <summary>
-/// Client-scoped training records — deliberately NOT nested under
-/// /api/agreements/{id}/trainings, because training happens (and must
-/// finish) BEFORE any agreement exists for a client. See
-/// AgreementService.CreateAsync for where a completed training becomes
-/// the precondition for signing an agreement.
-/// </summary>
-[ApiController]
-[Route("api/clients/{clientId:guid}/trainings")]
-[Authorize(Policy = AuthorizationPolicies.AnyAuthenticated)]
-public class ClientTrainingsController : ControllerBase
-{
-    private readonly IAgreementService _agreements;
-    public ClientTrainingsController(IAgreementService agreements) => _agreements = agreements;
-
-    /// <summary>A client may only list their own trainings; any employee may list any client's.</summary>
-    [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AgreementTrainingDto>>> GetForClient(Guid clientId, CancellationToken ct)
+    /// <summary>
+    /// The training-session record for a Training-type agreement. Reachable
+    /// from here as well as from the Client and System/Product detail
+    /// pages (all three call this same endpoint by agreement id) — see
+    /// requirement that training records must be accessible from the
+    /// Client, System/Product, and Agreement. A client may only fetch their
+    /// own; null (404) if the agreement isn't a Training agreement.
+    /// </summary>
+    [HttpGet("{id:guid}/training-session")]
+    public async Task<ActionResult<TrainingSessionDto>> GetTrainingSession(Guid id, CancellationToken ct)
     {
+        var a = await _agreements.GetByIdAsync(id, ct);
+        if (a is null) return NotFound();
+
         var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client && callerId != clientId)
-            return this.ForbidOwnership();
+        if (callerType == SessionAccountType.Client && callerId != a.ClientId)
+            return NotFound();
 
-        return Ok(await _agreements.GetTrainingsForClientAsync(clientId, ct));
-    }
-
-    /// <summary>Adds a new, empty training row for the client — filled in and saved independently via PUT.</summary>
-    [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<AgreementTrainingDto>> AddTraining(Guid clientId, CancellationToken ct)
-    {
-        try { return Ok(await _agreements.AddTrainingAsync(clientId, ct)); }
-        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
-    }
-
-    /// <summary>Sets/updates one training row's description and timeline (start date + end date). EndDate stays editable even after being set, so the admin can push it out if training runs long.</summary>
-    [HttpPut("{trainingId:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<AgreementTrainingDto>> SaveTraining(Guid clientId, Guid trainingId, [FromBody] SaveAgreementTrainingRequest request, CancellationToken ct)
-    {
-        try { return Ok(await _agreements.SaveTrainingAsync(clientId, trainingId, request, ct)); }
-        catch (Application.ValidationException ex) { return BadRequest(ex.Message); }
-        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
-    }
-
-    /// <summary>Deletes a training row.</summary>
-    [HttpDelete("{trainingId:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<IActionResult> DeleteTraining(Guid clientId, Guid trainingId, CancellationToken ct)
-    {
-        try { await _agreements.DeleteTrainingAsync(clientId, trainingId, ct); return NoContent(); }
-        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+        var session = await _agreements.GetTrainingSessionAsync(id, ct);
+        return session is null ? NotFound() : Ok(session);
     }
 
     /// <summary>
-    /// Uploads (or replaces) the scanned copy of one training row's
-    /// document. Accepts multipart/form-data with a single "file" field.
+    /// Sets/updates the training session's fields — trainer assignment,
+    /// dates, location, participants, attendance, topics, issues, trainer
+    /// comments, client representative confirmation, completion status, and
+    /// follow-up. All fields optional/incremental — the Admin/Trainer fills
+    /// this in as the session progresses.
     /// </summary>
-    [HttpPost("{trainingId:guid}/scan")]
+    [HttpPut("{id:guid}/training-session")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<TrainingSessionDto>> SaveTrainingSession(Guid id, [FromBody] SaveTrainingSessionRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _agreements.SaveTrainingSessionAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>Uploads (or replaces) the scanned document (e.g. sign-in sheet) for a training session.</summary>
+    [HttpPost("{id:guid}/training-session/scan")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
     [RequestSizeLimit(20 * 1024 * 1024)]
-    public async Task<ActionResult<AgreementTrainingDto>> UploadTrainingScan(Guid clientId, Guid trainingId, IFormFile file, CancellationToken ct)
+    public async Task<ActionResult<TrainingSessionDto>> UploadTrainingScan(Guid id, IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
             return BadRequest("No file was provided.");
@@ -303,7 +400,7 @@ public class ClientTrainingsController : ControllerBase
         try
         {
             await using var stream = file.OpenReadStream();
-            var dto = await _agreements.UploadTrainingScanAsync(clientId, trainingId, stream, file.FileName, file.ContentType, ct);
+            var dto = await _agreements.UploadTrainingScanAsync(id, stream, file.FileName, file.ContentType, ct);
             return Ok(dto);
         }
         catch (InvalidOperationException ex)
@@ -316,15 +413,18 @@ public class ClientTrainingsController : ControllerBase
         }
     }
 
-    /// <summary>Streams a training row's scan back to the caller with its original content type. A client may only download their own training's scan.</summary>
-    [HttpGet("{trainingId:guid}/scan")]
-    public async Task<IActionResult> DownloadTrainingScan(Guid clientId, Guid trainingId, CancellationToken ct)
+    /// <summary>Streams a training session's scan back to the caller. A client may only download their own.</summary>
+    [HttpGet("{id:guid}/training-session/scan")]
+    public async Task<IActionResult> DownloadTrainingScan(Guid id, CancellationToken ct)
     {
+        var a = await _agreements.GetByIdAsync(id, ct);
+        if (a is null) return NotFound();
+
         var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client && callerId != clientId)
+        if (callerType == SessionAccountType.Client && callerId != a.ClientId)
             return NotFound();
 
-        var file = await _agreements.DownloadTrainingScanAsync(clientId, trainingId, ct);
+        var file = await _agreements.DownloadTrainingScanAsync(id, ct);
         return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
 }
@@ -503,6 +603,18 @@ public class ReportsController : ControllerBase
         Ok(await _reports.GetOperationsOverviewAsync(ct));
 
     /// <summary>
+    /// Everything the Dashboard's charts/KPI cards need in one call. All
+    /// query parameters are optional; an unset filter simply doesn't
+    /// narrow that dimension. This is the Dashboard's data source —
+    /// TicketReportsController (/api/ticket-reports) is the Reports
+    /// module's, per the product's Reports-vs-Dashboard split.
+    /// </summary>
+    [HttpGet("dashboard")]
+    public async Task<ActionResult<DashboardDataDto>> GetDashboard(
+        [FromQuery] DateOnly? fromDate, [FromQuery] DateOnly? toDate, [FromQuery] string? region, CancellationToken ct) =>
+        Ok(await _reports.GetDashboardDataAsync(new DashboardFilter(fromDate, toDate, region), ct));
+
+    /// <summary>
     /// Written/graphical performance metrics for one employee. Pass
     /// includeAiNarrative=true to also request the optional AI summary —
     /// omit or set false to skip the AI call entirely (e.g. for a fast
@@ -532,6 +644,104 @@ public class ReportsController : ControllerBase
 
         return Ok(await _reports.SummarizeTabularReportAsync(data, ct));
     }
+}
+
+/// <summary>
+/// The Reports module — six table-only reports (Customer/Support,
+/// Employee Performance, Regional, Failure-Type, Resolution-Time,
+/// Customer-Rating), each filterable/searchable/paginated/exportable.
+/// Deliberately a separate controller/route from ReportsController above:
+/// that one feeds the Dashboard's charts/KPIs, this one is Reports —
+/// tables only, per the product's Reports-vs-Dashboard split. All GET
+/// filter parameters are optional and bind from the query string.
+/// </summary>
+[ApiController]
+[Route("api/ticket-reports")]
+[Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+public class TicketReportsController : ControllerBase
+{
+    private readonly ITicketReportService _reports;
+    public TicketReportsController(ITicketReportService reports) => _reports = reports;
+
+    [HttpGet("customer-support")]
+    public async Task<ActionResult<TableReportResult<CustomerSupportReportRow>>> CustomerSupport(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetCustomerSupportReportAsync(filter.ToFilter(), paging, ct));
+
+    [HttpGet("employee-performance")]
+    public async Task<ActionResult<TableReportResult<EmployeePerformanceReportRow>>> EmployeePerformance(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetEmployeePerformanceReportAsync(filter.ToFilter(), paging, ct));
+
+    [HttpGet("regional")]
+    public async Task<ActionResult<TableReportResult<RegionalReportRow>>> Regional(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetRegionalReportAsync(filter.ToFilter(), paging, ct));
+
+    [HttpGet("failure-type")]
+    public async Task<ActionResult<TableReportResult<FailureTypeReportRow>>> FailureType(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetFailureTypeReportAsync(filter.ToFilter(), paging, ct));
+
+    [HttpGet("resolution-time")]
+    public async Task<ActionResult<TableReportResult<ResolutionTimeReportRow>>> ResolutionTime(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetResolutionTimeReportAsync(filter.ToFilter(), paging, ct));
+
+    [HttpGet("customer-rating")]
+    public async Task<ActionResult<TableReportResult<CustomerRatingReportRow>>> CustomerRating(
+        [FromQuery] TicketReportFilterQuery filter, [FromQuery] PaginationQuery paging, CancellationToken ct) =>
+        Ok(await _reports.GetCustomerRatingReportAsync(filter.ToFilter(), paging, ct));
+
+    /// <summary>Downloads the full filtered (unpaged) report as a PDF. reportType: customer-support | employee-performance | regional | failure-type | resolution-time | customer-rating.</summary>
+    [HttpGet("{reportType}/export/pdf")]
+    public async Task<IActionResult> ExportPdf(string reportType, [FromQuery] TicketReportFilterQuery filter, CancellationToken ct)
+    {
+        try
+        {
+            var bytes = await _reports.ExportPdfAsync(reportType, filter.ToFilter(), ct);
+            return File(bytes, "application/pdf", $"{reportType}-report.pdf");
+        }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>Downloads the full filtered (unpaged) report as CSV.</summary>
+    [HttpGet("{reportType}/export/csv")]
+    public async Task<IActionResult> ExportCsv(string reportType, [FromQuery] TicketReportFilterQuery filter, CancellationToken ct)
+    {
+        try
+        {
+            var csv = await _reports.ExportCsvAsync(reportType, filter.ToFilter(), ct);
+            return File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv", $"{reportType}-report.csv");
+        }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+}
+
+/// <summary>
+/// Query-string-bindable mirror of TicketReportFilter — a plain record
+/// with positional params doesn't bind cleanly from ASP.NET's [FromQuery]
+/// model binder, so this class (settable properties, parameterless
+/// constructor) is what the query string actually binds to, then
+/// converts to the real TicketReportFilter the service layer expects.
+/// </summary>
+public class TicketReportFilterQuery
+{
+    public DateOnly? FromDate { get; set; }
+    public DateOnly? ToDate { get; set; }
+    public int? Month { get; set; }
+    public string? Region { get; set; }
+    public string? Zone { get; set; }
+    public string? Woreda { get; set; }
+    public Guid? EmployeeId { get; set; }
+    public Guid? FailureTypeId { get; set; }
+    public TicketStatus? Status { get; set; }
+    public SupportPhase? SupportPhase { get; set; }
+    public string? Search { get; set; }
+
+    public TicketReportFilter ToFilter() => new(
+        FromDate, ToDate, Month, Region, Zone, Woreda, EmployeeId, FailureTypeId, Status, SupportPhase, Search
+    );
 }
 
 [ApiController]

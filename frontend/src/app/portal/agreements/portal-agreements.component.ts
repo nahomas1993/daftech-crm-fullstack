@@ -1,12 +1,17 @@
-import { Component, computed, effect } from '@angular/core';
+import { Component, computed, effect, signal } from '@angular/core';
 import { AuthService } from '../../core/services/auth.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { BadgeComponent } from '../../shared/badge.component';
 
 /**
  * Client-facing view of all of the logged-in client's agreements — a
- * client can have multiple over time, each with its own training
- * session(s). Read-only: uploads/edits stay staff-side. Populated via
+ * client can have multiple systems/products, and each can have multiple
+ * agreements over time (e.g. a Training agreement followed by a Support
+ * agreement). Read-only: uploads/edits stay staff-side, but the client
+ * CAN view/download the scanned copy of their own signed agreement — the
+ * backend already scopes GET /agreements/{id}/scanned-file to the owning
+ * client (see AgreementsController.DownloadScannedFile), this page just
+ * needed a button wired to it. Populated via
  * AgreementService.refreshMyAgreements()/forClient(), the client-scoped
  * endpoint (see AgreementService class comments for why this is kept
  * separate from the staff-only full agreements list).
@@ -17,40 +22,57 @@ import { BadgeComponent } from '../../shared/badge.component';
   imports: [BadgeComponent],
   template: `
     <h1>Agreements</h1>
-    <p class="text-muted" style="margin-top:0.3rem;">All agreements on file for your organization.</p>
+    <p class="text-muted" style="margin-top:0.3rem;">All agreements on file for your organization, by system/product.</p>
 
     @for (a of agreements(); track a.id) {
       <div class="panel panel-pad agreement-card">
         <div class="header-row">
           <div>
-            <h3 style="margin:0;">{{ a.documentNumber }}</h3>
-            <p class="text-muted" style="margin:0.2rem 0 0; font-size:0.82rem;">{{ a.agreementPlace }}</p>
+            <h3 style="margin:0;">{{ a.systemProductName }} — {{ a.agreementTypeName }}</h3>
+            <p class="text-muted mono" style="margin:0.2rem 0 0; font-size:0.8rem;">{{ a.documentNumber }} · {{ a.agreementPlace }}</p>
           </div>
           <app-badge [status]="a.status"></app-badge>
         </div>
 
         <dl>
-          <dt>Sign Date</dt>
+          <dt>Signed Date</dt>
           <dd>{{ a.signDate }}</dd>
           <dt>Expiry</dt><dd>{{ a.expiryDate }}</dd>
-          <dt>Support Window</dt><dd>{{ a.supportWindowMonths }} months</dd>
-          <dt>Billing Tier</dt><dd>{{ a.billingTier }}</dd>
+          @if (a.agreementTypeName === 'Support') {
+            <dt>Support Window</dt><dd>{{ a.supportWindowMonths }} months</dd>
+            <dt>Billing Tier</dt><dd>{{ a.billingTier }}</dd>
+          }
+          @if (a.details) { <dt>Details</dt><dd>{{ a.details }}</dd> }
         </dl>
 
-        @if (a.trainings.length > 0) {
+        <div class="doc-row">
+          @if (a.scannedFileUrl) {
+            <button class="btn btn-outline btn-sm" [disabled]="downloadingId() === a.id" (click)="downloadScan(a.id)">
+              {{ downloadingId() === a.id ? 'Opening…' : '📄 View Scanned Agreement' }}
+            </button>
+          } @else {
+            <span class="text-muted" style="font-size:0.8rem;">No scanned copy has been uploaded for this agreement yet.</span>
+          }
+        </div>
+        @if (downloadError() && downloadErrorFor() === a.id) {
+          <p class="doc-error">{{ downloadError() }}</p>
+        }
+
+        @if (a.trainingSession; as ts) {
           <h4 style="margin: 1rem 0 0.5rem;">Training</h4>
-          <div class="table-scroll"><table>
-            <thead><tr><th>Start</th><th>End</th><th>Description</th></tr></thead>
-            <tbody>
-              @for (t of a.trainings; track t.id) {
-                <tr>
-                  <td>{{ t.startDate || '—' }}</td>
-                  <td>{{ t.endDate || '—' }}</td>
-                  <td class="text-muted">{{ t.description || '—' }}</td>
-                </tr>
-              }
-            </tbody>
-          </table></div>
+          <dl>
+            <dt>Start</dt><dd>{{ ts.startDate || '—' }}</dd>
+            <dt>End</dt><dd>{{ ts.endDate || 'In progress' }}</dd>
+            <dt>Status</dt><dd>{{ ts.completionStatus }}</dd>
+            @if (ts.topicsCovered) { <dt>Topics Covered</dt><dd>{{ ts.topicsCovered }}</dd> }
+          </dl>
+          @if (ts.scanFileName) {
+            <div class="doc-row">
+              <button class="btn btn-outline btn-sm" [disabled]="downloadingTrainingId() === a.id" (click)="downloadTrainingScan(a.id)">
+                {{ downloadingTrainingId() === a.id ? 'Opening…' : '📄 View Training Sign-In Sheet' }}
+              </button>
+            </div>
+          }
         }
       </div>
     }
@@ -66,9 +88,16 @@ import { BadgeComponent } from '../../shared/badge.component';
     dl { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin-top: 0.9rem; font-size: 0.85rem; }
     dt { color: var(--slate-500); font-weight: 600; }
     dd { margin: 0; }
+    .doc-row { margin-top: 0.9rem; }
+    .doc-error { color: var(--red); font-size: 0.8rem; margin-top: 0.5rem; }
   `],
 })
 export class PortalAgreementsComponent {
+  downloadingId = signal<string | null>(null);
+  downloadingTrainingId = signal<string | null>(null);
+  downloadError = signal<string | null>(null);
+  downloadErrorFor = signal<string | null>(null);
+
   constructor(private auth: AuthService, private agreementsSvc: AgreementService) {
     effect(() => {
       const client = this.auth.currentClient();
@@ -82,4 +111,46 @@ export class PortalAgreementsComponent {
     const client = this.auth.currentClient();
     return client ? this.agreementsSvc.forClient(client.id) : [];
   });
+
+  private openBlob(blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    // Open in a new tab rather than forcing a download — a client
+    // reviewing their own signed agreement usually wants to read it, not
+    // save a copy; they can still save from the browser's viewer if they
+    // want to.
+    window.open(url, '_blank', 'noopener');
+    // Give the new tab a moment to actually load the blob URL before
+    // revoking it — revoking immediately can race the tab's navigation.
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+
+  async downloadScan(agreementId: string) {
+    this.downloadingId.set(agreementId);
+    this.downloadError.set(null);
+    try {
+      const blob = await this.agreementsSvc.downloadScannedFile(agreementId);
+      this.openBlob(blob);
+    } catch (err) {
+      this.downloadError.set('Could not open this document — please try again.');
+      this.downloadErrorFor.set(agreementId);
+      console.error('Failed to download scanned agreement', err);
+    } finally {
+      this.downloadingId.set(null);
+    }
+  }
+
+  async downloadTrainingScan(agreementId: string) {
+    this.downloadingTrainingId.set(agreementId);
+    this.downloadError.set(null);
+    try {
+      const blob = await this.agreementsSvc.downloadTrainingScan(agreementId);
+      this.openBlob(blob);
+    } catch (err) {
+      this.downloadError.set('Could not open this document — please try again.');
+      this.downloadErrorFor.set(agreementId);
+      console.error('Failed to download training scan', err);
+    } finally {
+      this.downloadingTrainingId.set(null);
+    }
+  }
 }

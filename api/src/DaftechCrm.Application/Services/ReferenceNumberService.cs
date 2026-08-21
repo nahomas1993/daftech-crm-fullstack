@@ -22,6 +22,9 @@ public class ReferenceNumberService
     public async Task<string> GenerateAgreementDocumentNumberAsync(CancellationToken ct = default) =>
         await GenerateAsync("AGR", async candidate => await _db.Agreements.AnyAsync(a => a.DocumentNumber == candidate, ct), ct);
 
+    public async Task<string> GenerateSystemProductRefAsync(CancellationToken ct = default) =>
+        await GenerateAsync("SYS", async candidate => await _db.SystemProducts.AnyAsync(s => s.ReferenceNumber == candidate, ct), ct);
+
     private static async Task<string> GenerateAsync(string prefix, Func<string, Task<bool>> existsAsync, CancellationToken ct)
     {
         var year = DateTime.UtcNow.Year;

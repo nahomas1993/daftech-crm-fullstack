@@ -1,26 +1,29 @@
 import { Component, computed, effect, input, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { RouterLink, ActivatedRoute } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
+import { SystemProductService } from '../../core/services/system-product.service';
 import { AgreementService } from '../../core/services/agreement.service';
+import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { BadgeComponent } from '../../shared/badge.component';
-import { TICKET_CATEGORY_LABELS, BillingTier, AgreementTraining } from '../../core/models';
+import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/models';
 
 /**
- * Client → Training → Agreements. Reads agreements from
- * forClientStaffView() (the staff-only full agreements list, already
- * loaded for every Admin/Employee session) — see AgreementService for why
- * that's the correct source for a staff session.
+ * Client -> System/Product -> Agreement -> Agreement Type. Each
+ * System/Product is its own expandable panel; agreements for it are
+ * fetched and shown per-panel. Signing a Support agreement for a
+ * System/Product is blocked until that SAME System/Product has a Training
+ * agreement with an End Date set (see AgreementService.CreateAsync on the
+ * backend — this UI mirrors that gate but the server is the source of
+ * truth). Creating a new System/Product or Agreement never overwrites an
+ * existing one — everything here is additive.
  *
- * Training now belongs to the client directly and exists independently of
- * any agreement — a client can (and must) have a completed training
- * (an End Date set) before an agreement can be signed at all. The
- * training panel is keyed by client, always visible, and the "Add
- * Agreement" action is blocked with a clear message until training is
- * complete — matching the server-side hard-block in
- * AgreementService.CreateAsync.
+ * Supports a `?tab=agreements` query param so the "Continue to Agreement"
+ * redirect after Admin registers a new client (see
+ * ClientsListComponent.continueToAgreement) can land the Admin straight on
+ * this section — see the effect() in the constructor.
  */
 @Component({
   selector: 'app-client-detail',
@@ -38,151 +41,157 @@ import { TICKET_CATEGORY_LABELS, BillingTier, AgreementTraining } from '../../co
         <app-badge [status]="c.accountStatus"></app-badge>
       </div>
 
-      <div class="grid">
-        <div class="panel panel-pad">
-          <h3>Profile</h3>
-          <dl>
-            <dt>Phone</dt><dd>{{ c.phoneNumber }}</dd>
-            <dt>KYC Type</dt><dd>{{ c.kycType }}</dd>
-            <dt>KYC Contact</dt><dd>{{ c.kycContact }}</dd>
-            @if (c.itSupportContact) { <dt>IT Support Contact</dt><dd>{{ c.itSupportContact }}</dd> }
-            <dt>Onboarded</dt><dd>{{ c.onboardingDate }}</dd>
-            @if (c.rejectionReason) { <dt>Rejection Reason</dt><dd class="text-muted">{{ c.rejectionReason }}</dd> }
-          </dl>
-        </div>
-
-        <div class="panel panel-pad">
-          <div class="header-row">
-            <h3 style="margin:0;">Training</h3>
-            <button class="btn btn-outline btn-sm" (click)="addTrainingRow(c.id)" [disabled]="submitting()">+ Add Training</button>
-          </div>
-          <p class="text-muted" style="font-size:0.78rem; margin: 0.3rem 0 0;">
-            Recorded before any agreement — the support agreement can be signed below once at least one training has an End Date.
-            End Date stays editable afterward if training runs long.
-          </p>
-
-          @if (trainingError()) { <p class="upload-error" style="margin-top:0.75rem;">{{ trainingError() }}</p> }
-
-          @for (row of trainingRows(); track row.training.id) {
-            <div class="training-row">
-              <div class="header-row">
-                <h5 style="margin:0;">Training {{ $index + 1 }}</h5>
-                <button class="btn btn-outline btn-sm" (click)="deleteTrainingRow(c.id, row.training.id)" [disabled]="submitting()">Delete</button>
-              </div>
-              <div class="form-grid" style="margin-top:0.6rem;">
-                <div class="field">
-                  <label>Start Date</label>
-                  <input type="date" [ngModel]="row.startDate" (ngModelChange)="row.startDate = $event" />
-                </div>
-                <div class="field">
-                  <label>End Date</label>
-                  <input type="date" [ngModel]="row.endDate" (ngModelChange)="row.endDate = $event" />
-                </div>
-                <div class="field" style="grid-column: 1 / -1;">
-                  <label>Description</label>
-                  <textarea rows="3" maxlength="1000" [ngModel]="row.description" (ngModelChange)="row.description = $event"></textarea>
-                  <span class="text-muted" style="font-size:0.72rem; align-self:flex-end;">{{ row.description.length }}/1000</span>
-                </div>
-                <div class="field">
-                  <label>Scan</label>
-                  <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" (change)="onTrainingFileSelected($event, row)" />
-                  @if (row.selectedFile) {
-                    <span class="text-muted" style="font-size:0.75rem;">{{ row.selectedFile.name }}</span>
-                  } @else if (row.training.scanFileName) {
-                    <span class="text-muted" style="font-size:0.75rem;">
-                      Current: {{ row.training.scanFileName }}
-                      <button class="btn btn-outline btn-sm" style="margin-left:0.5rem;" (click)="downloadTrainingScan(c.id, row.training.id)">Download</button>
-                    </span>
-                  }
-                </div>
-              </div>
-              <button class="btn btn-primary btn-sm" style="margin-top:0.7rem;" (click)="saveTrainingRow(c.id, row)" [disabled]="submitting()">
-                {{ submitting() ? 'Saving…' : 'Save Training ' + ($index + 1) }}
-              </button>
-            </div>
-          }
-          @empty {
-            <p class="text-muted" style="margin-top:0.75rem;">No trainings yet — click "+ Add Training" to add one.</p>
-          }
-        </div>
+      <div class="panel panel-pad">
+        <h3>Profile</h3>
+        <dl>
+          <dt>Phone</dt><dd>{{ c.phoneNumber }}</dd>
+          <dt>KYC Type</dt><dd>{{ c.kycType }}</dd>
+          <dt>KYC Contact</dt><dd>{{ c.kycContact }}</dd>
+          @if (c.itSupportContact) { <dt>IT Support Contact</dt><dd>{{ c.itSupportContact }}</dd> }
+          <dt>Onboarded</dt><dd>{{ c.onboardingDate }}</dd>
+          @if (c.rejectionReason) { <dt>Rejection Reason</dt><dd class="text-muted">{{ c.rejectionReason }}</dd> }
+        </dl>
       </div>
 
-      <div class="panel panel-pad" style="margin-top:1.25rem;">
+      <div class="panel panel-pad" id="agreements-section" style="margin-top:1.25rem;">
         <div class="header-row">
-          <h3 style="margin:0;">Agreements</h3>
-          <button class="btn btn-primary btn-sm" (click)="toggleForm(c.id)">
-            {{ showForm() ? 'Cancel' : '+ Add Agreement' }}
+          <h3 style="margin:0;">Systems / Products & Agreements</h3>
+          <button class="btn btn-primary btn-sm" (click)="toggleNewSystemForm()">
+            {{ showNewSystemForm() ? 'Cancel' : '+ Add System/Product' }}
           </button>
         </div>
         <p class="text-muted" style="font-size:0.78rem; margin: 0.3rem 0 0;">
-          A client may have multiple agreements — each new one shown below is independent.
+          A client may have multiple systems/products, and each may carry multiple agreements — nothing shown here is ever overwritten by adding another.
         </p>
 
-        @if (showForm()) {
+        @if (showNewSystemForm()) {
           <div class="add-form">
             <div class="form-grid">
               <div class="field">
-                <label>Agreement Place</label>
-                <input type="text" [ngModel]="form.agreementPlace" (ngModelChange)="form.agreementPlace = $event" placeholder="Addis Ababa" />
+                <label>Name</label>
+                <input type="text" [ngModel]="newSystemForm.name" (ngModelChange)="newSystemForm.name = $event" placeholder="e.g. Branch POS System" />
               </div>
               <div class="field">
-                <label>Support Window (months)</label>
-                <input type="number" [ngModel]="form.supportWindowMonths" (ngModelChange)="form.supportWindowMonths = $event" />
+                <label>Deployment Date (optional)</label>
+                <input type="date" [ngModel]="newSystemForm.deploymentDate" (ngModelChange)="newSystemForm.deploymentDate = $event" />
               </div>
-              <div class="field">
-                <label>Billing Tier</label>
-                <select [ngModel]="form.billingTier" (ngModelChange)="form.billingTier = $event">
-                  <option value="Basic">Basic</option>
-                  <option value="Intermediate">Intermediate</option>
-                  <option value="Advanced">Advanced</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Scanned Document</label>
-                <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" (change)="onFileSelected($event)" />
-                @if (selectedFile()) { <span class="text-muted" style="font-size:0.75rem;">{{ selectedFile()!.name }}</span> }
+              <div class="field" style="grid-column: 1 / -1;">
+                <label>Description (optional)</label>
+                <textarea rows="2" [ngModel]="newSystemForm.description" (ngModelChange)="newSystemForm.description = $event"></textarea>
               </div>
             </div>
-
-            @if (trainingCheckPending()) {
-              <p class="text-muted" style="font-size:0.76rem; margin: 0.8rem 0 0;">Checking training status…</p>
-            } @else if (canSign() === false) {
-              <p class="upload-error" style="margin: 0.8rem 0 0;">
-                This client has no completed training yet (see Training panel above). Training must finish before the support agreement can be signed.
-              </p>
-            } @else {
-              <p class="text-muted" style="font-size:0.76rem; margin: 0.8rem 0 0;">
-                Sign Date is set to today when you save — creating this agreement is the act of signing it.
-              </p>
-            }
-
-            @if (uploadError()) { <p class="upload-error" style="margin-top:0.75rem;">{{ uploadError() }}</p> }
-            <button class="btn btn-primary" style="margin-top:1rem;" (click)="submit(c.id)" [disabled]="submitting() || canSign() === false">
-              {{ submitting() ? 'Saving…' : 'Sign Agreement' }}
+            @if (systemError()) { <p class="upload-error" style="margin-top:0.75rem;">{{ systemError() }}</p> }
+            <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="savingSystem()" (click)="submitNewSystem(c.id)">
+              {{ savingSystem() ? 'Saving…' : 'Add System/Product' }}
             </button>
           </div>
         }
 
-        <div class="table-scroll" style="margin-top:1rem;"><table>
-          <thead><tr><th>Doc #</th><th>Sign Date</th><th>Expiry</th><th>Tier</th><th>Status</th><th>Document</th></tr></thead>
-          <tbody>
-            @for (a of agreements(); track a.id) {
-              <tr>
-                <td class="mono">{{ a.documentNumber }}</td>
-                <td>{{ a.signDate }}</td>
-                <td>{{ a.expiryDate }}</td>
-                <td>{{ a.billingTier }}</td>
-                <td><app-badge [status]="a.status"></app-badge></td>
-                <td>
-                  @if (a.scannedFileUrl) {
-                    <button class="btn btn-outline btn-sm" (click)="download(a.id)">Download</button>
-                  } @else { <span class="text-muted">None</span> }
-                </td>
-              </tr>
+        @for (sp of systemProducts(); track sp.id) {
+          <div class="system-product-panel">
+            <div class="header-row">
+              <div>
+                <h4 style="margin:0;">{{ sp.name }}</h4>
+                <p class="text-muted mono" style="margin: 0.15rem 0 0; font-size:0.75rem;">{{ sp.referenceNumber }}</p>
+                @if (sp.description) { <p class="text-muted" style="font-size:0.8rem; margin:0.3rem 0 0;">{{ sp.description }}</p> }
+              </div>
+              <button class="btn btn-outline btn-sm" (click)="toggleAgreementForm(sp.id)">
+                {{ agreementFormOpenFor() === sp.id ? 'Cancel' : '+ New Agreement' }}
+              </button>
+            </div>
+
+            @if (agreementFormOpenFor() === sp.id) {
+              <div class="add-form">
+                <div class="form-grid">
+                  <div class="field">
+                    <label>Agreement Type</label>
+                    <select [ngModel]="agreementForm.agreementTypeId" (ngModelChange)="onAgreementTypeChange(sp.id, $event)">
+                      <option value="">Select type…</option>
+                      @for (t of agreementTypesSvc.types(); track t.id) {
+                        <option [value]="t.id">{{ t.name }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Agreement Place</label>
+                    <input type="text" [ngModel]="agreementForm.agreementPlace" (ngModelChange)="agreementForm.agreementPlace = $event" placeholder="Addis Ababa" />
+                  </div>
+                  <div class="field">
+                    <label>Signed Date</label>
+                    <input type="date" [ngModel]="agreementForm.signDate" (ngModelChange)="agreementForm.signDate = $event" />
+                  </div>
+                  <div class="field">
+                    <label>Support Window (months)</label>
+                    <input type="number" [ngModel]="agreementForm.supportWindowMonths" (ngModelChange)="agreementForm.supportWindowMonths = $event" />
+                  </div>
+                  <div class="field">
+                    <label>Billing Tier</label>
+                    <select [ngModel]="agreementForm.billingTier" (ngModelChange)="agreementForm.billingTier = $event">
+                      <option value="Basic">Basic</option>
+                      <option value="Intermediate">Intermediate</option>
+                      <option value="Advanced">Advanced</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Scanned Document</label>
+                    <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" (change)="onFileSelected($event)" />
+                    @if (selectedFile()) { <span class="text-muted" style="font-size:0.75rem;">{{ selectedFile()!.name }}</span> }
+                  </div>
+                  <div class="field" style="grid-column: 1 / -1;">
+                    <label>Details (optional)</label>
+                    <textarea rows="2" [ngModel]="agreementForm.details" (ngModelChange)="agreementForm.details = $event"></textarea>
+                  </div>
+                </div>
+
+                @if (isSelectedTypeSupport()) {
+                  @if (trainingCheckPending()) {
+                    <p class="text-muted" style="font-size:0.76rem; margin: 0.8rem 0 0;">Checking training status for this system/product…</p>
+                  } @else if (canSignSupport() === false) {
+                    <p class="upload-error" style="margin: 0.8rem 0 0;">
+                      This system/product has no completed training yet. A Training agreement must be signed and finished (End Date set) before a Support agreement can be signed for it.
+                    </p>
+                  }
+                }
+
+                @if (uploadError()) { <p class="upload-error" style="margin-top:0.75rem;">{{ uploadError() }}</p> }
+                <button class="btn btn-primary" style="margin-top:1rem;" (click)="submitAgreement(sp.id)"
+                        [disabled]="submitting() || !agreementForm.agreementTypeId || (isSelectedTypeSupport() && canSignSupport() === false)">
+                  {{ submitting() ? 'Saving…' : 'Sign Agreement' }}
+                </button>
+              </div>
             }
-            @empty { <tr><td colspan="6" class="text-muted">No agreements on file.</td></tr> }
-          </tbody>
-        </table></div>
+
+            <div class="table-scroll" style="margin-top:0.85rem;"><table>
+              <thead><tr><th>Type</th><th>Doc #</th><th>Sign Date</th><th>Expiry</th><th>Tier</th><th>Status</th><th>Document</th><th></th></tr></thead>
+              <tbody>
+                @for (a of agreementsFor(sp.id); track a.id) {
+                  <tr>
+                    <td>{{ a.agreementTypeName }}</td>
+                    <td class="mono">{{ a.documentNumber }}</td>
+                    <td>{{ a.signDate }}</td>
+                    <td>{{ a.expiryDate }}</td>
+                    <td>{{ a.billingTier }}</td>
+                    <td><app-badge [status]="a.status"></app-badge></td>
+                    <td>
+                      @if (a.scannedFileUrl) {
+                        <button class="btn btn-outline btn-sm" (click)="download(a.id)">Download</button>
+                      } @else { <span class="text-muted">None</span> }
+                    </td>
+                    <td>
+                      @if (a.agreementTypeName === 'Training') {
+                        <a [routerLink]="['/admin/clients', c.id, 'training', a.id]" class="btn btn-outline btn-sm">Training Session</a>
+                      }
+                    </td>
+                  </tr>
+                }
+                @empty { <tr><td colspan="8" class="text-muted">No agreements yet for this system/product.</td></tr> }
+              </tbody>
+            </table></div>
+          </div>
+        }
+        @empty {
+          <p class="text-muted" style="margin-top:0.9rem;">No systems/products yet — click "+ Add System/Product" to add this client's first one.</p>
+        }
       </div>
 
       <div class="panel panel-pad" style="margin-top:1.25rem;">
@@ -211,13 +220,11 @@ import { TICKET_CATEGORY_LABELS, BillingTier, AgreementTraining } from '../../co
   styles: [`
     .back { display: inline-block; margin-bottom: 1rem; font-size: 0.82rem; color: var(--slate-500); }
     .header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
-    .grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.25rem; align-items: start; }
     dl { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 1rem; margin-top: 0.75rem; font-size: 0.85rem; }
     dt { color: var(--slate-500); font-weight: 600; }
     dd { margin: 0; }
-    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     .add-form { margin-top: 0.9rem; padding: 0.9rem; border: 1px solid var(--slate-200); border-radius: 10px; }
-    .training-row { margin-top: 0.85rem; padding: 0.75rem; border: 1px solid var(--slate-200); border-radius: 8px; }
+    .system-product-panel { margin-top: 1rem; padding: 0.9rem; border: 1px solid var(--slate-200); border-radius: 10px; }
     .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; }
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.76rem; font-weight: 600; color: var(--slate-500); }
@@ -227,66 +234,153 @@ import { TICKET_CATEGORY_LABELS, BillingTier, AgreementTraining } from '../../co
 export class ClientDetailComponent {
   id = input.required<string>();
 
-  showForm = signal(false);
+  showNewSystemForm = signal(false);
+  savingSystem = signal(false);
+  systemError = signal<string | null>(null);
+  newSystemForm = { name: '', description: '', deploymentDate: '' };
+
+  agreementFormOpenFor = signal<string | null>(null);
   submitting = signal(false);
   uploadError = signal<string | null>(null);
   selectedFile = signal<File | null>(null);
 
-  trainingRows = signal<TrainingRowState[]>([]);
-  trainingError = signal<string | null>(null);
-
-  canSign = signal<boolean | null>(null);
+  canSignSupport = signal<boolean | null>(null);
   trainingCheckPending = signal(false);
 
-  form: {
-    agreementPlace: string;
-    supportWindowMonths: number; billingTier: BillingTier;
-  } = this.blankForm();
+  // Agreements fetched per system/product, keyed by systemProductId — a
+  // client may have several system/products, each with its own agreement
+  // list, so this isn't a single flat cache like the old client-level
+  // agreements list was.
+  private agreementsBySystemProduct = signal<Record<string, Agreement[]>>({});
+
+  agreementForm: {
+    agreementTypeId: string; agreementPlace: string; signDate: string;
+    supportWindowMonths: number; billingTier: BillingTier; details: string;
+  } = this.blankAgreementForm();
 
   constructor(
     private clientsSvc: ClientService,
+    private systemProductsSvc: SystemProductService,
     public agreementsSvc: AgreementService,
-    private ticketsSvc: TicketService
+    public agreementTypesSvc: AgreementTypeService,
+    private ticketsSvc: TicketService,
+    private route: ActivatedRoute,
   ) {
-    // Load this client's trainings as soon as the client id is known —
-    // the panel is always visible now, not gated behind an agreement.
+    // Load this client's systems/products as soon as the client id is
+    // known, then each one's agreements.
     effect(() => {
       const clientId = this.id();
-      if (clientId) void this.refreshTrainings(clientId);
+      if (clientId) void this.refreshSystemProducts(clientId);
+    });
+
+    // Supports the ?tab=agreements redirect from
+    // ClientsListComponent.continueToAgreement — scrolls the Agreements
+    // section into view once the page has rendered.
+    effect(() => {
+      const clientId = this.id();
+      const tab = this.route.snapshot.queryParamMap.get('tab');
+      if (clientId && tab === 'agreements') {
+        setTimeout(() => document.getElementById('agreements-section')?.scrollIntoView({ behavior: 'smooth' }), 150);
+      }
     });
   }
 
   client = computed(() => this.clientsSvc.getById(this.id()));
-  // Reads the staff-only full agreements list (already loaded for every
-  // Admin/Employee session) instead of the client-portal-only myAgreements
-  // list — see the class-level comment above for why the old forClient()
-  // call here never showed anything for a staff user.
-  agreements = computed(() => this.agreementsSvc.forClientStaffView(this.id()));
+  systemProducts = computed(() => this.systemProductsSvc.systemProductsFor(this.id()));
   tickets = computed(() => this.ticketsSvc.forClient(this.id()));
+
+  agreementsFor(systemProductId: string): Agreement[] {
+    return this.agreementsBySystemProduct()[systemProductId] ?? [];
+  }
+
+  isSelectedTypeSupport = computed(() => {
+    const type = this.agreementTypesSvc.types().find(t => t.id === this.agreementForm.agreementTypeId);
+    return type?.name === 'Support';
+  });
 
   categoryLabel(c: string): string {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
   }
 
-  private blankForm() {
+  private blankAgreementForm() {
     return {
-      agreementPlace: '',
-      supportWindowMonths: 12, billingTier: 'Basic' as BillingTier,
+      agreementTypeId: '', agreementPlace: '', signDate: new Date().toISOString().slice(0, 10),
+      supportWindowMonths: 12, billingTier: 'Basic' as BillingTier, details: '',
     };
   }
 
-  toggleForm(clientId: string) {
-    this.showForm.set(!this.showForm());
-    if (this.showForm()) void this.refreshTrainingCheck(clientId);
+  private async refreshSystemProducts(clientId: string) {
+    const list = await this.systemProductsSvc.refreshForClient(clientId);
+    await Promise.all(list.map(sp => this.refreshAgreementsFor(sp.id)));
   }
 
-  private async refreshTrainingCheck(clientId: string) {
+  private async refreshAgreementsFor(systemProductId: string) {
+    try {
+      const list = await this.agreementsSvc.fetchForSystemProduct(systemProductId);
+      this.agreementsBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
+    } catch (err) {
+      console.error('Failed to load agreements for system/product', err);
+    }
+  }
+
+  toggleNewSystemForm() {
+    this.systemError.set(null);
+    this.showNewSystemForm.set(!this.showNewSystemForm());
+  }
+
+  /** Always creates a brand-new SystemProduct — never overwrites or replaces one the client already has. */
+  async submitNewSystem(clientId: string) {
+    if (!this.newSystemForm.name.trim()) {
+      this.systemError.set('Name is required.');
+      return;
+    }
+    this.savingSystem.set(true);
+    this.systemError.set(null);
+    try {
+      await this.systemProductsSvc.create({
+        clientId,
+        name: this.newSystemForm.name,
+        description: this.newSystemForm.description || undefined,
+        deploymentDate: this.newSystemForm.deploymentDate || undefined,
+      });
+      this.newSystemForm = { name: '', description: '', deploymentDate: '' };
+      this.showNewSystemForm.set(false);
+    } catch (err: any) {
+      this.systemError.set(err?.error?.error ?? 'Could not add this system/product — please try again.');
+    } finally {
+      this.savingSystem.set(false);
+    }
+  }
+
+  toggleAgreementForm(systemProductId: string) {
+    if (this.agreementFormOpenFor() === systemProductId) {
+      this.agreementFormOpenFor.set(null);
+      return;
+    }
+    this.agreementFormOpenFor.set(systemProductId);
+    this.agreementForm = this.blankAgreementForm();
+    this.selectedFile.set(null);
+    this.uploadError.set(null);
+    this.canSignSupport.set(null);
+  }
+
+  async onAgreementTypeChange(systemProductId: string, agreementTypeId: string) {
+    this.agreementForm.agreementTypeId = agreementTypeId;
+    const type = this.agreementTypesSvc.types().find(t => t.id === agreementTypeId);
+    if (type?.name === 'Support') {
+      await this.refreshTrainingCheck(systemProductId);
+    } else {
+      this.canSignSupport.set(null);
+    }
+  }
+
+  private async refreshTrainingCheck(systemProductId: string) {
     this.trainingCheckPending.set(true);
     try {
-      this.canSign.set(await this.agreementsSvc.clientHasCompletedTraining(clientId));
+      this.canSignSupport.set(await this.agreementsSvc.systemProductHasCompletedTraining(systemProductId));
     } catch (err) {
       console.error('Failed to check training status', err);
-      this.canSign.set(null);
+      this.canSignSupport.set(null);
     } finally {
       this.trainingCheckPending.set(false);
     }
@@ -299,32 +393,41 @@ export class ClientDetailComponent {
   }
 
   /**
-   * Always creates a brand-new Agreement record scoped to this client —
-   * never touches or overwrites any existing agreement, so a client can
-   * accumulate several over time, all listed in the table below. Rejected
-   * with 409 by the server if training isn't complete yet.
+   * Always creates a brand-new Agreement scoped to this system/product —
+   * never touches or overwrites any existing agreement. Rejected with 409
+   * by the server if a Support agreement is requested but training isn't
+   * complete yet for this SAME system/product.
    */
-  async submit(clientId: string) {
-    if (this.canSign() === false) return;
+  async submitAgreement(systemProductId: string) {
+    if (this.isSelectedTypeSupport() && this.canSignSupport() === false) return;
 
     this.submitting.set(true);
     this.uploadError.set(null);
     try {
-      const created = await this.agreementsSvc.createAgreement({ clientId, ...this.form });
+      const created = await this.agreementsSvc.createAgreement({
+        systemProductId,
+        agreementTypeId: this.agreementForm.agreementTypeId,
+        agreementPlace: this.agreementForm.agreementPlace,
+        signDate: this.agreementForm.signDate,
+        supportWindowMonths: this.agreementForm.supportWindowMonths,
+        billingTier: this.agreementForm.billingTier,
+        details: this.agreementForm.details || undefined,
+      });
 
       const file = this.selectedFile();
       if (file) {
         await this.agreementsSvc.uploadScannedFile(created.id, file);
       }
 
-      this.showForm.set(false);
+      await this.refreshAgreementsFor(systemProductId);
+      this.agreementFormOpenFor.set(null);
       this.selectedFile.set(null);
-      this.form = this.blankForm();
+      this.agreementForm = this.blankAgreementForm();
     } catch (err: any) {
       if (err?.status === 409) {
-        this.uploadError.set(err?.error ?? 'This client has no completed training yet — the agreement cannot be signed.');
+        this.uploadError.set(err?.error ?? 'This system/product has no completed training yet — the Support agreement cannot be signed.');
       } else {
-        this.uploadError.set('The agreement was saved, but a later step failed. You can retry uploads from the agreements list below.');
+        this.uploadError.set('The agreement was saved, but a later step failed. You can retry uploads from the agreements list above.');
       }
       console.error(err);
     } finally {
@@ -345,107 +448,4 @@ export class ClientDetailComponent {
       console.error('Failed to download scanned document', err);
     }
   }
-
-  private toRowState(t: AgreementTraining): TrainingRowState {
-    return {
-      training: t,
-      description: t.description ?? '',
-      startDate: t.startDate?.slice(0, 10) ?? '',
-      endDate: t.endDate?.slice(0, 10) ?? '',
-      selectedFile: null,
-    };
-  }
-
-  private async refreshTrainings(clientId: string) {
-    try {
-      const trainings = await this.agreementsSvc.getTrainingsForClient(clientId);
-      this.trainingRows.set(trainings.map(t => this.toRowState(t)));
-    } catch (err) {
-      this.trainingError.set('Could not load trainings for this client.');
-      console.error(err);
-    }
-  }
-
-  async addTrainingRow(clientId: string) {
-    this.submitting.set(true);
-    this.trainingError.set(null);
-    try {
-      await this.agreementsSvc.addTraining(clientId);
-      await this.refreshTrainings(clientId);
-    } catch (err) {
-      this.trainingError.set('Could not add a new training row — please try again.');
-      console.error(err);
-    } finally {
-      this.submitting.set(false);
-    }
-  }
-
-  onTrainingFileSelected(evt: Event, row: TrainingRowState) {
-    const file = (evt.target as HTMLInputElement).files?.[0];
-    row.selectedFile = file ?? null;
-    this.trainingError.set(null);
-  }
-
-  async saveTrainingRow(clientId: string, row: TrainingRowState) {
-    this.submitting.set(true);
-    this.trainingError.set(null);
-    try {
-      await this.agreementsSvc.saveTraining(clientId, row.training.id, {
-        description: row.description || undefined,
-        startDate: row.startDate || undefined,
-        endDate: row.endDate || undefined,
-      });
-
-      if (row.selectedFile) {
-        await this.agreementsSvc.uploadTrainingScan(clientId, row.training.id, row.selectedFile);
-      }
-
-      await this.refreshTrainings(clientId);
-      // The agreement form's Sign button may now unlock if training just
-      // became complete — refresh the check if the form is open.
-      if (this.showForm()) void this.refreshTrainingCheck(clientId);
-    } catch (err) {
-      this.trainingError.set('Could not save this training — please try again.');
-      console.error(err);
-    } finally {
-      this.submitting.set(false);
-    }
-  }
-
-  async deleteTrainingRow(clientId: string, trainingId: string) {
-    this.submitting.set(true);
-    this.trainingError.set(null);
-    try {
-      await this.agreementsSvc.deleteTraining(clientId, trainingId);
-      await this.refreshTrainings(clientId);
-      if (this.showForm()) void this.refreshTrainingCheck(clientId);
-    } catch (err) {
-      this.trainingError.set('Could not delete this training — please try again.');
-      console.error(err);
-    } finally {
-      this.submitting.set(false);
-    }
-  }
-
-  async downloadTrainingScan(clientId: string, trainingId: string) {
-    try {
-      const blob = await this.agreementsSvc.downloadTrainingScan(clientId, trainingId);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to download training scan', err);
-    }
-  }
-}
-
-interface TrainingRowState {
-  training: AgreementTraining;
-  description: string;
-  startDate: string;
-  endDate: string;
-  selectedFile: File | null;
 }

@@ -8,7 +8,7 @@ import { AgreementService } from '../../core/services/agreement.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { TicketStatus } from '../../core/models';
+import { TICKET_CATEGORY_LABELS, TicketCategory, TicketStatus } from '../../core/models';
 
 type FilterKey = 'all' | 'pending' | 'accomplished' | 'escalated';
 
@@ -39,6 +39,14 @@ const REFRESH_INTERVAL_MS = 20_000;
         @if (!agreement()) {
           <p class="text-muted">No active agreement found on your account — please contact DAFTECH directly.</p>
         } @else {
+          <div class="field">
+            <label>Category</label>
+            <select [ngModel]="category()" (ngModelChange)="category.set($event)">
+              <option value="SqlDatabaseError">SQL/Database error</option>
+              <option value="Bug">Bug</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
           <div class="field" style="margin-top:0.8rem;">
             <label>Failure Type</label>
             @if (failureTypes.types().length > 0) {
@@ -121,17 +129,18 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     <div class="panel panel-pad" style="margin-top:1rem;">
       <div class="table-scroll"><table>
-      <thead><tr><th>Ticket #</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
+        <thead><tr><th>Ticket #</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
         <tbody>
           @for (t of filteredTickets(); track t.id) {
             <tr>
               <td class="mono">{{ t.id.slice(0,8).toUpperCase() }}</td>
+              <td>{{ categoryLabel(t.category) }}</td>
               <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
               <td class="text-muted">{{ t.assignedEmployeeName || '—' }}</td>
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
-              <td><app-badge [status]="t.status"></app-badge></td>
               <td class="text-muted" style="font-size:0.8rem;">{{ countdownLabel(t) }}</td>
+              <td><app-badge [status]="t.status"></app-badge></td>
               <td class="text-muted">{{ t.satisfactionStars ? (t.satisfactionStars + '★') : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
@@ -149,7 +158,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="10" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
+          @empty { <tr><td colspan="11" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
         </tbody>
       </table></div>
     </div>
@@ -183,6 +192,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 })
 export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
+  category = signal<TicketCategory>('Bug');
   failureTypeId = signal<string>('');
   description = signal('');
   selectedFile = signal<File | null>(null);
@@ -405,6 +415,9 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     }
   });
 
+  categoryLabel(c: string): string {
+    return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
+  }
 
   async submit() {
     const client = this.auth.currentClient();
@@ -430,7 +443,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
       }
 
       const ticket = await this.ticketsSvc.submitFromClient(
-        client.id, agreement.id, this.description().trim(), 'Other', this.failureTypeId() || undefined, voiceNote
+        client.id, agreement.id, this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote
       );
 
       const file = this.selectedFile();

@@ -66,3 +66,52 @@ public record EmployeePerformanceReportDto(
     string? AiNarrative,
     string? AiUnavailableReason
 );
+
+// --- Dashboard (charts + KPIs only — see TicketReportDtos.cs for the
+// Reports module's table-only DTOs; the two are intentionally separate
+// per the product's Reports-vs-Dashboard split) ---
+
+/// <summary>The Dashboard's KPI cards — total tickets, open, resolved, overdue, resolution rate, and customer satisfaction, all computed over whatever DashboardFilter the caller supplied.</summary>
+public record DashboardKpisDto(
+    int TotalTickets, int OpenTickets, int ResolvedTickets, int OverdueTickets,
+    double ResolutionRatePercent, double? AverageSatisfactionScore
+);
+
+/// <summary>One bar in the "tickets by region" chart.</summary>
+public record RegionTicketCountDto(string Region, int TicketCount);
+
+/// <summary>One bar in the "tickets by failure type" chart.</summary>
+public record FailureTypeTicketCountDto(string FailureTypeName, int TicketCount);
+
+/// <summary>One bar in the "employee performance" chart — resolved-ticket count per employee, for a quick at-a-glance comparison (the Reports module's Employee Performance table has the full breakdown).</summary>
+public record EmployeeTicketCountDto(string EmployeeName, int ResolvedCount);
+
+/// <summary>One point in a monthly trend line — Month is "yyyy-MM" so points sort and label naturally regardless of year boundaries.</summary>
+public record MonthlyPointDto(string Month, int TicketCount, int ResolvedCount, double? OnTimeRatePercent);
+
+/// <summary>One slice of the customer-rating distribution donut. Stars is in half-star increments (1, 1.5, 2, ..., 5) since half-star ratings are allowed — see Ticket.SatisfactionStars.</summary>
+public record RatingSliceDto(decimal Stars, int Count);
+
+/// <summary>
+/// Everything the Dashboard needs in one call — bar/donut/line chart data
+/// plus KPI cards, all computed over the same DashboardFilter so every
+/// chart on the page reflects the same filtered slice of tickets. See
+/// IReportService.GetDashboardDataAsync.
+/// </summary>
+public record DashboardDataDto(
+    DashboardKpisDto Kpis,
+    IReadOnlyList<RegionTicketCountDto> TicketsByRegion,
+    IReadOnlyList<FailureTypeTicketCountDto> TicketsByFailureType,
+    IReadOnlyList<EmployeeTicketCountDto> TicketsByEmployee,
+    IReadOnlyList<TicketStatusSliceDto> TicketsByStatus,
+    IReadOnlyList<RatingSliceDto> RatingDistribution,
+    IReadOnlyList<MonthlyPointDto> MonthlyTrend
+);
+
+/// <summary>
+/// Filters the Dashboard's charts/KPIs can be scoped by — a small subset
+/// of TicketReportFilter's dimensions (date range + region), since the
+/// Dashboard is a live at-a-glance view, not the deep per-dimension drill
+/// -down the Reports module's six tables provide.
+/// </summary>
+public record DashboardFilter(DateOnly? FromDate, DateOnly? ToDate, string? Region);

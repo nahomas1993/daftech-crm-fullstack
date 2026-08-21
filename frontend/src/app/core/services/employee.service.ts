@@ -142,9 +142,21 @@ export class EmployeeService {
     await Promise.all([this.refresh(), this.refreshPaged()]);
   }
 
-  /** Edits the plain profile fields — name/email/phone/specialization. Roles, IP allow-list, and enable/disable each have their own methods above. */
+  /** Edits the plain profile fields — name/email/phone/specialization. Responsibilities, IP allow-list, and enable/disable each have their own methods. */
   async updateEmployee(id: string, data: { fullName: string; email: string; phoneNumber: string; specialization: string }): Promise<void> {
     await firstValueFrom(this.http.put<Employee>(`${API_BASE_URL}/employees/${id}`, data));
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+  }
+
+  /**
+   * Replaces the employee's full set of responsibilities (Admin can add,
+   * remove, or change these at any time — e.g. adding Trainer to an
+   * existing Technician, or removing it later). Send the COMPLETE new
+   * list, not just the change — e.g. to add Trainer to someone who's
+   * already EmployeeTechnician, pass ['EmployeeTechnician', 'Trainer'].
+   */
+  async setResponsibilities(employeeId: string, roles: EmployeeRole[]): Promise<void> {
+    await firstValueFrom(this.http.put<Employee>(`${API_BASE_URL}/employees/${employeeId}/responsibilities`, { roles }));
     await Promise.all([this.refresh(), this.refreshPaged()]);
   }
 

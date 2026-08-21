@@ -47,15 +47,17 @@ type Answer = 'fixed' | 'not-fixed' | null;
               <span class="text-muted" style="font-size:0.85rem;">Great — how would you rate the resolution?</span>
               <div class="stars">
                 @for (s of [1,2,3,4,5]; track s) {
-                  <button
-                    class="star"
-                    [class.filled]="s <= (hoverStars() || selectedStars()[t.id] || 0)"
-                    (mouseenter)="hoverStars.set(s)"
-                    (mouseleave)="hoverStars.set(0)"
-                    (click)="selectStars(t.id, s)"
-                  >★</button>
+                  <span class="star-wrap">
+                    <span class="star-outline">★</span>
+                    <span class="star-fill" [style.width.%]="fillPercentFor(t.id, s)">★</span>
+                    <button class="star-hit star-hit-left" (mouseenter)="hoverStars.set(s - 0.5)" (mouseleave)="hoverStars.set(0)" (click)="selectStars(t.id, s - 0.5)" [attr.aria-label]="(s - 0.5) + ' stars'"></button>
+                    <button class="star-hit star-hit-right" (mouseenter)="hoverStars.set(s)" (mouseleave)="hoverStars.set(0)" (click)="selectStars(t.id, s)" [attr.aria-label]="s + ' stars'"></button>
+                  </span>
                 }
               </div>
+              @if (selectedStars()[t.id]) {
+                <span class="text-muted" style="font-size:0.8rem;">{{ selectedStars()[t.id] }} / 5</span>
+              }
             </div>
             <div class="btn-row">
               <button
@@ -81,11 +83,15 @@ type Answer = 'fixed' | 'not-fixed' | null;
     .desc { font-size: 0.9rem; }
     .yn-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
     .yn-buttons { display: flex; gap: 0.5rem; }
-    .rate-row { display: flex; align-items: center; gap: 0.75rem; }
+    .rate-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
     .btn-row { display: flex; gap: 0.5rem; align-items: center; }
     .stars { display: flex; gap: 0.15rem; }
-    .star { background: none; border: none; font-size: 1.5rem; line-height: 1; color: var(--slate-300); padding: 0; }
-    .star.filled { color: #f5b800; }
+    .star-wrap { position: relative; display: inline-block; width: 1.5rem; height: 1.5rem; font-size: 1.5rem; line-height: 1; }
+    .star-outline { position: absolute; inset: 0; color: var(--slate-300); }
+    .star-fill { position: absolute; inset: 0; color: #f5b800; overflow: hidden; white-space: nowrap; }
+    .star-hit { position: absolute; top: 0; bottom: 0; width: 50%; background: none; border: none; padding: 0; cursor: pointer; }
+    .star-hit-left { left: 0; }
+    .star-hit-right { right: 0; }
     .thanks { font-size: 0.85rem; color: var(--green); background: var(--green-bg); padding: 0.6rem 0.8rem; border-radius: 8px; }
   `],
 })
@@ -127,6 +133,14 @@ export class ConfirmResolutionComponent implements OnInit {
     await this.ticketsSvc.confirmResolution(ticketId, false);
     this.lastOutcome.set('reopened');
     this.submittedFor.set(ticketId);
+  }
+
+  /** How full a given star icon (1-5) should render, as a percentage — supports the half-fill needed for a 0.5 rating. Reflects hover if hovering, otherwise the already-selected rating. */
+  fillPercentFor(ticketId: string, starIndex: number): number {
+    const rating = this.hoverStars() || this.selectedStars()[ticketId] || 0;
+    if (rating >= starIndex) return 100;
+    if (rating >= starIndex - 0.5) return 50;
+    return 0;
   }
 
   selectStars(ticketId: string, stars: number) {

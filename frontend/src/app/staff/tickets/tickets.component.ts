@@ -6,7 +6,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
+import { TicketStatus, TicketPriority, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { formatRemaining } from '../../portal/maintenance-history/maintenance-history.component';
 
 /** How often to re-pull the ticket list while this page is open, so a
@@ -56,7 +56,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>Description</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Description</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Priority</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -66,13 +66,26 @@ const REFRESH_INTERVAL_MS = 20_000;
             >
               <td class="mono">{{ t.id.slice(0,8) }}</td>
               <td>{{ t.clientName }}</td>
-              <td class="text-muted" style="font-size:0.8rem; max-width:22rem; white-space:pre-wrap;">{{ t.description || '—' }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
+              <td class="description-cell" [title]="t.description">{{ t.description }}</td>
               <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
               <td class="text-muted">{{ t.assignedEmployeeName ?? '—' }}</td>
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td><app-badge [status]="t.status"></app-badge></td>
+              <td>
+                <select
+                  class="priority-select"
+                  [class.priority-high]="t.priority === 'High'"
+                  [value]="t.priority"
+                  [disabled]="updatingPriorityTicketId() === t.id"
+                  (change)="onPrioritySelect(t.id, $any($event.target).value)"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+              </td>
               <td class="text-muted" style="font-size:0.8rem;">
                 @if (t.expectedResolutionBy) {
                   {{ resolutionDeadlineLabel(t.expectedResolutionBy) }}
@@ -115,7 +128,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -138,6 +151,9 @@ const REFRESH_INTERVAL_MS = 20_000;
   `,
   styles: [`
     .status-error { color: var(--red); font-size: 0.76rem; margin: 0.35rem 0 0; }
+    .priority-select { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--slate-200); }
+    .priority-select.priority-high { border-color: var(--red); color: var(--red); font-weight: 600; }
+    .description-cell { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.82rem; }
     .status-success { color: #0f7b3d; background: rgba(16, 145, 74, 0.1); border: 1px solid rgba(16, 145, 74, 0.28); border-radius: 6px; font-size: 0.78rem; line-height: 1.35; font-weight: 600; margin: 0.4rem 0 0; padding: 0.35rem 0.5rem; }
     .row-faded { opacity: 0.45; filter: grayscale(35%); }
     .row-faded:hover { opacity: 0.75; filter: none; }
@@ -183,6 +199,20 @@ export class TicketsComponent implements OnInit, OnDestroy {
   updatingTicketId = signal<string | null>(null);
   statusError = signal<{ ticketId: string; message: string } | null>(null);
   statusSuccess = signal<{ ticketId: string; message: string } | null>(null);
+
+  updatingPriorityTicketId = signal<string | null>(null);
+
+  /** Priority updates immediately on selection — unlike status, it has no business logic gating it (any employee may set it), so a separate confirm step would just add friction. */
+  async onPrioritySelect(ticketId: string, value: string) {
+    this.updatingPriorityTicketId.set(ticketId);
+    try {
+      await this.tickets.setPriority(ticketId, value as TicketPriority);
+    } catch (err) {
+      console.error('Failed to update ticket priority', err);
+    } finally {
+      this.updatingPriorityTicketId.set(null);
+    }
+  }
 
   // The status dropdown only offers InProgress/Resolved as choices, but a
   // ticket's real status can also be Assigned (nothing picked yet). This

@@ -24,6 +24,7 @@ public class Client
     public string Office { get; set; } = default!;
     public string Location { get; set; } = default!;
     public string? Region { get; set; }
+    public string? Zone { get; set; }
     public string? City { get; set; }
     public string? Woreda { get; set; }
     public string KycType { get; set; } = default!;
@@ -65,9 +66,13 @@ public class Client
     public bool IsDeleted { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
 
-    public ICollection<Agreement> Agreements { get; set; } = new List<Agreement>();
-    public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+    /// <summary>
+    /// This client's systems/products — each may carry its own set of
+    /// agreements (Support, Training, etc.). Replaces the earlier direct
+    /// Agreements collection now that Agreement hangs off SystemProduct
+    /// instead of Client directly (see SystemProduct, Agreement).
+    /// </summary>
+    public ICollection<SystemProduct> SystemProducts { get; set; } = new List<SystemProduct>();
 
-    /// <summary>This client's trainings, recorded independently of any agreement — training happens before a support agreement can be signed (see AgreementTraining, AgreementService.CreateAsync).</summary>
-    public ICollection<AgreementTraining> Trainings { get; set; } = new List<AgreementTraining>();
+    public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
 }

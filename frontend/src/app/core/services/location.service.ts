@@ -5,17 +5,18 @@ import { LocationEntry, LocationOptions, LocationType } from '../models';
 import { API_BASE_URL } from './api-base';
 
 /**
- * Admin-managed dropdown/checklist options: Region / City / Woreda (client
- * forms), Specialization and CustomRole (employee form). Five independent
- * flat lists — not a hierarchy. GET is public (no auth header required),
- * matching the backend [AllowAnonymous] on LocationsController.GetAll,
- * since the self-signup portal needs Region/City/Woreda before the client
- * has any credentials.
+ * Admin-managed dropdown/checklist options: Region / Zone / City / Woreda
+ * (client forms), Specialization and CustomRole (employee form). Six
+ * independent flat lists — not a hierarchy; Zone is a separate field
+ * alongside City, not a replacement for it. GET is public (no auth header
+ * required), matching the backend [AllowAnonymous] on
+ * LocationsController.GetAll, since the self-signup portal needs
+ * Region/Zone/City/Woreda before the client has any credentials.
  */
 @Injectable({ providedIn: 'root' })
 export class LocationService {
   private readonly _options = signal<LocationOptions>({
-    regions: [], cities: [], woredas: [], specializations: [], customRoles: [],
+    regions: [], zones: [], cities: [], woredas: [], specializations: [], customRoles: [],
   });
   readonly options = this._options.asReadonly();
 

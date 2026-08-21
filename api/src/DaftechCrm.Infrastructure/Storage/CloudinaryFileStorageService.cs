@@ -110,25 +110,30 @@ public class CloudinaryFileStorageService : IFileStorageService
         // download URL. Fine for attachments that aren't sensitive
         // documents (contrast with agreement scans, which stay on
         // LocalFileStorageService/a private bucket).
-        var deliveryUrl = $"https://res.cloudinary.com/{_options.CloudName}/raw/upload/{storageKey}";
-
-        var response = await _http.GetAsync(deliveryUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (!response.IsSuccessStatusCode)
+        //
+        // Files are uploaded with resource_type "auto" (see SaveAsync),
+        // which Cloudinary resolves to "image" for images, "video" for
+        // BOTH video AND audio files (Cloudinary has no separate "audio"
+        // resource type), and "raw" for everything else (PDFs, docs).
+        // SaveAsync doesn't currently persist which one Cloudinary chose
+        // (only the public_id is stored on the ticket), so this has to
+        // probe — try "raw" first (the most common case for ticket
+        // attachments), then "image", then "video" (needed for voice-note
+        // recordings, which were previously never tried and always 404'd).
+        foreach (var resourceType in new[] { "raw", "image", "video" })
         {
-            // Cloudinary splits delivery by detected resource_type at
-            // upload time (image vs raw); retry the "image" path before
-            // giving up, since ticket attachments are usually screenshots.
-            deliveryUrl = $"https://res.cloudinary.com/{_options.CloudName}/image/upload/{storageKey}";
-            response = await _http.GetAsync(deliveryUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode)
-                return null;
+            var deliveryUrl = $"https://res.cloudinary.com/{_options.CloudName}/{resourceType}/upload/{storageKey}";
+            var response = await _http.GetAsync(deliveryUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (response.IsSuccessStatusCode)
+            {
+                var stream = await response.Content.ReadAsStreamAsync(ct);
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+                var originalFileName = Path.GetFileName(storageKey);
+                return new RetrievedFile(stream, contentType, originalFileName);
+            }
         }
 
-        var stream = await response.Content.ReadAsStreamAsync(ct);
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
-        var originalFileName = Path.GetFileName(storageKey);
-
-        return new RetrievedFile(stream, contentType, originalFileName);
+        return null;
     }
 
     public async Task DeleteAsync(string storageKey, CancellationToken ct = default)

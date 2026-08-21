@@ -1,500 +1,388 @@
-import { Component, computed, signal } from '@angular/core';
-import { BarChartComponent, BarChartDatum } from '../../shared/bar-chart.component';
-import { DonutChartComponent, DonutSlice } from '../../shared/donut-chart.component';
-import { ReportService } from '../../core/services/report.service';
-import { ClientService } from '../../core/services/client.service';
-import { AgreementService } from '../../core/services/agreement.service';
-import { TicketService } from '../../core/services/ticket.service';
-import { MaintenanceService } from '../../core/services/maintenance.service';
+import { Component, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { SlicePipe, DecimalPipe } from '@angular/common';
+import { TicketReportService } from '../../core/services/ticket-report.service';
 import { EmployeeService } from '../../core/services/employee.service';
-import { SatisfactionSurveyService } from '../../core/services/satisfaction-survey.service';
-import { PdfExportService, PdfReportSpec } from '../../core/services/pdf-export.service';
-import { OnTimeReport, AiSummaryResult, OperationsOverview } from '../../core/models';
+import { FailureTypeService } from '../../core/services/failure-type.service';
+import { LocationService } from '../../core/services/location.service';
+import { BadgeComponent } from '../../shared/badge.component';
+import { PaginationComponent } from '../../shared/pagination.component';
+import {
+  ReportType, REPORT_TYPE_LABELS, TicketReportFilter, TableReportResult,
+  CustomerSupportReportRow, EmployeePerformanceReportRow, RegionalReportRow,
+  FailureTypeReportRow, ResolutionTimeReportRow, CustomerRatingReportRow,
+  TicketStatus, SupportPhase,
+} from '../../core/models';
 
-interface ReportDef {
-  id: string;
-  title: string;
-  description: string;
-}
-
-const REPORTS: ReportDef[] = [
-  { id: 'clients-agreements', title: 'Active Clients & Agreement Status', description: 'All clients with current agreement status and billing tier.' },
-  { id: 'tickets-by-filter', title: 'Tickets by Client / Employee / Date Range', description: 'Ticket volume and resolution breakdown across filters.' },
-  { id: 'agreements-expiring', title: 'Agreements Expiring Soon or Expired', description: 'Upcoming and past-due agreement renewals.' },
-  { id: 'maintenance-history', title: 'Maintenance History', description: 'Internal maintenance records by category, date range, or employee.' },
-  { id: 'time-performance', title: 'Employee Time-Log & Performance', description: 'Attendance combined with ticket resolution stats per employee.' },
-  { id: 'satisfaction-surveys', title: 'Client Satisfaction Survey Responses', description: 'The 5-question follow-up survey, aggregated across all respondents.' },
+const REPORT_TYPES: ReportType[] = ['customer-support', 'employee-performance', 'regional', 'failure-type', 'resolution-time', 'customer-rating'];
+const STATUSES: TicketStatus[] = ['Submitted', 'Forwarded', 'Assigned', 'InProgress', 'Resolved', 'AwaitingClientConfirmation', 'Escalated', 'Closed'];
+const PHASES: SupportPhase[] = ['Intake', 'Diagnosis', 'Repair', 'Verification', 'Closed'];
+const MONTHS = [
+  { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
+  { value: 4, label: 'April' }, { value: 5, label: 'May' }, { value: 6, label: 'June' },
+  { value: 7, label: 'July' }, { value: 8, label: 'August' }, { value: 9, label: 'September' },
+  { value: 10, label: 'October' }, { value: 11, label: 'November' }, { value: 12, label: 'December' },
 ];
 
+/**
+ * The Reports module — six table-only reports (Customer/Support, Employee
+ * Performance, Regional, Failure-Type, Resolution-Time, Customer-Rating),
+ * each filterable/searchable/paginated/printable/exportable. Deliberately
+ * tables only, no charts — see the Dashboard page for charts/KPIs (the
+ * product's Reports-vs-Dashboard split). One shared filter bar drives
+ * whichever report is currently selected; switching report type re-fetches
+ * with the same filter state, since a support manager typically wants to
+ * compare the same slice of tickets across report types.
+ */
 @Component({
   selector: 'app-reports',
   standalone: true,
-  imports: [BarChartComponent, DonutChartComponent],
+  imports: [FormsModule, SlicePipe, DecimalPipe, BadgeComponent, PaginationComponent],
   template: `
     <h1>Reports</h1>
-    <p class="text-muted" style="margin-top:0.3rem;">Generate downloadable reports across the system.</p>
+    <p class="text-muted" style="margin-top:0.3rem;">Filterable, exportable tables — for charts and live KPIs, see the Dashboard.</p>
 
-    <div class="panel panel-pad" style="margin-top:1.25rem;">
-      <div class="chart-header">
-        <div>
-          <h3>Overall Operations</h3>
-          <p class="text-muted" style="font-size:0.82rem; margin-top:0.25rem;">
-            Live snapshot of every ticket in the system right now, by current status.
-          </p>
-        </div>
-      </div>
-
-      @if (opsLoading()) {
-        <p class="text-muted" style="margin-top:1rem;">Loading…</p>
-      } @else {
-        @if (ops(); as o) {
-          <div class="chart-grid">
-            <div class="chart-cell">
-              <h4>Tickets by Status ({{ o.totalTickets }} total)</h4>
-              <app-donut-chart [data]="opsDonutData()" [centerOverride]="o.totalTickets" centerLabel="Tickets" centerSuffix=""></app-donut-chart>
-            </div>
-            <div class="chart-cell">
-              <h4>At a Glance</h4>
-              <div class="stat-row"><span class="stat-label">Active Clients</span><span class="stat-value">{{ o.activeClients }}</span></div>
-              <div class="stat-row"><span class="stat-label">Active Employees</span><span class="stat-value">{{ o.activeEmployees }}</span></div>
-              <div class="stat-row"><span class="stat-label">Active Agreements</span><span class="stat-value">{{ o.openAgreements }}</span></div>
-              <div class="stat-row"><span class="stat-label">Total Tickets</span><span class="stat-value">{{ o.totalTickets }}</span></div>
-            </div>
-          </div>
-        }
+    <div class="tabs">
+      @for (t of reportTypes; track t) {
+        <button type="button" class="tab" [class.active]="activeType() === t" (click)="selectType(t)">
+          {{ labelFor(t) }}
+        </button>
       }
     </div>
 
-    <div class="panel panel-pad" style="margin-top:1.25rem;">
-      <div class="chart-header">
-        <div>
-          <h3>On-Time Ticket Resolution</h3>
-          <p class="text-muted" style="font-size:0.82rem; margin-top:0.25rem;">
-            "On time" means resolved within {{ report()?.summary?.targetDays ?? '—' }} days of assignment.
-          </p>
+    <div class="panel panel-pad filter-bar">
+      <div class="filter-grid">
+        <div class="field">
+          <label>From</label>
+          <input type="date" [ngModel]="filter.fromDate" (ngModelChange)="setFilter('fromDate', $event)" />
         </div>
-        <button class="btn btn-secondary btn-sm" (click)="downloadOnTimeReport()" [disabled]="!report()">Download as PDF</button>
+        <div class="field">
+          <label>To</label>
+          <input type="date" [ngModel]="filter.toDate" (ngModelChange)="setFilter('toDate', $event)" />
+        </div>
+        <div class="field">
+          <label>Month</label>
+          <select [ngModel]="filter.month" (ngModelChange)="setFilter('month', $event)">
+            <option [ngValue]="undefined">Any month</option>
+            @for (m of months; track m.value) { <option [ngValue]="m.value">{{ m.label }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Region</label>
+          <select [ngModel]="filter.region" (ngModelChange)="setFilter('region', $event)">
+            <option [ngValue]="undefined">Any region</option>
+            @for (r of locations.options().regions; track r.id) { <option [value]="r.name">{{ r.name }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Zone</label>
+          <select [ngModel]="filter.zone" (ngModelChange)="setFilter('zone', $event)">
+            <option [ngValue]="undefined">Any zone</option>
+            @for (z of locations.options().zones; track z.id) { <option [value]="z.name">{{ z.name }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Woreda</label>
+          <select [ngModel]="filter.woreda" (ngModelChange)="setFilter('woreda', $event)">
+            <option [ngValue]="undefined">Any woreda</option>
+            @for (w of locations.options().woredas; track w.id) { <option [value]="w.name">{{ w.name }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Employee / Technician</label>
+          <select [ngModel]="filter.employeeId" (ngModelChange)="setFilter('employeeId', $event)">
+            <option [ngValue]="undefined">Any employee</option>
+            @for (e of employeesSvc.employees(); track e.id) { <option [value]="e.id">{{ e.fullName }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Failure Type</label>
+          <select [ngModel]="filter.failureTypeId" (ngModelChange)="setFilter('failureTypeId', $event)">
+            <option [ngValue]="undefined">Any failure type</option>
+            @for (f of failureTypesSvc.types(); track f.id) { <option [value]="f.id">{{ f.name }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Ticket Status</label>
+          <select [ngModel]="filter.status" (ngModelChange)="setFilter('status', $event)">
+            <option [ngValue]="undefined">Any status</option>
+            @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label>Support Phase</label>
+          <select [ngModel]="filter.supportPhase" (ngModelChange)="setFilter('supportPhase', $event)">
+            <option [ngValue]="undefined">Any phase</option>
+            @for (p of phases; track p) { <option [value]="p">{{ p }}</option> }
+          </select>
+        </div>
+        <div class="field" style="grid-column: span 2;">
+          <label>Search</label>
+          <input type="text" [ngModel]="filter.search" (ngModelChange)="setFilter('search', $event)" placeholder="Client name, description, document #…" />
+        </div>
       </div>
 
+      <div class="filter-actions">
+        <button class="btn btn-outline btn-sm" (click)="clearFilters()">Clear Filters</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-outline btn-sm" (click)="print()">Print</button>
+        <button class="btn btn-outline btn-sm" [disabled]="exporting()" (click)="export('csv')">Export CSV</button>
+        <button class="btn btn-primary btn-sm" [disabled]="exporting()" (click)="export('pdf')">Export PDF</button>
+      </div>
+    </div>
+
+    <div class="panel panel-pad" id="report-table-panel">
       @if (loading()) {
-        <p class="text-muted" style="margin-top:1rem;">Loading…</p>
+        <p class="text-muted">Loading report…</p>
+      } @else if (loadError()) {
+        <p class="upload-error">{{ loadError() }}</p>
       } @else {
-        @if (report(); as r) {
-          <div class="chart-grid">
-            <div class="chart-cell">
-              <h4>Overall</h4>
-              <app-donut-chart [data]="donutData()" centerLabel="On Time"></app-donut-chart>
-            </div>
-            <div class="chart-cell">
-              <h4>On-Time Rate by Employee</h4>
-              <app-bar-chart [chartData]="barData()"></app-bar-chart>
-            </div>
-          </div>
-        }
-      }
-    </div>
-
-    <div class="stack" style="margin-top:1.25rem;">
-      @for (r of reports; track r.id) {
-        <div class="panel panel-pad">
-          <div class="report-header">
-            <div>
-              <h3>{{ r.title }}</h3>
-              <p class="text-muted" style="font-size:0.83rem; margin-top:0.4rem;">{{ r.description }}</p>
-            </div>
-            <div class="report-actions">
-              <button class="btn btn-secondary btn-sm" (click)="toggle(r.id)" [disabled]="generating() === r.id">
-                {{ generating() === r.id ? 'Loading…' : (isOpen(r.id) ? 'Hide' : 'View Report') }}
-              </button>
-              <button class="btn btn-outline btn-sm" (click)="downloadPdf(r.id)" [disabled]="generating() === r.id">
-                Download as PDF
-              </button>
-            </div>
-          </div>
-
-          @if (isOpen(r.id)) {
-            @if (specCache().get(r.id); as spec) {
-              @for (section of spec.sections; track section.heading ?? ''; let first = $first) {
-                @if (section.heading) { <h4 class="section-heading">{{ section.heading }}</h4> }
-
-                @if (first) {
-                  <div class="ai-summary" [class.unavailable]="!summaryFor(r.id)?.available">
-                    @if (summaryLoading() === r.id) {
-                      <p class="text-muted" style="margin:0;">Generating AI summary…</p>
-                    } @else if (summaryFor(r.id)?.available) {
-                      <p style="margin:0;">🤖 {{ summaryFor(r.id)?.narrative }}</p>
-                    } @else if (summaryFor(r.id)) {
-                      <p class="text-muted" style="margin:0; font-size:0.82rem;">AI summary unavailable — {{ summaryFor(r.id)?.unavailableReason ?? 'try again later.' }}</p>
-                    }
-                  </div>
-                }
-
-                <div class="table-scroll">
-                  <table>
-                    <thead><tr>@for (col of section.columns; track col) { <th>{{ col }}</th> }</tr></thead>
-                    <tbody>
-                      @for (row of section.rows; track $index) {
-                        <tr>@for (cell of row; track $index) { <td>{{ cell }}</td> }</tr>
-                      }
-                      @empty { <tr><td [attr.colspan]="section.columns.length" class="text-muted" style="text-align:center; padding:1.5rem;">No data yet.</td></tr> }
-                    </tbody>
-                  </table>
-                </div>
-              }
+        <div class="table-scroll">
+          @switch (activeType()) {
+            @case ('customer-support') {
+              <table>
+                <thead><tr><th>Client</th><th>Region</th><th>Zone</th><th>Woreda</th><th>System/Product</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Status</th><th>Phase</th><th>Chargeable</th><th>Resolved</th><th>Satisfaction</th></tr></thead>
+                <tbody>
+                  @for (r of customerSupportRows(); track r.ticketId) {
+                    <tr>
+                      <td>{{ r.clientName }}</td><td>{{ r.region || '—' }}</td><td>{{ r.zone || '—' }}</td><td>{{ r.woreda || '—' }}</td>
+                      <td>{{ r.systemProductName || '—' }}</td><td>{{ r.failureTypeName || '—' }}</td>
+                      <td>{{ r.dateSubmitted | slice:0:10 }}</td><td>{{ r.assignedEmployeeName || 'Unassigned' }}</td>
+                      <td><app-badge [status]="r.status"></app-badge></td><td>{{ r.supportPhase }}</td>
+                      <td><app-badge [status]="r.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
+                      <td>{{ r.resolvedAt ? (r.resolvedAt | slice:0:10) : '—' }}</td>
+                      <td>{{ r.satisfactionScore ?? '—' }}</td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="13" class="text-muted">No tickets match these filters.</td></tr> }
+                </tbody>
+              </table>
+            }
+            @case ('employee-performance') {
+              <table>
+                <thead><tr><th>Employee</th><th>Total Assigned</th><th>Resolved</th><th>Open</th><th>Overdue</th><th>Avg Resolution (hrs)</th><th>On-Time %</th><th>Avg Satisfaction</th></tr></thead>
+                <tbody>
+                  @for (r of employeePerformanceRows(); track r.employeeId) {
+                    <tr>
+                      <td>{{ r.employeeName }}</td><td>{{ r.totalAssigned }}</td><td>{{ r.resolved }}</td><td>{{ r.open }}</td>
+                      <td [class.warn-text]="r.overdue > 0">{{ r.overdue }}</td>
+                      <td>{{ r.averageResolutionHours != null ? (r.averageResolutionHours | number:'1.1-1') : '—' }}</td>
+                      <td>{{ r.onTimeRatePercent != null ? (r.onTimeRatePercent | number:'1.1-1') + '%' : '—' }}</td>
+                      <td>{{ r.averageSatisfactionScore != null ? (r.averageSatisfactionScore | number:'1.0-1') : '—' }}</td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="8" class="text-muted">No data for these filters.</td></tr> }
+                </tbody>
+              </table>
+            }
+            @case ('regional') {
+              <table>
+                <thead><tr><th>Region</th><th>Zone</th><th>Woreda</th><th>Tickets</th><th>Open</th><th>Resolved</th><th>Avg Resolution (hrs)</th><th>Avg Satisfaction</th></tr></thead>
+                <tbody>
+                  @for (r of regionalRows(); track r.region + '|' + r.zone + '|' + r.woreda) {
+                    <tr>
+                      <td>{{ r.region || 'Unspecified' }}</td><td>{{ r.zone || '—' }}</td><td>{{ r.woreda || '—' }}</td>
+                      <td>{{ r.ticketCount }}</td><td>{{ r.openCount }}</td><td>{{ r.resolvedCount }}</td>
+                      <td>{{ r.averageResolutionHours != null ? (r.averageResolutionHours | number:'1.1-1') : '—' }}</td>
+                      <td>{{ r.averageSatisfactionScore != null ? (r.averageSatisfactionScore | number:'1.0-1') : '—' }}</td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="8" class="text-muted">No data for these filters.</td></tr> }
+                </tbody>
+              </table>
+            }
+            @case ('failure-type') {
+              <table>
+                <thead><tr><th>Failure Type</th><th>Tickets</th><th>On-Time</th><th>Late</th><th>On-Time %</th><th>Avg Resolution (hrs)</th></tr></thead>
+                <tbody>
+                  @for (r of failureTypeRows(); track (r.failureTypeId || 'none')) {
+                    <tr>
+                      <td>{{ r.failureTypeName }}</td><td>{{ r.ticketCount }}</td><td>{{ r.onTimeCount }}</td><td>{{ r.lateCount }}</td>
+                      <td>{{ r.onTimeRatePercent != null ? (r.onTimeRatePercent | number:'1.1-1') + '%' : '—' }}</td>
+                      <td>{{ r.averageResolutionHours != null ? (r.averageResolutionHours | number:'1.1-1') : '—' }}</td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="6" class="text-muted">No data for these filters.</td></tr> }
+                </tbody>
+              </table>
+            }
+            @case ('resolution-time') {
+              <table>
+                <thead><tr><th>Client</th><th>Failure Type</th><th>Assigned To</th><th>Assigned At</th><th>Resolved At</th><th>Resolution (hrs)</th><th>Expected (hrs)</th><th>On Time</th></tr></thead>
+                <tbody>
+                  @for (r of resolutionTimeRows(); track r.ticketId) {
+                    <tr>
+                      <td>{{ r.clientName }}</td><td>{{ r.failureTypeName || '—' }}</td><td>{{ r.assignedEmployeeName || '—' }}</td>
+                      <td>{{ r.assignedAt ? (r.assignedAt | slice:0:16) : '—' }}</td><td>{{ r.resolvedAt ? (r.resolvedAt | slice:0:16) : '—' }}</td>
+                      <td>{{ r.resolutionHours != null ? (r.resolutionHours | number:'1.1-1') : '—' }}</td>
+                      <td>{{ r.expectedResolutionHours != null ? (r.expectedResolutionHours | number:'1.1-1') : '—' }}</td>
+                      <td>
+                        @if (r.wasOnTime === true) { <app-badge status="Approved"></app-badge> }
+                        @else if (r.wasOnTime === false) { <app-badge status="Rejected"></app-badge> }
+                        @else { <span class="text-muted">—</span> }
+                      </td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="8" class="text-muted">No resolved tickets match these filters.</td></tr> }
+                </tbody>
+              </table>
+            }
+            @case ('customer-rating') {
+              <table>
+                <thead><tr><th>Client</th><th>Assigned To</th><th>Resolved At</th><th>Stars</th><th>Score</th><th>Closure Reason</th></tr></thead>
+                <tbody>
+                  @for (r of customerRatingRows(); track r.ticketId) {
+                    <tr>
+                      <td>{{ r.clientName }}</td><td>{{ r.assignedEmployeeName || '—' }}</td>
+                      <td>{{ r.resolvedAt ? (r.resolvedAt | slice:0:10) : '—' }}</td>
+                      <td>{{ r.satisfactionStars }} / 5</td><td>{{ r.satisfactionScore }}</td>
+                      <td>{{ r.closureReason || '—' }}</td>
+                    </tr>
+                  }
+                  @empty { <tr><td colspan="6" class="text-muted">No rated tickets match these filters.</td></tr> }
+                </tbody>
+              </table>
             }
           }
         </div>
+
+        <app-pagination [page]="page()" [totalPages]="totalPages()" [totalCount]="totalCount()" [pageSize]="pageSize()" (pageChange)="goToPage($event)"></app-pagination>
       }
     </div>
   `,
   styles: [`
-    .stack { display: flex; flex-direction: column; gap: 1rem; }
-    .report-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
-    .report-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
-    .section-heading { margin: 1.1rem 0 0.6rem; font-size: 0.85rem; color: var(--navy-800); }
-    .ai-summary { background: var(--slate-50, #f8fafc); border: 1px solid var(--slate-200, #e2e8f0); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.75rem; font-size: 0.87rem; }
-    .ai-summary.unavailable { background: transparent; border-style: dashed; }
-    .chart-header { display: flex; justify-content: space-between; align-items: flex-start; }
-    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; align-items: start; }
-    .chart-cell h4 { font-size: 0.82rem; margin-bottom: 0.9rem; color: var(--navy-800); }
-    @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
-    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0; border-top: 1px solid rgba(0,0,0,0.06); font-size: 0.85rem; }
-    .stat-row:first-of-type { border-top: none; }
-    .stat-label { color: var(--slate-500); }
-    .stat-value { font-weight: 700; color: var(--navy-900); }
+    .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 1.1rem 0; }
+    .tab { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--slate-200); background: white; font-size: 0.82rem; cursor: pointer; color: var(--slate-500); }
+    .tab.active { background: var(--brand-700, #1d4ed8); color: white; border-color: transparent; }
+    .filter-bar { margin-bottom: 1.1rem; }
+    .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; }
+    .field { display: flex; flex-direction: column; gap: 0.3rem; }
+    .field label { font-size: 0.74rem; font-weight: 600; color: var(--slate-500); }
+    .filter-actions { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
+    .upload-error { color: var(--red); font-size: 0.85rem; }
+    .warn-text { color: var(--red); font-weight: 600; }
+    @media print {
+      .tabs, .filter-bar, .pagination, nav, .app-sidebar { display: none !important; }
+    }
   `],
 })
 export class ReportsComponent {
-  reports = REPORTS;
-  generating = signal<string | null>(null);
+  reportTypes = REPORT_TYPES;
+  statuses = STATUSES;
+  phases = PHASES;
+  months = MONTHS;
 
-  openIds = signal<Set<string>>(new Set());
-  specCache = signal<Map<string, PdfReportSpec>>(new Map());
-  summaries = signal<Map<string, AiSummaryResult>>(new Map());
-  summaryLoading = signal<string | null>(null);
+  activeType = signal<ReportType>('customer-support');
+  filter: TicketReportFilter = {};
 
-  report = signal<OnTimeReport | null>(null);
-  loading = signal(true);
+  loading = signal(false);
+  loadError = signal<string | null>(null);
+  exporting = signal(false);
 
-  ops = signal<OperationsOverview | null>(null);
-  opsLoading = signal(true);
+  page = signal(1);
+  pageSize = signal(20);
+  totalCount = signal(0);
+  totalPages = signal(0);
+
+  customerSupportRows = signal<CustomerSupportReportRow[]>([]);
+  employeePerformanceRows = signal<EmployeePerformanceReportRow[]>([]);
+  regionalRows = signal<RegionalReportRow[]>([]);
+  failureTypeRows = signal<FailureTypeReportRow[]>([]);
+  resolutionTimeRows = signal<ResolutionTimeReportRow[]>([]);
+  customerRatingRows = signal<CustomerRatingReportRow[]>([]);
 
   constructor(
-    private reportsSvc: ReportService,
-    private clients: ClientService,
-    private agreements: AgreementService,
-    private tickets: TicketService,
-    private maintenance: MaintenanceService,
-    private employees: EmployeeService,
-    private surveys: SatisfactionSurveyService,
-    private pdf: PdfExportService
+    private reports: TicketReportService,
+    public employeesSvc: EmployeeService,
+    public failureTypesSvc: FailureTypeService,
+    public locations: LocationService,
   ) {
     void this.load();
-    void this.loadOps();
   }
 
-  private async load() {
+  labelFor(t: ReportType): string {
+    return REPORT_TYPE_LABELS[t];
+  }
+
+  selectType(t: ReportType) {
+    this.activeType.set(t);
+    this.page.set(1);
+    void this.load();
+  }
+
+  setFilter<K extends keyof TicketReportFilter>(key: K, value: TicketReportFilter[K]) {
+    this.filter = { ...this.filter, [key]: value === '' ? undefined : value };
+    this.page.set(1);
+    void this.load();
+  }
+
+  clearFilters() {
+    this.filter = {};
+    this.page.set(1);
+    void this.load();
+  }
+
+  goToPage(p: number) {
+    this.page.set(p);
+    void this.load();
+  }
+
+  private applyResult<T>(result: { rows: T[]; page: number; pageSize: number; totalCount: number; totalPages: number }, target: (rows: T[]) => void) {
+    target(result.rows);
+    this.page.set(result.page);
+    this.pageSize.set(result.pageSize);
+    this.totalCount.set(result.totalCount);
+    this.totalPages.set(result.totalPages);
+  }
+
+  async load() {
     this.loading.set(true);
+    this.loadError.set(null);
     try {
-      const r = await this.reportsSvc.getOnTimeResolutionReport();
-      this.report.set(r);
+      switch (this.activeType()) {
+        case 'customer-support':
+          this.applyResult(await this.reports.getCustomerSupport(this.filter, this.page(), this.pageSize()), r => this.customerSupportRows.set(r));
+          break;
+        case 'employee-performance':
+          this.applyResult(await this.reports.getEmployeePerformance(this.filter, this.page(), this.pageSize()), r => this.employeePerformanceRows.set(r));
+          break;
+        case 'regional':
+          this.applyResult(await this.reports.getRegional(this.filter, this.page(), this.pageSize()), r => this.regionalRows.set(r));
+          break;
+        case 'failure-type':
+          this.applyResult(await this.reports.getFailureType(this.filter, this.page(), this.pageSize()), r => this.failureTypeRows.set(r));
+          break;
+        case 'resolution-time':
+          this.applyResult(await this.reports.getResolutionTime(this.filter, this.page(), this.pageSize()), r => this.resolutionTimeRows.set(r));
+          break;
+        case 'customer-rating':
+          this.applyResult(await this.reports.getCustomerRating(this.filter, this.page(), this.pageSize()), r => this.customerRatingRows.set(r));
+          break;
+      }
+    } catch (err) {
+      this.loadError.set('Could not load this report — please try again.');
+      console.error(err);
     } finally {
       this.loading.set(false);
     }
   }
 
-  private async loadOps() {
-    this.opsLoading.set(true);
+  print() {
+    window.print();
+  }
+
+  async export(format: 'pdf' | 'csv') {
+    this.exporting.set(true);
     try {
-      const o = await this.reportsSvc.getOperationsOverview();
-      this.ops.set(o);
+      if (format === 'pdf') {
+        await this.reports.exportPdf(this.activeType(), this.filter);
+      } else {
+        await this.reports.exportCsv(this.activeType(), this.filter);
+      }
+    } catch (err) {
+      console.error('Export failed', err);
     } finally {
-      this.opsLoading.set(false);
+      this.exporting.set(false);
     }
-  }
-
-  /** Same status → color mapping as app-badge, so the pie chart reads consistently with badges shown everywhere else (green = healthy/done, amber = active work, red = escalated, blue = awaiting the client, slate = anything else). Zero-count statuses are dropped so the legend doesn't clutter with slices that aren't there. */
-  private readonly statusColors: Record<string, string> = {
-    Resolved: '#16a34a',
-    Closed: '#16a34a',
-    Submitted: '#d97706',
-    Forwarded: '#d97706',
-    Assigned: '#d97706',
-    InProgress: '#d97706',
-    AwaitingClientConfirmation: '#2563eb',
-    Escalated: 'var(--brand-red, #dc2626)',
-  };
-
-  opsDonutData = computed((): DonutSlice[] => {
-    const o = this.ops();
-    if (!o) return [];
-    return o.ticketsByStatus
-      .filter(s => s.count > 0)
-      .map(s => ({
-        label: s.status.replace(/([a-z])([A-Z])/g, '$1 $2'),
-        value: s.count,
-        color: this.statusColors[s.status] ?? '#64748b',
-      }));
-  });
-
-  donutData = computed((): DonutSlice[] => {
-    const r = this.report();
-    if (!r) return [];
-    return [
-      { label: 'On Time', value: r.summary.onTimeCount, color: '#16a34a' },
-      { label: 'Late', value: r.summary.lateCount, color: 'var(--brand-red, #dc2626)' },
-    ];
-  });
-
-  barData = computed((): BarChartDatum[] => {
-    const r = this.report();
-    if (!r) return [];
-    return r.byEmployee.map(e => ({
-      label: e.employeeName,
-      value: e.onTimeRate,
-      color: e.onTimeRate >= 90 ? '#16a34a' : e.onTimeRate >= 70 ? '#b45309' : 'var(--brand-red, #dc2626)',
-    }));
-  });
-
-  private generatedAt(): string {
-    return `Generated ${new Date().toLocaleString()}`;
-  }
-
-  downloadOnTimeReport() {
-    const r = this.report();
-    if (!r) return;
-    const spec: PdfReportSpec = {
-      title: 'On-Time Ticket Resolution',
-      subtitle: `${this.generatedAt()} — target: resolve within ${r.summary.targetDays} days`,
-      sections: [
-        {
-          heading: 'Overall',
-          columns: ['On Time', 'Late', 'On-Time Rate'],
-          rows: [[r.summary.onTimeCount, r.summary.lateCount, `${this.overallRate(r)}%`]],
-        },
-        {
-          heading: 'By Employee',
-          columns: ['Employee', 'On-Time Rate'],
-          rows: r.byEmployee.map(e => [e.employeeName, `${e.onTimeRate}%`]),
-        },
-      ],
-    };
-    this.pdf.export(spec, 'on-time-resolution-report');
-  }
-
-  private overallRate(r: OnTimeReport): number {
-    const total = r.summary.onTimeCount + r.summary.lateCount;
-    return total === 0 ? 0 : Math.round((r.summary.onTimeCount / total) * 100);
-  }
-
-  isOpen(id: string): boolean {
-    return this.openIds().has(id);
-  }
-
-  summaryFor(id: string): AiSummaryResult | undefined {
-    return this.summaries().get(id);
-  }
-
-  async toggle(id: string) {
-    const open = new Set(this.openIds());
-    if (open.has(id)) {
-      open.delete(id);
-      this.openIds.set(open);
-      return;
-    }
-    open.add(id);
-    this.openIds.set(open);
-
-    if (this.specCache().has(id)) return;
-
-    this.generating.set(id);
-    try {
-      const spec = await this.buildSpec(id);
-      if (!spec) return;
-      const cache = new Map(this.specCache());
-      cache.set(id, spec);
-      this.specCache.set(cache);
-
-      void this.loadSummary(id, spec);
-    } finally {
-      this.generating.set(null);
-    }
-  }
-
-  private async loadSummary(id: string, spec: PdfReportSpec) {
-    const section = spec.sections[0];
-    if (!section || section.rows.length === 0) return;
-
-    this.summaryLoading.set(id);
-    try {
-      const result = await this.reportsSvc.summarizeTabularReport(spec.title, section.columns, section.rows);
-      const map = new Map(this.summaries());
-      map.set(id, result);
-      this.summaries.set(map);
-    } catch {
-      const map = new Map(this.summaries());
-      map.set(id, { available: false, unavailableReason: 'Could not reach the AI summary service.' });
-      this.summaries.set(map);
-    } finally {
-      this.summaryLoading.set(null);
-    }
-  }
-
-  async downloadPdf(id: string) {
-    this.generating.set(id);
-    try {
-      const spec = this.specCache().get(id) ?? await this.buildSpec(id);
-      if (spec) this.pdf.export(spec, id);
-    } finally {
-      this.generating.set(null);
-    }
-  }
-
-  private async buildSpec(id: string): Promise<PdfReportSpec | null> {
-    switch (id) {
-      case 'clients-agreements':
-        return this.buildClientsAgreementsSpec();
-      case 'tickets-by-filter':
-        return this.buildTicketsSpec();
-      case 'agreements-expiring':
-        return this.buildAgreementsExpiringSpec();
-      case 'maintenance-history':
-        return this.buildMaintenanceSpec();
-      case 'time-performance':
-        return this.buildTimePerformanceSpec();
-      case 'satisfaction-surveys':
-        return this.buildSatisfactionSurveysSpec();
-      default:
-        return null;
-    }
-  }
-
-  private async buildClientsAgreementsSpec(): Promise<PdfReportSpec> {
-    await Promise.all([this.clients.refresh(), this.agreements.refresh()]);
-    const clientList = this.clients.clients();
-    return {
-      title: 'Active Clients & Agreement Status',
-      subtitle: this.generatedAt(),
-      sections: [{
-        columns: ['Client', 'Status', 'Office', 'Agreements', 'Billing Tiers'],
-        rows: clientList.map(c => {
-          const clientAgreements = this.agreements.forClient(c.id);
-          return [
-            c.name,
-            c.accountStatus,
-            c.office,
-            clientAgreements.length,
-            clientAgreements.map(a => a.billingTier).join(', ') || '—',
-          ];
-        }),
-      }],
-    };
-  }
-
-  private async buildTicketsSpec(): Promise<PdfReportSpec> {
-    await this.tickets.refresh();
-    const ticketList = this.tickets.tickets();
-    return {
-      title: 'Tickets by Client / Employee / Date Range',
-      subtitle: `${this.generatedAt()} — all tickets currently in the system`,
-      sections: [{
-        columns: ['Client', 'Employee', 'Category', 'Status', 'Submitted', 'Chargeable'],
-        rows: ticketList.map(t => [
-          t.clientName,
-          t.assignedEmployeeName ?? 'Unassigned',
-          t.category,
-          t.status,
-          new Date(t.dateSubmitted).toLocaleDateString(),
-          t.chargeable ? 'Yes' : 'No',
-        ]),
-      }],
-    };
-  }
-
-  private async buildAgreementsExpiringSpec(): Promise<PdfReportSpec> {
-    await this.agreements.refresh();
-    const expiring = this.agreements.expiringSoon();
-    return {
-      title: 'Agreements Expiring Soon or Expired',
-      subtitle: `${this.generatedAt()} — within 30 days or already past expiry`,
-      sections: [{
-        columns: ['Client', 'Document #', 'Expiry Date', 'Billing Tier', 'Status'],
-        rows: expiring.map(a => [
-          this.clients.getById(a.clientId)?.name ?? a.clientId,
-          a.documentNumber,
-          a.expiryDate,
-          a.billingTier,
-          a.status,
-        ]),
-      }],
-    };
-  }
-
-  private async buildMaintenanceSpec(): Promise<PdfReportSpec> {
-    await this.maintenance.refresh();
-    const records = this.maintenance.records();
-    return {
-      title: 'Maintenance History',
-      subtitle: this.generatedAt(),
-      sections: [{
-        columns: ['Date', 'Category', 'Description', 'Performed By', 'Status'],
-        rows: records.map(r => [
-          r.date,
-          r.category,
-          r.description,
-          this.employeeName(r.performedByEmployeeId),
-          r.status,
-        ]),
-      }],
-    };
-  }
-
-  private async buildTimePerformanceSpec(): Promise<PdfReportSpec> {
-    await Promise.all([this.employees.refresh(), this.employees.refreshTimeLogs()]);
-    const employeeList = this.employees.employees();
-    const logs = this.employees.timeLogs();
-
-    const hoursByEmployee = new Map<string, number>();
-    for (const log of logs) {
-      hoursByEmployee.set(log.employeeId, (hoursByEmployee.get(log.employeeId) ?? 0) + (log.totalHours ?? 0));
-    }
-
-    return {
-      title: 'Employee Time-Log & Performance',
-      subtitle: this.generatedAt(),
-      sections: [{
-        columns: ['Employee', 'Open Tickets', 'Avg. Satisfaction', 'Total Hours Logged'],
-        rows: employeeList.map(e => [
-          e.fullName,
-          e.openTicketCount,
-          e.averageSatisfactionScore != null ? e.averageSatisfactionScore.toFixed(1) : '—',
-          (hoursByEmployee.get(e.id) ?? 0).toFixed(1),
-        ]),
-      }],
-    };
-  }
-
-  private async buildSatisfactionSurveysSpec(): Promise<PdfReportSpec> {
-    await this.surveys.refresh();
-    const surveyList = this.surveys.surveys();
-    return {
-      title: 'Client Satisfaction Survey Responses',
-      subtitle: `${this.generatedAt()} — ${surveyList.length} response(s)`,
-      sections: [{
-        columns: ['Submitted', 'Response Speed', 'Professionalism', 'Clarity', 'Would Recommend', 'Feedback'],
-        rows: surveyList.map(s => [
-          new Date(s.submittedAt).toLocaleDateString(),
-          s.responseSpeedRating,
-          s.professionalismRating,
-          s.communicationClarityRating,
-          s.likelihoodToRecommend,
-          s.improvementFeedback ?? '—',
-        ]),
-      }],
-    };
-  }
-
-  private employeeName(employeeId: string): string {
-    return this.employees.employees().find(e => e.id === employeeId)?.fullName ?? employeeId;
   }
 }

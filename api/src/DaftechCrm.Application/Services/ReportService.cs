@@ -13,23 +13,29 @@ public class ReportService : IReportService
     private readonly IAppDbContext _db;
     private readonly TicketWorkflowOptions _options;
     private readonly IAiNarrativeReportService _aiNarrative;
+    private readonly IEthiopianTimeService _officeTime;
 
-    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IAiNarrativeReportService aiNarrative)
+    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IAiNarrativeReportService aiNarrative, IEthiopianTimeService officeTime)
     {
         _db = db;
         _options = options.Value;
         _aiNarrative = aiNarrative;
+        _officeTime = officeTime;
     }
 
     /// <summary>
-    /// "On time" = ResolvedAt - AssignedAt is within the ticket's own
-    /// frozen SLA target (Ticket.ExpectedResolutionMinutes, snapshotted at
-    /// assignment time — see TicketService.SubmitFromClientAsync) if one
-    /// was recorded, otherwise the global OnTimeResolutionTargetDays
-    /// fallback. Only tickets that have both AssignedAt and ResolvedAt set
-    /// are counted (i.e. tickets that actually reached Resolved at some
-    /// point) — tickets still in progress or never assigned don't factor
-    /// in yet.
+    /// "On time" = working hours (see IEthiopianTimeService) from
+    /// AssignedAt to ResolvedAt are within the ticket's own frozen SLA
+    /// target (Ticket.ExpectedResolutionMinutes, snapshotted at assignment
+    /// time — see TicketService.SubmitFromClientAsync) if one was
+    /// recorded, otherwise the global OnTimeResolutionTargetDays fallback.
+    /// Working hours, not wall-clock, so a ticket assigned Friday and
+    /// resolved Monday isn't penalized for the weekend/lunch time in
+    /// between — matches how the resolution timer itself pauses (see
+    /// TicketService). Only tickets that have both AssignedAt and
+    /// ResolvedAt set are counted (i.e. tickets that actually reached
+    /// Resolved at some point) — tickets still in progress or never
+    /// assigned don't factor in yet.
     ///
     /// Deliberately reads Ticket.ExpectedResolutionMinutes, NOT
     /// t.FailureType.ToTimeSpan() — the latter is the FailureType's
@@ -52,7 +58,7 @@ public class ReportService : IReportService
             .ToListAsync(ct);
 
         TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
-        bool IsOnTime(Ticket t) => (t.ResolvedAt!.Value - t.AssignedAt!.Value) <= TargetFor(t);
+        bool IsOnTime(Ticket t) => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <= TargetFor(t).TotalMinutes;
 
         var onTime = resolvedTickets.Count(IsOnTime);
         var late = resolvedTickets.Count - onTime;
@@ -93,15 +99,16 @@ public class ReportService : IReportService
         double? avgResolutionHours = null;
         var withBothTimestamps = assignedTickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
         if (withBothTimestamps.Count > 0)
-            avgResolutionHours = withBothTimestamps.Average(t => (t.ResolvedAt!.Value - t.AssignedAt!.Value).TotalHours);
+            avgResolutionHours = withBothTimestamps.Average(t => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) / 60.0);
 
         // Same reasoning as GetOnTimeResolutionReportAsync above: read the
         // frozen per-ticket snapshot, not FailureType's current duration,
         // so editing a FailureType later doesn't retroactively change this
-        // employee's historical on-time rate.
+        // employee's historical on-time rate. Working hours, not
+        // wall-clock — same as GetOnTimeResolutionReportAsync.
         var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
         TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
-        var onTimeCount = withBothTimestamps.Count(t => (t.ResolvedAt!.Value - t.AssignedAt!.Value) <= TargetFor(t));
+        var onTimeCount = withBothTimestamps.Count(t => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <= TargetFor(t).TotalMinutes);
         var onTimeRate = withBothTimestamps.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBothTimestamps.Count, 1) : 0;
 
         var scores = assignedTickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
@@ -173,5 +180,107 @@ public class ReportService : IReportService
         var openAgreements = await _db.Agreements.CountAsync(a => a.Status == AgreementStatus.Active, ct);
 
         return new OperationsOverviewDto(byStatus, totalTickets, activeClients, activeEmployees, openAgreements);
+    }
+
+    /// <summary>See IReportService.GetDashboardDataAsync. Applies DashboardFilter once up front, then every chart/KPI below is computed from that same filtered ticket set — so a support manager filtering to "this month, Addis Ababa" sees every chart on the page agree with each other.</summary>
+    public async Task<DashboardDataDto> GetDashboardDataAsync(DashboardFilter filter, CancellationToken ct = default)
+    {
+        var query = _db.Tickets.AsNoTracking()
+            .Include(t => t.Client)
+            .Include(t => t.FailureType)
+            .Include(t => t.AssignedEmployee)
+            .AsQueryable();
+
+        if (filter.FromDate.HasValue)
+            query = query.Where(t => t.DateSubmitted >= filter.FromDate.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+        if (filter.ToDate.HasValue)
+            query = query.Where(t => t.DateSubmitted <= filter.ToDate.Value.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc));
+        if (!string.IsNullOrWhiteSpace(filter.Region))
+            query = query.Where(t => t.Client.Region == filter.Region);
+
+        var tickets = await query.ToListAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+
+        // --- KPIs ---
+        var openTickets = tickets.Count(t => t.Status is not (TicketStatus.Closed or TicketStatus.Escalated));
+        var resolvedTickets = tickets.Count(t => t.ResolvedAt != null);
+        var overdueTickets = tickets.Count(t => t.ResolvedAt == null && t.ExpectedResolutionBy != null && t.ExpectedResolutionBy < now);
+        var withBoth = tickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
+        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
+        var onTimeCount = withBoth.Count(t =>
+            _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
+            (t.ExpectedResolutionMinutes is int mins ? mins : fallbackSpan.TotalMinutes));
+        var resolutionRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : 0;
+        var ratedScores = tickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
+        var avgSatisfaction = ratedScores.Count > 0 ? ratedScores.Average() : (double?)null;
+
+        var kpis = new DashboardKpisDto(tickets.Count, openTickets, resolvedTickets, overdueTickets, resolutionRate, avgSatisfaction);
+
+        // --- Bar: tickets by region ---
+        var byRegion = tickets
+            .GroupBy(t => t.Client.Region ?? "Unspecified")
+            .Select(g => new RegionTicketCountDto(g.Key, g.Count()))
+            .OrderByDescending(r => r.TicketCount)
+            .ToList();
+
+        // --- Bar: tickets by failure type ---
+        var byFailureType = tickets
+            .GroupBy(t => t.FailureType?.Name ?? "Unspecified")
+            .Select(g => new FailureTypeTicketCountDto(g.Key, g.Count()))
+            .OrderByDescending(f => f.TicketCount)
+            .ToList();
+
+        // --- Bar: employee performance (resolved-ticket counts) ---
+        var byEmployee = tickets
+            .Where(t => t.AssignedEmployee != null && t.ResolvedAt != null)
+            .GroupBy(t => t.AssignedEmployee!.FullName)
+            .Select(g => new EmployeeTicketCountDto(g.Key, g.Count()))
+            .OrderByDescending(e => e.ResolvedCount)
+            .ToList();
+
+        // --- Donut: ticket status (every status represented, even at 0 — see GetOperationsOverviewAsync above for the same rationale) ---
+        var byStatus = Enum.GetValues<TicketStatus>()
+            .Select(status => new TicketStatusSliceDto(status.ToString(), tickets.Count(t => t.Status == status)))
+            .ToList();
+
+        // --- Donut: customer rating distribution (1-5 in half-star increments, every value represented) ---
+        var possibleRatings = new[] { 1m, 1.5m, 2m, 2.5m, 3m, 3.5m, 4m, 4.5m, 5m };
+        var ratingDistribution = possibleRatings
+            .Select(stars => new RatingSliceDto(stars, tickets.Count(t => t.SatisfactionStars == stars)))
+            .ToList();
+
+        // --- Line: monthly tickets / resolved / on-time rate, last 6 calendar months (in Ethiopian local time, for consistency with every other date-bucketing decision in this app) ---
+        var monthlyTrend = BuildMonthlyTrend(tickets, fallbackSpan);
+
+        return new DashboardDataDto(kpis, byRegion, byFailureType, byEmployee, byStatus, ratingDistribution, monthlyTrend);
+    }
+
+    private List<MonthlyPointDto> BuildMonthlyTrend(List<Ticket> tickets, TimeSpan fallbackSpan)
+    {
+        var nowLocal = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(3));
+        var months = Enumerable.Range(0, 6)
+            .Select(i => new DateTime(nowLocal.Year, nowLocal.Month, 1).AddMonths(-5 + i))
+            .ToList();
+
+        return months.Select(monthStart =>
+        {
+            var monthEnd = monthStart.AddMonths(1);
+            var monthLabel = monthStart.ToString("yyyy-MM");
+
+            var inMonth = tickets.Where(t =>
+            {
+                var submittedLocal = t.DateSubmitted.ToOffset(TimeSpan.FromHours(3)).DateTime;
+                return submittedLocal >= monthStart && submittedLocal < monthEnd;
+            }).ToList();
+
+            var resolvedInMonth = inMonth.Where(t => t.ResolvedAt != null).ToList();
+            var withBoth = resolvedInMonth.Where(t => t.AssignedAt != null).ToList();
+            var onTimeCount = withBoth.Count(t =>
+                _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
+                (t.ExpectedResolutionMinutes is int mins ? mins : fallbackSpan.TotalMinutes));
+            var onTimeRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : (double?)null;
+
+            return new MonthlyPointDto(monthLabel, inMonth.Count, resolvedInMonth.Count, onTimeRate);
+        }).ToList();
     }
 }

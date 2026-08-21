@@ -27,12 +27,20 @@ public record DisableEmployeeRequest(string Reason);
 /// <summary>
 /// Admin edits an existing employee's profile fields. Deliberately
 /// excludes Roles/AllowedIpAddresses/AccountStatus — those already have
-/// dedicated endpoints (role changes aren't exposed via this edit form;
-/// IP allow-list has its own add/remove; status has enable/disable) so
-/// this one endpoint only ever touches the plain profile fields shown on
-/// the edit form.
+/// dedicated endpoints (SetResponsibilitiesAsync for roles; IP allow-list
+/// has its own add/remove; status has enable/disable) so this one
+/// endpoint only ever touches the plain profile fields shown on the edit
+/// form.
 /// </summary>
 public record UpdateEmployeeRequest(string FullName, string Email, string PhoneNumber, string Specialization);
+
+/// <summary>
+/// The employee's full new set of responsibilities — replaces whatever
+/// they had before, not merged/appended. Must include at least one role;
+/// Admin and EmployeeTechnician/Trainer can combine freely (e.g. an Admin
+/// who also personally takes tickets). See IEmployeeService.SetResponsibilitiesAsync.
+/// </summary>
+public record SetEmployeeResponsibilitiesRequest(IReadOnlyList<EmployeeRole> Roles);
 
 public record AddAllowedIpRequest(string IpAddress);
 

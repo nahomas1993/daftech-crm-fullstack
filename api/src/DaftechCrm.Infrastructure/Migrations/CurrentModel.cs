@@ -15,34 +15,72 @@ namespace DaftechCrm.Infrastructure.Migrations
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<string>("AgreementPlace").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<Guid>("AgreementTypeId").HasColumnType("uuid");
                 b.Property<int>("BillingTier").HasColumnType("integer");
-                b.Property<Guid>("ClientId").HasColumnType("uuid");
+                b.Property<string>("Details").HasColumnType("text");
                 b.Property<string>("DocumentNumber").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
                 b.Property<DateOnly>("ExpiryDate").HasColumnType("date");
                 b.Property<string>("ScannedFileUrl").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<DateOnly>("SignDate").HasColumnType("date");
                 b.Property<int>("Status").HasColumnType("integer");
                 b.Property<int>("SupportWindowMonths").HasColumnType("integer");
+                b.Property<Guid>("SystemProductId").HasColumnType("uuid");
                 b.HasKey("Id");
-                b.HasIndex("ClientId");
+                b.HasIndex("AgreementTypeId");
                 b.HasIndex("DocumentNumber").IsUnique();
+                b.HasIndex("SystemProductId");
                 b.ToTable("agreements");
             });
 
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementTraining", b =>
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementType", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<bool>("IsSystemDefined").HasColumnType("boolean");
+                b.Property<string>("Name").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+                b.HasKey("Id");
+                b.HasIndex("Name").IsUnique();
+                b.ToTable("agreement_types");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SystemProduct", b =>
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<Guid>("ClientId").HasColumnType("uuid");
-                b.Property<Guid?>("AgreementId").HasColumnType("uuid");
+                b.Property<DateTimeOffset?>("DeletedAt").HasColumnType("timestamp with time zone");
+                b.Property<DateOnly?>("DeploymentDate").HasColumnType("date");
                 b.Property<string>("Description").HasColumnType("text");
-                b.Property<DateOnly?>("StartDate").HasColumnType("date");
-                b.Property<DateOnly?>("EndDate").HasColumnType("date");
-                b.Property<string>("ScanStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
-                b.Property<string>("ScanFileName").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<bool>("IsDeleted").HasColumnType("boolean");
+                b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<string>("ReferenceNumber").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
                 b.HasKey("Id");
                 b.HasIndex("ClientId");
-                b.HasIndex("AgreementId");
-                b.ToTable("agreement_trainings");
+                b.HasIndex("ReferenceNumber").IsUnique();
+                b.ToTable("system_products");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingSession", b =>
+            {
+                b.Property<Guid>("AgreementId").HasColumnType("uuid");
+                b.Property<string>("Attendance").HasColumnType("text");
+                b.Property<string>("ClientRepresentativeComments").HasColumnType("text");
+                b.Property<string>("ClientRepresentativeConfirmation").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<int>("CompletionStatus").HasColumnType("integer");
+                b.Property<DateOnly?>("EndDate").HasColumnType("date");
+                b.Property<bool>("FollowUpRequired").HasColumnType("boolean");
+                b.Property<string>("FollowUpNotes").HasColumnType("text");
+                b.Property<string>("IssuesOrQuestions").HasColumnType("text");
+                b.Property<string>("Location").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<string>("Participants").HasColumnType("text");
+                b.Property<string>("ScanFileName").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<string>("ScanStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<DateOnly?>("StartDate").HasColumnType("date");
+                b.Property<string>("TopicsCovered").HasColumnType("text");
+                b.Property<Guid?>("TrainerEmployeeId").HasColumnType("uuid");
+                b.Property<string>("TrainerComments").HasColumnType("text");
+                b.HasKey("AgreementId");
+                b.HasIndex("TrainerEmployeeId");
+                b.ToTable("training_sessions");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.AppNotification", b =>
@@ -84,6 +122,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("Region").HasMaxLength(100).HasColumnType("character varying(100)");
                 b.Property<string>("Username").HasMaxLength(50).HasColumnType("character varying(50)");
                 b.Property<string>("Woreda").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<string>("Zone").HasMaxLength(100).HasColumnType("character varying(100)");
                 b.HasKey("Id");
                 b.HasIndex("AccountRefId").IsUnique();
                 b.HasIndex("IdNumber").IsUnique();
@@ -236,8 +275,9 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid?>("FailureTypeId").HasColumnType("uuid");
                 b.Property<DateTimeOffset?>("ResolvedAt").HasColumnType("timestamp with time zone");
                 b.Property<int?>("SatisfactionScore").HasColumnType("integer");
-                b.Property<int?>("SatisfactionStars").HasColumnType("integer");
+                b.Property<decimal?>("SatisfactionStars").HasColumnType("numeric(2,1)");
                 b.Property<int>("Status").HasColumnType("integer");
+                b.Property<int>("Priority").HasColumnType("integer");
                 b.Property<string>("VoiceNoteStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("VoiceNoteFileName").HasMaxLength(300).HasColumnType("character varying(300)");
                 b.HasKey("Id");
@@ -248,6 +288,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.HasIndex("ForwardedByEmployeeId");
                 b.HasIndex("FailureTypeId");
                 b.HasIndex("Status");
+                b.HasIndex("Priority");
                 b.ToTable("tickets");
             });
 
@@ -344,37 +385,64 @@ namespace DaftechCrm.Infrastructure.Migrations
 
             // --- Relationships ---
 
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SystemProduct", b =>
             {
-                // Client is only ever soft-deleted (ClientService.DeleteAsync
-                // sets IsDeleted/DeletedAt, never issues a real DELETE) — no
-                // application code path can trigger this cascade today.
-                // Restrict, not Cascade, so that if a real hard-delete of a
-                // client is ever added later, it fails loudly instead of
-                // silently destroying that client's whole agreement history.
+                // Same reasoning as the old Agreement->Client relationship —
+                // Client is soft-delete only in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
-                    .WithMany("Agreements")
+                    .WithMany("SystemProducts")
                     .HasForeignKey("ClientId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
                 b.Navigation("Client");
             });
 
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementTraining", b =>
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
             {
-                // Same reasoning as Agreement->Client above — Client is
-                // soft-delete only in practice.
-                b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
-                    .WithMany("Trainings")
-                    .HasForeignKey("ClientId")
+                // SystemProduct is soft-delete only in practice
+                // (SystemProductService.DeleteAsync sets IsDeleted/DeletedAt,
+                // never a real DELETE) — Restrict, not Cascade, for the same
+                // reason as the old Agreement->Client relationship: a
+                // hard-delete of a system/product must not silently destroy
+                // its agreement history.
+                b.HasOne("DaftechCrm.Domain.Entities.SystemProduct", "SystemProduct")
+                    .WithMany("Agreements")
+                    .HasForeignKey("SystemProductId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                // AgreementTypeConfiguration explicitly Restricts this too —
+                // an agreement type in use must be retyped/removed from its
+                // agreements before the type itself can be deleted.
+                b.HasOne("DaftechCrm.Domain.Entities.AgreementType", "AgreementType")
+                    .WithMany("Agreements")
+                    .HasForeignKey("AgreementTypeId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+                b.Navigation("SystemProduct");
+                b.Navigation("AgreementType");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingSession", b =>
+            {
+                // One-to-one, keyed by AgreementId itself (see
+                // TrainingSessionConfiguration) — deleting the owning
+                // Agreement is not a code path any service exposes, so this
+                // FK relationship never needs its own delete behavior beyond
+                // EF's default for a shared-key dependent.
                 b.HasOne("DaftechCrm.Domain.Entities.Agreement", "Agreement")
-                    .WithMany("Trainings")
-                    .HasForeignKey("AgreementId")
+                    .WithOne("TrainingSession")
+                    .HasForeignKey("DaftechCrm.Domain.Entities.TrainingSession", "AgreementId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+                // A trainer being disabled/soft-deleted must not delete
+                // training history — SetNull so the session survives with
+                // its assignment cleared, ready for an Admin to reassign.
+                b.HasOne("DaftechCrm.Domain.Entities.Employee", "TrainerEmployee")
+                    .WithMany()
+                    .HasForeignKey("TrainerEmployeeId")
                     .OnDelete(DeleteBehavior.SetNull);
-                b.Navigation("Client");
                 b.Navigation("Agreement");
+                b.Navigation("TrainerEmployee");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.DeviceSession", b =>
@@ -500,13 +568,23 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
             {
                 b.Navigation("Tickets");
+                b.Navigation("TrainingSession");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementType", b =>
+            {
+                b.Navigation("Agreements");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SystemProduct", b =>
+            {
+                b.Navigation("Agreements");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Client", b =>
             {
-                b.Navigation("Agreements");
+                b.Navigation("SystemProducts");
                 b.Navigation("Tickets");
-                b.Navigation("Trainings");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Employee", b =>

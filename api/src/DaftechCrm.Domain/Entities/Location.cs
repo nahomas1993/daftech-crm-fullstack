@@ -2,15 +2,16 @@ namespace DaftechCrm.Domain.Entities;
 
 /// <summary>
 /// Which admin-managed dropdown a LocationEntry row belongs to. Region /
-/// City / Woreda populate the client Region/City/Woreda fields (flat
-/// lists, no hierarchy). Specialization populates the Employee
+/// Zone / City / Woreda populate the client Region/Zone/City/Woreda fields
+/// (flat lists, no hierarchy — Zone is a separate field alongside City,
+/// not a rename of it). Specialization populates the Employee
 /// Specialization field, replacing free text. CustomRole populates the
 /// extra, purely-descriptive role checkboxes on the Employee form — see
 /// Employee.ExtraRoleLabels; these carry NO authorization meaning and are
 /// entirely separate from the hardcoded EmployeeRole enum, which still
 /// drives every [Authorize] policy in the app unchanged.
 /// </summary>
-public enum LocationType { Region, City, Woreda, Specialization, CustomRole }
+public enum LocationType { Region, Zone, City, Woreda, Specialization, CustomRole }
 
 /// <summary>
 /// One admin-managed option in a dropdown/checklist shown on the client or

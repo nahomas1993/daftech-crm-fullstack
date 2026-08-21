@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agreement, AgreementTraining, BillingTier, PagedResult } from '../models';
+import { Agreement, BillingTier, PagedResult, TrainingSession, TrainingCompletionStatus, TrainerAssignmentRecommendation } from '../models';
 import { API_BASE_URL } from './api-base';
 import { AuthService } from './auth.service';
 
@@ -66,6 +66,11 @@ export class AgreementService {
     return this._agreements().find(a => a.id === id) ?? this._myAgreements().find(a => a.id === id);
   }
 
+  /** Fetches a single agreement directly from the API — use when it may not be in either cached list yet (e.g. right after creating it and navigating straight to its detail page). */
+  async fetchById(id: string): Promise<Agreement> {
+    return firstValueFrom(this.http.get<Agreement>(`${API_BASE_URL}/agreements/${id}`));
+  }
+
   /**
    * Fetches the logged-in client's own agreements via the client-scoped
    * API endpoint (GET /agreements/client/{id}), which any authenticated
@@ -85,15 +90,15 @@ export class AgreementService {
   /**
    * Client-side filter over the staff-only full agreements list
    * (agreements()/refresh() above) — use this from staff pages like Client
-   * Detail, where the current user is an Employee, not the Client. Using
-   * forClient() (which reads _myAgreements, only ever populated for a
-   * logged-in Client via refreshMyAgreements) here was the actual bug
-   * behind the Client Detail page always showing "No agreements on file"
-   * for staff: _myAgreements was simply never filled in for an employee
-   * session, no matter how many agreements the client actually had.
+   * Detail, where the current user is an Employee, not the Client.
    */
   forClientStaffView(clientId: string): Agreement[] {
     return this._agreements().filter(a => a.clientId === clientId);
+  }
+
+  /** All agreements for one system/product, straight from the API (not filtered from a cached list — the System/Product detail page uses this directly). */
+  async fetchForSystemProduct(systemProductId: string): Promise<Agreement[]> {
+    return firstValueFrom(this.http.get<Agreement[]>(`${API_BASE_URL}/agreements/system-product/${systemProductId}`));
   }
 
   /** Agreements expiring within 30 days, or already past expiry. */
@@ -111,20 +116,23 @@ export class AgreementService {
     return atDate >= start && atDate <= windowEnd;
   }
 
-  /** Whether the client has at least one training with an End Date set — the precondition for signing an agreement. Check this before showing/enabling "New Agreement". */
-  async clientHasCompletedTraining(clientId: string): Promise<boolean> {
-    return firstValueFrom(this.http.get<boolean>(`${API_BASE_URL}/agreements/client/${clientId}/training-complete`));
+  /** Whether the given system/product has a Training agreement with an End Date set — the precondition for signing a Support agreement for that SAME system/product. Check this before showing/enabling "New Support Agreement". */
+  async systemProductHasCompletedTraining(systemProductId: string): Promise<boolean> {
+    return firstValueFrom(this.http.get<boolean>(`${API_BASE_URL}/agreements/system-product/${systemProductId}/training-complete`));
   }
 
   /**
-   * Creates (signs) the support agreement. SignDate is always set by the
-   * server to today. Rejected with 409 if the client has no completed
-   * training yet — callers should catch that and show the admin a clear
-   * message rather than a generic error.
+   * Creates (signs) an agreement for a client's system/product, under the
+   * given agreement type. signDate is admin-entered (defaults to today at
+   * the call site, but the admin can back-date it). Rejected with 409 if
+   * agreementTypeId resolves to Support but the same system/product has no
+   * completed Training agreement yet — callers should catch that and show
+   * a clear message. Never overwrites an existing agreement — always
+   * creates a new row.
    */
   async createAgreement(data: {
-    clientId: string; agreementPlace: string;
-    expiryDate?: string; supportWindowMonths: number; billingTier: BillingTier;
+    systemProductId: string; agreementTypeId: string; agreementPlace: string; signDate: string;
+    expiryDate?: string; supportWindowMonths: number; billingTier: BillingTier; details?: string;
   }): Promise<Agreement> {
     const agreement = await firstValueFrom(this.http.post<Agreement>(`${API_BASE_URL}/agreements`, data));
     await Promise.all([this.refresh(), this.refreshPaged()]);
@@ -133,9 +141,7 @@ export class AgreementService {
 
   /**
    * Uploads (or replaces) the scanned document for an already-created
-   * agreement. Real multipart upload to the API's file storage — replaces
-   * the old placeholder that just recorded a filename string without ever
-   * sending the file anywhere.
+   * agreement. Real multipart upload to the API's file storage.
    */
   async uploadScannedFile(agreementId: string, file: File): Promise<Agreement> {
     const form = new FormData();
@@ -159,43 +165,39 @@ export class AgreementService {
     );
   }
 
-  /** All trainings recorded for a client, regardless of whether an agreement has been signed yet. Training now exists independently of any agreement. */
-  async getTrainingsForClient(clientId: string): Promise<AgreementTraining[]> {
-    return firstValueFrom(this.http.get<AgreementTraining[]>(`${API_BASE_URL}/clients/${clientId}/trainings`));
+  /** Every eligible Trainer's current workload plus a recommendation — shown to Admin when assigning a Training agreement's trainer. See TrainingSessionDetailComponent. */
+  async getTrainerWorkload(): Promise<TrainerAssignmentRecommendation> {
+    return firstValueFrom(this.http.get<TrainerAssignmentRecommendation>(`${API_BASE_URL}/agreements/trainer-workload`));
   }
 
-  /** Creates a new, empty training row for a client — the admin then fills in and saves its details independently of any other training row. Not attached to any agreement yet. */
-  async addTraining(clientId: string): Promise<AgreementTraining> {
-    return firstValueFrom(this.http.post<AgreementTraining>(`${API_BASE_URL}/clients/${clientId}/trainings`, {}));
+  /** The training session for a Training-type agreement. Reachable the same way from the Client, SystemProduct, and Agreement detail pages — all call this by agreement id. Throws (404) if the agreement isn't a Training agreement. */
+  async getTrainingSession(agreementId: string): Promise<TrainingSession> {
+    return firstValueFrom(this.http.get<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session`));
   }
 
-  /** Sets/updates one training row's description and timeline (start/end dates). All fields optional — can be filled in over time. EndDate stays editable afterward, e.g. to push it out if training runs long due to unforeseen delays. */
-  async saveTraining(
-    clientId: string,
-    trainingId: string,
-    data: { description?: string; startDate?: string; endDate?: string }
-  ): Promise<AgreementTraining> {
-    return firstValueFrom(this.http.put<AgreementTraining>(`${API_BASE_URL}/clients/${clientId}/trainings/${trainingId}`, data));
+  /** Sets/updates the training session's fields — trainer, dates, location, participants, attendance, topics, issues, trainer comments, client rep confirmation, completion status, follow-up. All fields optional/incremental. */
+  async saveTrainingSession(agreementId: string, data: {
+    trainerEmployeeId?: string; startDate?: string; endDate?: string; location?: string;
+    participants?: string; attendance?: string; topicsCovered?: string; issuesOrQuestions?: string;
+    trainerComments?: string; clientRepresentativeConfirmation?: string; clientRepresentativeComments?: string;
+    completionStatus: TrainingCompletionStatus; followUpRequired: boolean; followUpNotes?: string;
+  }): Promise<TrainingSession> {
+    return firstValueFrom(this.http.put<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session`, data));
   }
 
-  /** Deletes a training row for a client. */
-  async deleteTraining(clientId: string, trainingId: string): Promise<void> {
-    await firstValueFrom(this.http.delete<void>(`${API_BASE_URL}/clients/${clientId}/trainings/${trainingId}`));
-  }
-
-  /** Uploads (or replaces) the scanned document for one specific training row — a separate file from the signed agreement scan above. */
-  async uploadTrainingScan(clientId: string, trainingId: string, file: File): Promise<AgreementTraining> {
+  /** Uploads (or replaces) the scanned document (e.g. sign-in sheet) for a training session. */
+  async uploadTrainingScan(agreementId: string, file: File): Promise<TrainingSession> {
     const form = new FormData();
     form.append('file', file, file.name);
     return firstValueFrom(
-      this.http.post<AgreementTraining>(`${API_BASE_URL}/clients/${clientId}/trainings/${trainingId}/scan`, form)
+      this.http.post<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session/scan`, form)
     );
   }
 
-  /** Fetches a training row's scan as a Blob — same reasoning as downloadScannedFile above. */
-  async downloadTrainingScan(clientId: string, trainingId: string): Promise<Blob> {
+  /** Fetches a training session's scan as a Blob — same reasoning as downloadScannedFile above. */
+  async downloadTrainingScan(agreementId: string): Promise<Blob> {
     return firstValueFrom(
-      this.http.get(`${API_BASE_URL}/clients/${clientId}/trainings/${trainingId}/scan`, { responseType: 'blob' })
+      this.http.get(`${API_BASE_URL}/agreements/${agreementId}/training-session/scan`, { responseType: 'blob' })
     );
   }
 }

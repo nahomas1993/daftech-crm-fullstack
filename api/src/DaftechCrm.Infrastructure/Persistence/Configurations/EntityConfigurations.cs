@@ -56,6 +56,7 @@ public class ClientConfiguration : IEntityTypeConfiguration<Client>
         b.Property(x => x.Office).HasMaxLength(200);
         b.Property(x => x.Location).HasMaxLength(200);
         b.Property(x => x.Region).HasMaxLength(100);
+        b.Property(x => x.Zone).HasMaxLength(100);
         b.Property(x => x.City).HasMaxLength(100);
         b.Property(x => x.Woreda).HasMaxLength(100);
         b.Property(x => x.KycType).HasMaxLength(100);
@@ -64,8 +65,39 @@ public class ClientConfiguration : IEntityTypeConfiguration<Client>
         b.Property(x => x.Username).HasMaxLength(50);
         b.HasIndex(x => x.Username).IsUnique();
         b.Property(x => x.PasswordHash).HasMaxLength(200);
-        b.HasMany(x => x.Agreements).WithOne(a => a.Client).HasForeignKey(a => a.ClientId);
+        b.HasMany(x => x.SystemProducts).WithOne(s => s.Client).HasForeignKey(s => s.ClientId);
         b.HasMany(x => x.Tickets).WithOne(t => t.Client).HasForeignKey(t => t.ClientId);
+    }
+}
+
+public class SystemProductConfiguration : IEntityTypeConfiguration<SystemProduct>
+{
+    public void Configure(EntityTypeBuilder<SystemProduct> b)
+    {
+        b.ToTable("system_products");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.ReferenceNumber).HasMaxLength(50).IsRequired();
+        b.HasIndex(x => x.ReferenceNumber).IsUnique();
+        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.Description).HasColumnType("text");
+        b.HasMany(x => x.Agreements).WithOne(a => a.SystemProduct).HasForeignKey(a => a.SystemProductId);
+    }
+}
+
+public class AgreementTypeConfiguration : IEntityTypeConfiguration<AgreementType>
+{
+    public void Configure(EntityTypeBuilder<AgreementType> b)
+    {
+        b.ToTable("agreement_types");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Name).HasMaxLength(100).IsRequired();
+        b.HasIndex(x => x.Name).IsUnique();
+        b.Property(x => x.Description).HasMaxLength(500);
+        // Restrict — an agreement type in use must be removed from its agreements
+        // (or those agreements deleted/retyped) before the type itself can go;
+        // never let deleting a lookup value silently orphan or cascade-delete
+        // real signed agreements.
+        b.HasMany(x => x.Agreements).WithOne(a => a.AgreementType).HasForeignKey(a => a.AgreementTypeId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -79,25 +111,34 @@ public class AgreementConfiguration : IEntityTypeConfiguration<Agreement>
         b.HasIndex(x => x.DocumentNumber).IsUnique();
         b.Property(x => x.ScannedFileUrl).HasMaxLength(500);
         b.Property(x => x.AgreementPlace).HasMaxLength(200);
-        // Trainings are owned by Client (see AgreementTrainingConfiguration) and only
-        // ever linked here, never cascade-deleted with the agreement — deleting an
-        // agreement must not erase the client's training history.
-        b.HasMany(x => x.Trainings).WithOne(t => t.Agreement).HasForeignKey(t => t.AgreementId).OnDelete(DeleteBehavior.SetNull);
+        b.Property(x => x.Details).HasColumnType("text");
+        // TrainingSession is one-to-one, owned by AgreementId as its own key (see
+        // TrainingSessionConfiguration) — never cascade-deleted implicitly here;
+        // TrainingSessionConfiguration states the delete behavior explicitly.
+        b.HasOne(x => x.TrainingSession).WithOne(t => t.Agreement).HasForeignKey<TrainingSession>(t => t.AgreementId);
     }
 }
 
-public class AgreementTrainingConfiguration : IEntityTypeConfiguration<AgreementTraining>
+public class TrainingSessionConfiguration : IEntityTypeConfiguration<TrainingSession>
 {
-    public void Configure(EntityTypeBuilder<AgreementTraining> b)
+    public void Configure(EntityTypeBuilder<TrainingSession> b)
     {
-        b.ToTable("agreement_trainings");
-        b.HasKey(x => x.Id);
-        b.Property(x => x.Description).HasColumnType("text");
+        b.ToTable("training_sessions");
+        b.HasKey(x => x.AgreementId);
+        b.Property(x => x.Location).HasMaxLength(300);
+        b.Property(x => x.Participants).HasColumnType("text");
+        b.Property(x => x.Attendance).HasColumnType("text");
+        b.Property(x => x.TopicsCovered).HasColumnType("text");
+        b.Property(x => x.IssuesOrQuestions).HasColumnType("text");
+        b.Property(x => x.TrainerComments).HasColumnType("text");
+        b.Property(x => x.ClientRepresentativeConfirmation).HasMaxLength(300);
+        b.Property(x => x.ClientRepresentativeComments).HasColumnType("text");
+        b.Property(x => x.FollowUpNotes).HasColumnType("text");
         b.Property(x => x.ScanStorageKey).HasMaxLength(500);
         b.Property(x => x.ScanFileName).HasMaxLength(300);
-        // Owning relationship: a training belongs to a Client and exists independently
-        // of any Agreement (training happens before an agreement can be signed).
-        b.HasOne(x => x.Client).WithMany(c => c.Trainings).HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
+        // A trainer being deleted/soft-deleted must not delete training history —
+        // just clear the assignment so an Admin can reassign it.
+        b.HasOne(x => x.TrainerEmployee).WithMany().HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.SetNull);
     }
 }
 
@@ -107,6 +148,8 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
     {
         b.ToTable("tickets");
         b.HasKey(x => x.Id);
+        // 0.5-increment range 1.0-5.0 (e.g. 4.5) — see Ticket.SatisfactionStars.
+        b.Property(x => x.SatisfactionStars).HasColumnType("numeric(2,1)");
         b.Property(x => x.Description).HasColumnType("text").IsRequired();
         b.Property(x => x.VoiceNoteStorageKey).HasMaxLength(500);
         b.Property(x => x.VoiceNoteFileName).HasMaxLength(300);
@@ -116,7 +159,14 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.HasOne(x => x.FailureType).WithMany().HasForeignKey(x => x.FailureTypeId).OnDelete(DeleteBehavior.SetNull);
         b.HasMany(x => x.AuditTrail).WithOne(a => a.Ticket).HasForeignKey(a => a.TicketId);
         b.HasIndex(x => x.Status);
+        b.HasIndex(x => x.Priority);
         b.HasIndex(x => x.ClientConfirmationDeadline);
+
+        // SupportPhase is a computed, expression-bodied property (no
+        // setter) — EF Core's conventions wouldn't map it as a column
+        // anyway, but Ignore() here makes that explicit rather than
+        // relying on the convention silently doing the right thing.
+        b.Ignore(x => x.SupportPhase);
 
         // NOTE: Ticket previously used Postgres's xmin system column as an EF
         // Core concurrency token (b.UseXminAsConcurrencyToken()). That is

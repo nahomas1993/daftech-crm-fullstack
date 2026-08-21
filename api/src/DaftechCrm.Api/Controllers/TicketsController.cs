@@ -236,9 +236,18 @@ public class TicketsController : ControllerBase
         }
     }
 
+    /// <summary>Sets a ticket's priority (Low/Medium/High) — any employee may set this (not just Admin), since a technician working the ticket is often best placed to judge its urgency. Feeds workload-aware Trainer assignment (see TrainerWorkloadService).</summary>
+    [HttpPatch("{id:guid}/priority")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    public async Task<ActionResult<TicketDto>> SetPriority(Guid id, [FromBody] SetTicketPriorityRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _tickets.SetPriorityAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
     /// <summary>
-    /// Client confirms the fix and rates 1-5 stars.
-    /// Score = stars * 20.
+    /// Client confirms the fix and rates 1-5 stars, in half-star
+    /// increments (e.g. 3.5). Score = stars * 20.
     /// </summary>
     [HttpPost("{id:guid}/confirm")]
     [Authorize(Policy = AuthorizationPolicies.AnyClient)]

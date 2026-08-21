@@ -18,6 +18,7 @@ public class LocationService : ILocationService
 
         return new LocationOptionsDto(
             all.Where(x => x.Type == LocationType.Region).Select(ToDto).ToList(),
+            all.Where(x => x.Type == LocationType.Zone).Select(ToDto).ToList(),
             all.Where(x => x.Type == LocationType.City).Select(ToDto).ToList(),
             all.Where(x => x.Type == LocationType.Woreda).Select(ToDto).ToList(),
             all.Where(x => x.Type == LocationType.Specialization).Select(ToDto).ToList(),

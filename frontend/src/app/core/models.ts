@@ -23,6 +23,16 @@ export type TicketStatus =
 
 export type ClosureReason = 'ClientConfirmedSatisfied' | 'AutoClosedNoResponse';
 
+/**
+ * Matches Domain.Entities.SupportPhase — a coarser grouping of
+ * TicketStatus for reporting/filtering only (see Reports module). Always
+ * derived server-side from the ticket's Status; never set independently.
+ */
+export type SupportPhase = 'Intake' | 'Diagnosis' | 'Repair' | 'Verification' | 'Closed';
+
+/** Matches Domain.Entities.TicketPriority. Any employee may set this on a ticket; feeds workload-aware Trainer assignment's "high-priority tickets" dimension. */
+export type TicketPriority = 'Low' | 'Medium' | 'High';
+
 export type MaintenanceCategory =
   | 'SQL/Database error'
   | 'Front-end error'
@@ -38,8 +48,11 @@ export type MaintenanceStatus = 'Resolved' | 'InProgress' | 'Recurring';
  * TicketService.SubmitFromClientAsync on the backend) and is never
  * assigned to new employees — kept in this union only so an existing
  * employee record that still has it deserializes/displays without error.
+ * Trainer is a dynamically assignable responsibility, not a separate
+ * account type — an employee can hold both EmployeeTechnician and Trainer
+ * at once (Roles is a list), assigned/changed by an Admin at any time.
  */
-export type EmployeeRole = 'Admin' | 'ItSupport' | 'EmployeeTechnician';
+export type EmployeeRole = 'Admin' | 'ItSupport' | 'EmployeeTechnician' | 'Trainer';
 
 export type DeviceType = 'Laptop' | 'Pc' | 'Tablet' | 'Other';
 export type DeviceAccessStatus = 'Allowed' | 'Revoked';
@@ -56,6 +69,7 @@ export const EMPLOYEE_ROLE_LABELS: Record<EmployeeRole, string> = {
   Admin: 'Admin',
   ItSupport: 'IT Support',
   EmployeeTechnician: 'Employee/Technician',
+  Trainer: 'Trainer',
 };
 
 export interface Client {
@@ -67,6 +81,7 @@ export interface Client {
   office: string;
   location: string;
   region?: string;
+  zone?: string;
   city?: string;
   woreda?: string;
   kycType: string;
@@ -90,32 +105,79 @@ export interface ClientRegisteredResult {
   emailError?: string;
 }
 
-export interface AgreementTraining {
+/**
+ * One system/product a client has deployed — sits between Client and
+ * Agreement: Client -> SystemProduct -> Agreement -> AgreementType. A
+ * client can have multiple; creating a new one never replaces an existing
+ * one.
+ */
+export interface SystemProduct {
   id: string;
   clientId: string;
-  /** Null until a support agreement is signed for this client — training is recorded before any agreement exists. */
-  agreementId: string | null;
+  /** Permanent display id — "DAF-SYS-####". */
+  referenceNumber: string;
+  name: string;
   description?: string;
+  deploymentDate?: string; // ISO date
+}
+
+/** Admin-managed lookup — Support and Training always exist (see AgreementTypeNames on the backend); an Admin can add further custom types. */
+export interface AgreementType {
+  id: string;
+  name: string;
+  description?: string;
+  /** True for the built-in Support/Training types — the UI hides the delete action for these. */
+  isSystemDefined: boolean;
+}
+
+export type TrainingCompletionStatus = 'NotStarted' | 'InProgress' | 'Completed' | 'FollowUpRequired';
+
+/**
+ * The full training workflow record for a Training-type Agreement —
+ * one-to-one, keyed by the agreement's id. Reachable from the Client,
+ * SystemProduct, and Agreement detail pages.
+ */
+export interface TrainingSession {
+  agreementId: string;
+  trainerEmployeeId?: string;
+  trainerEmployeeName?: string;
   startDate?: string; // ISO date
-  /** Set once training finishes — this is what "training complete" means. Stays editable afterward (e.g. to push it out if training runs long). */
+  /** Set once training finishes — this is what "training complete" means for the training-before-support gate. Stays editable afterward. */
   endDate?: string; // ISO date
+  location?: string;
+  participants?: string;
+  attendance?: string;
+  topicsCovered?: string;
+  issuesOrQuestions?: string;
+  trainerComments?: string;
+  clientRepresentativeConfirmation?: string;
+  clientRepresentativeComments?: string;
+  completionStatus: TrainingCompletionStatus;
+  followUpRequired: boolean;
+  followUpNotes?: string;
   scanFileName?: string;
 }
 
 export interface Agreement {
   id: string;
+  systemProductId: string;
   clientId: string;
+  clientName: string;
+  systemProductName: string;
+  agreementTypeId: string;
+  agreementTypeName: string;
   documentNumber: string;
   scannedFileUrl?: string;
   agreementPlace: string;
-  /** Admin-entered: the date the agreement was signed. Creating an agreement IS the signing act — the server always sets this to today and rejects creation unless the client has a completed training. */
+  /** Admin-entered: the date the agreement was signed — editable/backdatable, not forced to today. */
   signDate: string; // ISO date
   expiryDate: string; // ISO date
   supportWindowMonths: number;
   status: AgreementStatus;
   billingTier: BillingTier;
-  /** The client's trainings that were completed as of signing — not the client's full training history (see AgreementService.getTrainingsForClient for that). */
-  trainings: AgreementTraining[];
+  details?: string;
+  /** Present only when agreementTypeName is "Training". */
+  trainingSession?: TrainingSession;
 }
 
 export interface Ticket {
@@ -136,6 +198,7 @@ export interface Ticket {
   expectedResolutionBy?: string; // ISO datetime
   chargeable: boolean;
   status: TicketStatus;
+  priority: TicketPriority;
   resolvedAt?: string;
   clientConfirmationDeadline?: string;
   satisfactionStars?: number; // 1-5, set once the client confirms
@@ -382,7 +445,7 @@ export interface PasswordResetOtpIssuedResult {
   emailError?: string;
 }
 
-export type LocationType = 'Region' | 'City' | 'Woreda' | 'Specialization' | 'CustomRole';
+export type LocationType = 'Region' | 'Zone' | 'City' | 'Woreda' | 'Specialization' | 'CustomRole';
 
 /** One admin-managed dropdown/checklist option (Region, City, Woreda, Specialization, or CustomRole). */
 export interface LocationEntry {
@@ -391,9 +454,10 @@ export interface LocationEntry {
   name: string;
 }
 
-/** All five option lists in one response — see LocationsController.GetAll. */
+/** All six option lists in one response — see LocationsController.GetAll. */
 export interface LocationOptions {
   regions: LocationEntry[];
+  zones: LocationEntry[];
   cities: LocationEntry[];
   woredas: LocationEntry[];
   specializations: LocationEntry[];
@@ -409,4 +473,121 @@ export interface FailureType {
   description?: string;
   durationValue: number;
   durationUnit: DurationUnit;
+}
+
+// --- Reports module (tables only — see Dashboard for charts/KPIs) ---
+
+/** Every field optional — an unset filter simply doesn't narrow that dimension. Matches Application.DTOs.TicketReportFilter. */
+export interface TicketReportFilter {
+  fromDate?: string; // ISO date (yyyy-MM-dd)
+  toDate?: string;
+  month?: number; // 1-12
+  region?: string;
+  zone?: string;
+  woreda?: string;
+  employeeId?: string;
+  failureTypeId?: string;
+  status?: TicketStatus;
+  supportPhase?: SupportPhase;
+  search?: string;
+}
+
+export interface TableReportResult<T> {
+  rows: T[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export interface CustomerSupportReportRow {
+  ticketId: string; clientName: string; region?: string; zone?: string; woreda?: string;
+  systemProductName?: string; failureTypeName?: string; dateSubmitted: string;
+  assignedEmployeeName?: string; status: TicketStatus; supportPhase: SupportPhase;
+  chargeable: boolean; resolvedAt?: string; satisfactionScore?: number;
+}
+
+export interface EmployeePerformanceReportRow {
+  employeeId: string; employeeName: string; totalAssigned: number; resolved: number; open: number;
+  overdue: number; averageResolutionHours?: number; onTimeRatePercent?: number; averageSatisfactionScore?: number;
+}
+
+export interface RegionalReportRow {
+  region?: string; zone?: string; woreda?: string; ticketCount: number; openCount: number; resolvedCount: number;
+  averageResolutionHours?: number; averageSatisfactionScore?: number;
+}
+
+export interface FailureTypeReportRow {
+  failureTypeId?: string; failureTypeName: string; ticketCount: number; onTimeCount: number; lateCount: number;
+  onTimeRatePercent?: number; averageResolutionHours?: number;
+}
+
+export interface ResolutionTimeReportRow {
+  ticketId: string; clientName: string; failureTypeName?: string; assignedEmployeeName?: string;
+  assignedAt?: string; resolvedAt?: string; resolutionHours?: number; expectedResolutionHours?: number; wasOnTime?: boolean;
+}
+
+export interface CustomerRatingReportRow {
+  ticketId: string; clientName: string; assignedEmployeeName?: string; resolvedAt?: string;
+  satisfactionStars: number; satisfactionScore: number; closureReason?: ClosureReason;
+}
+
+export type ReportType = 'customer-support' | 'employee-performance' | 'regional' | 'failure-type' | 'resolution-time' | 'customer-rating';
+
+export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
+  'customer-support': 'Customer / Support',
+  'employee-performance': 'Employee Performance',
+  regional: 'Regional',
+  'failure-type': 'Failure Type',
+  'resolution-time': 'Resolution Time',
+  'customer-rating': 'Customer Rating',
+};
+
+// --- Workload-aware Trainer assignment (Phase 5) ---
+
+export interface TrainerWorkload {
+  employeeId: string;
+  employeeName: string;
+  activeTicketCount: number;
+  pendingTicketCount: number;
+  highPriorityTicketCount: number;
+  overdueTicketCount: number;
+  activeTrainingAssignmentCount: number;
+  workloadScore: number;
+  isExcessiveWorkload: boolean;
+}
+
+export interface TrainerAssignmentRecommendation {
+  eligibleTrainers: TrainerWorkload[];
+  recommendedTrainerEmployeeId?: string;
+}
+
+// --- Dashboard (charts + KPIs only — see the Reports module DTOs above for tables) ---
+
+export interface DashboardFilter {
+  fromDate?: string;
+  toDate?: string;
+  region?: string;
+}
+
+export interface DashboardKpis {
+  totalTickets: number; openTickets: number; resolvedTickets: number; overdueTickets: number;
+  resolutionRatePercent: number; averageSatisfactionScore?: number;
+}
+
+export interface RegionTicketCount { region: string; ticketCount: number; }
+export interface FailureTypeTicketCount { failureTypeName: string; ticketCount: number; }
+export interface EmployeeTicketCount { employeeName: string; resolvedCount: number; }
+export interface TicketStatusSlice { status: string; count: number; }
+export interface MonthlyPoint { month: string; ticketCount: number; resolvedCount: number; onTimeRatePercent?: number; }
+export interface RatingSlice { stars: number; count: number; }
+
+export interface DashboardData {
+  kpis: DashboardKpis;
+  ticketsByRegion: RegionTicketCount[];
+  ticketsByFailureType: FailureTypeTicketCount[];
+  ticketsByEmployee: EmployeeTicketCount[];
+  ticketsByStatus: TicketStatusSlice[];
+  ratingDistribution: RatingSlice[];
+  monthlyTrend: MonthlyPoint[];
 }

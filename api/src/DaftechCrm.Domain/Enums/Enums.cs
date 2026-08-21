@@ -31,8 +31,16 @@ public enum MaintenanceStatus { Resolved, InProgress, Recurring }
 /// table, so removing this would throw Enum.Parse failures on any
 /// existing employee row that still has it. New employees should never
 /// be assigned ItSupport going forward.
+///
+/// Trainer is a dynamically assignable responsibility, not a separate
+/// account type — an Employee can hold Trainer alongside
+/// EmployeeTechnician (Employee.Roles is already a list), and an Admin
+/// can add/remove it at any time via EmployeeService.SetResponsibilities.
+/// Only employees with Trainer show up as candidates when assigning a
+/// Training agreement's TrainingSession.TrainerEmployeeId (see
+/// ITrainerWorkloadService).
 /// </summary>
-public enum EmployeeRole { Admin, ItSupport, EmployeeTechnician }
+public enum EmployeeRole { Admin, ItSupport, EmployeeTechnician, Trainer }
 
 public enum DeviceType { Laptop, Pc, Tablet, Other }
 

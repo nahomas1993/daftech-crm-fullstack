@@ -2,6 +2,17 @@ using DaftechCrm.Domain.Enums;
 
 namespace DaftechCrm.Domain.Entities;
 
+/// <summary>
+/// A coarser, client-facing-friendly lifecycle grouping of TicketStatus,
+/// used purely for reporting/filtering (see Reports module) — not stored,
+/// always derived live from Ticket.Status via Ticket.SupportPhase below,
+/// so it can never drift out of sync with the ticket's real status.
+/// </summary>
+public enum SupportPhase { Intake, Diagnosis, Repair, Verification, Closed }
+
+/// <summary>Urgency an Admin or technician can set on a ticket — used by workload-aware Trainer assignment (see TrainerWorkloadService) to weight "high-priority" tickets more heavily than routine ones. Defaults to Medium; does not affect auto-assignment order for technicians (see TicketAssignmentService, which is unaffected by this).</summary>
+public enum TicketPriority { Low, Medium, High }
+
 public class Ticket
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -60,6 +71,23 @@ public class Ticket
 
     public bool Chargeable { get; set; }
     public TicketStatus Status { get; set; } = TicketStatus.Submitted;
+    public TicketPriority Priority { get; set; } = TicketPriority.Medium;
+
+    /// <summary>
+    /// This ticket's status, grouped into a coarser support lifecycle
+    /// phase for reporting/filtering. Always derived from Status — never
+    /// set or stored independently, so it's impossible for the two to
+    /// disagree. See SupportPhase for the mapping rationale.
+    /// </summary>
+    public SupportPhase SupportPhase => Status switch
+    {
+        TicketStatus.Submitted or TicketStatus.Forwarded => SupportPhase.Intake,
+        TicketStatus.Assigned => SupportPhase.Diagnosis,
+        TicketStatus.InProgress => SupportPhase.Repair,
+        TicketStatus.Resolved or TicketStatus.AwaitingClientConfirmation => SupportPhase.Verification,
+        TicketStatus.Escalated or TicketStatus.Closed => SupportPhase.Closed,
+        _ => SupportPhase.Intake,
+    };
 
     // --- Client confirmation / satisfaction ---
 
@@ -70,7 +98,8 @@ public class Ticket
     public DateTimeOffset? ClientConfirmationDeadline { get; set; }
 
     /// <summary>1-5 stars, set when the client responds. Null if never rated (e.g. auto-closed).</summary>
-    public int? SatisfactionStars { get; set; }
+    /// <summary>1-5 in 0.5 increments (e.g. 3.5) — half stars are allowed, whole stars are not required. SatisfactionScore below is always this value * 20, kept in sync by TicketService.ConfirmAsync.</summary>
+    public decimal? SatisfactionStars { get; set; }
 
     /// <summary>Stars converted to a 0-100 score (stars * 20). Null if never rated.</summary>
     public int? SatisfactionScore { get; set; }

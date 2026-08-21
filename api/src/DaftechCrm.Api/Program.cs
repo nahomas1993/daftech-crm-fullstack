@@ -77,6 +77,7 @@ else
 
 builder.Services.AddHostedService<AutoCloseTicketsHostedService>();
 builder.Services.AddHostedService<SessionSweepHostedService>();
+builder.Services.AddHostedService<TicketAssignmentSweepHostedService>();
 
 // ---- Authentication / Authorization ----
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();

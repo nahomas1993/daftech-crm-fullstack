@@ -41,6 +41,7 @@ public class ClientService : IClientService
             Office = request.Office,
             Location = request.Location,
             Region = request.Region,
+            Zone = request.Zone,
             City = request.City,
             Woreda = request.Woreda,
             KycType = "Pending Verification",
@@ -73,6 +74,7 @@ public class ClientService : IClientService
             Office = request.Office,
             Location = request.Location,
             Region = request.Region,
+            Zone = request.Zone,
             City = request.City,
             Woreda = request.Woreda,
             KycType = request.KycType,
@@ -192,6 +194,7 @@ public class ClientService : IClientService
         client.Office = request.Office;
         client.Location = request.Location;
         client.Region = request.Region;
+        client.Zone = request.Zone;
         client.City = request.City;
         client.Woreda = request.Woreda;
         client.KycType = request.KycType;
@@ -215,7 +218,7 @@ public class ClientService : IClientService
 
     private static ClientDto ToDto(Client c) => new(
         c.Id, c.Name, c.IdNumber, c.PhoneNumber, c.Email, c.Office, c.Location,
-        c.Region, c.City, c.Woreda,
+        c.Region, c.Zone, c.City, c.Woreda,
         c.KycType, c.KycContact, c.ItSupportContact, c.AccountStatus, c.OnboardingDate, c.RejectionReason,
         c.Username, c.MustChangePassword, c.AccountRefId
     );

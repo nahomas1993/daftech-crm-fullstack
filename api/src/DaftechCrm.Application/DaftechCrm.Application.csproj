@@ -9,6 +9,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
+    <!-- QuestPDF: MIT-licensed for the Community usage tier (small
+         companies/individuals; see questpdf.com/license) which fits this
+         project's scale — used for the Reports module's PDF export
+         (TabularPdfRenderer). Fluent C# API, no native/system
+         dependencies, unlike wkhtmltopdf-style tools — safe on Render. -->
+    <PackageReference Include="QuestPDF" Version="2024.7.3" />
   </ItemGroup>
 
   <ItemGroup>
