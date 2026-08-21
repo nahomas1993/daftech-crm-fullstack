@@ -79,9 +79,7 @@ const RATING_COLORS = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
         </a>
       </div>
 
-      @if (dashboardError()) {
-        <p class="upload-error">{{ dashboardError() }}</p>
-      } @else if (dashboardData(); as d) {
+      @if (dashboardData(); as d) {
         <div class="cards">
           <div class="panel panel-pad card">
             <div class="card-label">Total Tickets</div>
@@ -135,6 +133,8 @@ const RATING_COLORS = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
             <app-line-chart [data]="trendSeries(d)" [xLabels]="trendLabels(d)"></app-line-chart>
           </div>
         </div>
+      } @else if (dashboardError()) {
+        <p class="upload-error">{{ dashboardError() }}</p>
       } @else {
         <p class="text-muted" style="margin-top:1.5rem;">Loading dashboard…</p>
       }

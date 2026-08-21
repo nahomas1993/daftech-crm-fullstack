@@ -274,6 +274,8 @@ public interface ITicketReportService
     /// <summary>Renders any one of the six reports as CSV — the same filtered/unpaged row set as ExportPdfAsync, for spreadsheet use.</summary>
     Task<string> ExportCsvAsync(string reportType, TicketReportFilter filter, CancellationToken ct = default);
 }
+
+public interface IAgreementService
 {
     /// <summary>
     /// Creates (signs) an agreement for a Client → SystemProduct, under the
