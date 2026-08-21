@@ -3,6 +3,7 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { ForgotPasswordModalComponent } from '../../shared/forgot-password-modal.component';
+import { DaftechLogoComponent } from '../../shared/daftech-logo.component';
 
 /**
  * Single sign-in screen for Admins, Employees, and Clients alike — replaces
@@ -17,11 +18,11 @@ import { ForgotPasswordModalComponent } from '../../shared/forgot-password-modal
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent],
+  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent, DaftechLogoComponent],
   template: `
     <div class="wrap">
       <div class="card panel panel-pad">
-        <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-lg" style="margin: 0 auto 0.9rem;" />
+        <daftech-logo variant="full" [size]="72" class="brand-logo brand-logo-block"></daftech-logo>
         <h2>DAFTECH Sign In</h2>
         <p class="text-muted" style="margin: 0.35rem 0 1.25rem;">
           One sign-in for Admins, Employees, and Clients. Enter the username and password you were issued.

@@ -152,11 +152,6 @@ tbody tr:last-child td { border-bottom: none; }
 .text-muted { color: var(--slate-500); }
 .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
 
-/* Brand mark — the actual DAFTECH logo image, used in sidebars and login screens */
-.brand-logo-img {
-  object-fit: contain;
-  display: block;
-}
-.brand-logo-sm { width: 34px; height: 34px; }
-.brand-logo-md { width: 44px; height: 44px; }
-.brand-logo-lg { width: 64px; height: 64px; }
+/* Brand mark — rendered inline by <daftech-logo>, so it inherits theme colors */
+.brand-logo { display: inline-flex; align-items: center; }
+.brand-logo-block { display: flex; justify-content: center; margin: 0 auto 0.9rem; }

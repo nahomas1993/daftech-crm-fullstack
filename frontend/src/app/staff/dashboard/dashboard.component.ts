@@ -11,6 +11,8 @@ import { DashboardService } from '../../core/services/dashboard.service';
 import { LocationService } from '../../core/services/location.service';
 import { NotificationRecipientType, DashboardData, DashboardFilter } from '../../core/models';
 import { DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { TimeoutError } from 'rxjs';
 import { CountBarChartComponent, CountBarDatum } from '../../shared/count-bar-chart.component';
 import { DonutChartComponent, DonutSlice } from '../../shared/donut-chart.component';
 import { LineChartComponent, LineSeries } from '../../shared/line-chart.component';
@@ -20,6 +22,23 @@ const STATUS_COLORS: Record<string, string> = {
   Resolved: '#34d399', AwaitingClientConfirmation: '#a78bfa', Escalated: '#f87171', Closed: '#64748b',
 };
 const RATING_COLORS = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
+
+/** Turns whatever the dashboard request threw into something a support manager can act on. */
+function describeDashboardError(err: unknown): string {
+  if (err instanceof HttpErrorResponse) {
+    if (err.status === 0) {
+      return 'Could not reach the server (network or CORS error). Check your connection and that this site’s address is allowed by the API, then retry.';
+    }
+    if (err.status === 401 || err.status === 403) {
+      return 'Your session is not allowed to view dashboard analytics. Sign out and sign back in, then retry.';
+    }
+    return `The server returned an error (${err.status}) while building the dashboard. Please retry in a moment.`;
+  }
+  if (err instanceof TimeoutError) {
+    return 'The dashboard took too long to respond (the API may be waking up). Please retry.';
+  }
+  return 'Could not load dashboard data — please try again.';
+}
 
 /**
  * Charts + KPIs only — see the Reports page for filterable/exportable
@@ -134,7 +153,10 @@ const RATING_COLORS = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
           </div>
         </div>
       } @else if (dashboardError()) {
-        <p class="upload-error">{{ dashboardError() }}</p>
+        <div class="panel panel-pad" style="margin-top:1.25rem;">
+          <p class="upload-error" style="margin-top:0;">{{ dashboardError() }}</p>
+          <button class="btn btn-outline btn-sm" style="margin-top:0.75rem;" (click)="reloadDashboard()">Retry</button>
+        </div>
       } @else {
         <p class="text-muted" style="margin-top:1.5rem;">Loading dashboard…</p>
       }
@@ -216,13 +238,28 @@ export class DashboardComponent {
     });
   }
 
+  /** Guards against an out-of-order response from a superseded filter overwriting a newer one. */
+  private requestSeq = 0;
+
+  reloadDashboard() {
+    void this.loadDashboard(this.filter());
+  }
+
   private async loadDashboard(filter: DashboardFilter) {
+    const seq = ++this.requestSeq;
     this.dashboardError.set(null);
     try {
-      this.dashboardData.set(await this.dashboardSvc.getDashboardData(filter));
+      const data = await this.dashboardSvc.getDashboardData(filter);
+      if (seq !== this.requestSeq) return; // a newer request already won
+      this.dashboardData.set(data);
     } catch (err) {
-      this.dashboardError.set('Could not load dashboard data — please try again.');
-      console.error(err);
+      if (seq !== this.requestSeq) return;
+      // Surface WHY it failed — a bare "please try again" made a timed-out or
+      // CORS-blocked request look identical to a server error, and before the
+      // timeout in DashboardService existed the page could sit on
+      // "Loading dashboard…" forever with nothing rendered at all.
+      this.dashboardError.set(describeDashboardError(err));
+      console.error('Dashboard data request failed', err);
     }
   }
 

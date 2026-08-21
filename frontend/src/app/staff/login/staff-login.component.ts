@@ -3,15 +3,16 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { ForgotPasswordModalComponent } from '../../shared/forgot-password-modal.component';
+import { DaftechLogoComponent } from '../../shared/daftech-logo.component';
 
 @Component({
   selector: 'app-staff-login',
   standalone: true,
-  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent],
+  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent, DaftechLogoComponent],
   template: `
     <div class="wrap">
       <div class="card panel panel-pad">
-        <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-lg" style="margin: 0 auto 0.9rem;" />
+        <daftech-logo variant="full" [size]="72" class="brand-logo brand-logo-block"></daftech-logo>
         <h2>DAFTECH Admin / Staff</h2>
         <p class="text-muted" style="margin: 0.35rem 0 1.25rem;">Sign in with the username and password issued by your Admin.</p>
 

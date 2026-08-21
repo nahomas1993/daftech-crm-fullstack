@@ -4,6 +4,7 @@ import { filter } from 'rxjs';
 import { AuthService } from '../../core/services/auth.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { EmployeeRole, NotificationRecipientType } from '../../core/models';
+import { DaftechLogoComponent } from '../../shared/daftech-logo.component';
 
 interface NavItem {
   label: string;
@@ -31,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
 @Component({
   selector: 'app-staff-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, DaftechLogoComponent],
   template: `
     <div class="shell">
       <!-- Backdrop — clicking outside the open mobile sidebar closes it -->
@@ -41,7 +42,7 @@ const NAV_ITEMS: NavItem[] = [
 
       <aside class="sidebar" [class.open]="sidebarOpen()">
         <div class="brand">
-          <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-sm" />
+          <daftech-logo [size]="32" class="brand-logo"></daftech-logo>
           <div>
             <div class="brand-name">DAFTECH</div>
             <div class="brand-sub">Admin / Staff</div>
@@ -95,7 +96,6 @@ const NAV_ITEMS: NavItem[] = [
       position: sticky; top: 0; height: 100vh; overflow: hidden;
     }
     .brand { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.4rem 1.2rem; flex-shrink: 0; }
-    .brand .brand-logo-img { background: #fff; border-radius: 8px; padding: 3px; }
     .brand-name { font-weight: 700; font-size: 0.95rem; color: #fff; }
     .brand-sub { font-size: 0.7rem; color: var(--slate-400); }
     .close-btn { display: none; margin-left: auto; background: none; border: none; color: #fff; font-size: 1.1rem; padding: 0.3rem; }

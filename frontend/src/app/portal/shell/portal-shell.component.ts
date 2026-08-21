@@ -5,11 +5,12 @@ import { AuthService } from '../../core/services/auth.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
+import { DaftechLogoComponent } from '../../shared/daftech-logo.component';
 
 @Component({
   selector: 'app-portal-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, DaftechLogoComponent],
   template: `
     <div class="shell">
       @if (menuOpen()) {
@@ -18,7 +19,7 @@ import { AgreementService } from '../../core/services/agreement.service';
 
       <header class="topbar">
         <div class="brand">
-          <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-sm" />
+          <daftech-logo [size]="30" class="brand-logo"></daftech-logo>
           <span class="brand-name">DAFTECH Client Portal</span>
         </div>
 

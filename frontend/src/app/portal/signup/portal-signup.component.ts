@@ -3,16 +3,17 @@ import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
 import { LocationService } from '../../core/services/location.service';
+import { DaftechLogoComponent } from '../../shared/daftech-logo.component';
 
 @Component({
   selector: 'app-portal-signup',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, DaftechLogoComponent],
   template: `
     <div class="wrap">
       <div class="card panel panel-pad">
         @if (!submitted()) {
-          <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-md" />
+          <daftech-logo variant="full" [size]="60" class="brand-logo brand-logo-block"></daftech-logo>
           <h2>Create your Client Portal account</h2>
           <p class="text-muted" style="margin: 0.35rem 0 1.25rem;">Your request will be reviewed by a DAFTECH Admin before you can log in.</p>
 
@@ -49,7 +50,7 @@ import { LocationService } from '../../core/services/location.service';
           <button class="btn btn-primary" style="width:100%; margin-top:1rem;" (click)="submit()">Submit Request</button>
           <p class="alt-link">Already approved? <a routerLink="/login">Log in</a></p>
         } @else {
-          <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-md" />
+          <daftech-logo variant="full" [size]="60" class="brand-logo brand-logo-block"></daftech-logo>
           <h2>Request submitted</h2>
           <p class="text-muted" style="margin-top:0.5rem; line-height:1.5;">
             Your signup request is awaiting Admin approval. You'll be notified once it's reviewed.
@@ -63,7 +64,7 @@ import { LocationService } from '../../core/services/location.service';
     .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--portal-bg); padding: 1rem; }
     .card { width: 420px; text-align: center; }
     .card .field, .card label { text-align: left; }
-    .brand-logo-img { margin: 0 auto 0.75rem; }
+    .brand-logo-block { margin: 0 auto 0.75rem; }
     .field { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.7rem; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--slate-500); }
     .field input, .field select { width: 100%; }

@@ -157,7 +157,10 @@ var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").
 var productionFallbackOrigins = new[]
 {
     "https://daftech-crm-frontend.onrender.com",
-    "https://daftech-crm.onrender.com"
+    "https://daftech-crm.onrender.com",
+    // Current deployed frontend host (Brave/Chrome block every API call from an
+    // origin missing here, which reads in the UI as data that never loads).
+    "https://daftech-crm-fe.onrender.com"
 };
 
 var effectiveConfigured = configuredOrigins

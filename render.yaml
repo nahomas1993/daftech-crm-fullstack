@@ -19,6 +19,8 @@ services:
         value: https://daftech-crm-frontend.onrender.com
       - key: Cors__AllowedOrigins__1
         value: https://daftech-crm.onrender.com
+      - key: Cors__AllowedOrigins__2
+        value: https://daftech-crm-fe.onrender.com
 
   # ---------- Frontend (Angular via Docker + Nginx) ----------
   # nginx.conf already handles the SPA fallback (try_files ... /index.html)
