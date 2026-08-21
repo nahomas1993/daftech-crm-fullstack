@@ -278,7 +278,7 @@ public class AuthService : IAuthService
 
     private static ClientDto ToClientDto(Client c) => new(
         c.Id, c.Name, c.IdNumber, c.PhoneNumber, c.Email, c.Office, c.Location,
-        c.Region, c.City, c.Woreda,
+        c.Region, c.Zone, c.City, c.Woreda,
         c.KycType, c.KycContact, c.ItSupportContact, c.AccountStatus, c.OnboardingDate, c.RejectionReason,
         c.Username, c.MustChangePassword, c.AccountRefId
     );
