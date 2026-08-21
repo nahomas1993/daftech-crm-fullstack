@@ -28,11 +28,7 @@ import { TrainingSession, TrainingCompletionStatus, TrainerWorkload } from '../.
   template: `
     <a [routerLink]="['/admin/clients', clientId()]" class="back">← Back to Client</a>
 
-    @if (loading()) {
-      <p class="text-muted">Loading training session…</p>
-    } @else if (loadError()) {
-      <p class="upload-error">{{ loadError() }}</p>
-    } @else if (session(); as s) {
+    @if (session(); as s) {
       <h1>Training Session</h1>
       <p class="text-muted mono" style="margin-top:0.3rem; font-size:0.8rem;">Agreement {{ agreementId() }}</p>
 
@@ -163,6 +159,10 @@ import { TrainingSession, TrainingCompletionStatus, TrainerWorkload } from '../.
           {{ saving() ? 'Saving…' : 'Save Training Session' }}
         </button>
       </div>
+    } @else if (loadError()) {
+      <p class="upload-error">{{ loadError() }}</p>
+    } @else {
+      <p class="text-muted">Loading training session…</p>
     }
   `,
   styles: [`
