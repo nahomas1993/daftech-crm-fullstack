@@ -275,56 +275,6 @@ public interface ITicketReportService
     Task<string> ExportCsvAsync(string reportType, TicketReportFilter filter, CancellationToken ct = default);
 }
 
-public interface IAgreementService
-{
-    /// <summary>
-    /// Creates (signs) an agreement for a Client → SystemProduct, under the
-    /// given AgreementType. SignDate is admin-entered (not forced to
-    /// today). If AgreementTypeId resolves to the Support type, throws
-    /// InvalidOperationException unless the same SystemProduct already has
-    /// a Training agreement with TrainingSession.EndDate set — training
-    /// must finish first, per-SystemProduct. Always inserts a new row —
-    /// never updates or replaces an existing agreement, even a prior one
-    /// for the same SystemProduct/AgreementType.
-    /// </summary>
-    Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default);
-    Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default);
-
-    /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Agreements table UI.</summary>
-    Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
-
-    Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
-    Task<IReadOnlyList<AgreementDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
-    Task<IReadOnlyList<AgreementDto>> GetExpiringSoonAsync(CancellationToken ct = default);
-    Task<AgreementDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
-
-    /// <summary>True if the given SystemProduct has a Training agreement with EndDate set — the precondition for signing a Support agreement for that SAME system/product. Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
-    Task<bool> SystemProductHasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Uploads and attaches a scanned document to the agreement. If the
-    /// agreement already has a file attached, the old one is deleted after
-    /// the new one is successfully saved (never before — a failed upload
-    /// should never destroy the existing file).
-    /// </summary>
-    Task<AgreementDto> UploadScannedFileAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
-
-    /// <summary>Retrieves the agreement's attached scanned file, or null if none is attached or the agreement doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
-
-    /// <summary>The TrainingSession for a Training-type agreement, or null if the agreement isn't a Training agreement or doesn't exist.</summary>
-    Task<TrainingSessionDto?> GetTrainingSessionAsync(Guid agreementId, CancellationToken ct = default);
-
-    /// <summary>Sets/updates the TrainingSession fields for a Training-type agreement. All fields optional/incremental. Throws if the agreement isn't a Training agreement.</summary>
-    Task<TrainingSessionDto> SaveTrainingSessionAsync(Guid agreementId, SaveTrainingSessionRequest request, CancellationToken ct = default);
-
-    /// <summary>Uploads/replaces the scanned document (e.g. sign-in sheet) for a Training agreement's session.</summary>
-    Task<TrainingSessionDto> UploadTrainingScanAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
-
-    /// <summary>Retrieves a training session's attached scan, or null if none is attached or the agreement doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadTrainingScanAsync(Guid agreementId, CancellationToken ct = default);
-}
-
 public interface IMaintenanceService
 {
     Task<MaintenanceRecordDto> CreateAsync(CreateMaintenanceRecordRequest request, CancellationToken ct = default);
