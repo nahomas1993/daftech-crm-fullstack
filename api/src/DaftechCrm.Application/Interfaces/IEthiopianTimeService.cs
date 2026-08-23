@@ -9,8 +9,9 @@ namespace DaftechCrm.Application.Interfaces;
 /// this service so the schedule is defined in exactly one place.
 ///
 /// Schedule:
-///   Mon-Fri: 2:30-11:30 LT, with a 6:30-8:00 LT lunch pause
-///   Sat:     2:30-6:00 LT, no lunch pause (half day)
+///   Mon-Fri: 8:30 AM-5:30 PM, with a 12:30 PM-2:00 PM lunch pause
+///            (2:30-11:30 LT, lunch 6:30-8:00 LT on the Ethiopian clock)
+///   Sat:     8:30 AM-12:30 PM, no lunch pause (half day; 2:30-6:30 LT)
 ///   Sun:     closed
 ///
 /// All methods take/return DateTimeOffset in UTC (matching how the rest of

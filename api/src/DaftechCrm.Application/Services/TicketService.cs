@@ -210,10 +210,10 @@ public class TicketService : ITicketService
     }
 
     /// <summary>
-    /// Saturday is a half-day (2:30-6:00 LT, no lunch) — a ticket is only
+    /// Saturday is a half-day (8:30 AM-12:30 PM, no lunch) — a ticket is only
     /// assigned immediately on a Saturday if its FailureType's expected
     /// duration fits before 6:00 close; otherwise it queues for Monday
-    /// 2:30 LT even though it's technically still "office hours" right
+    /// 8:30 AM even though it's technically still "office hours" right
     /// now. Any other working day: always fits (no early-close
     /// constraint). No FailureType chosen: always fits — there's no
     /// duration to check against, so the ticket goes to a technician

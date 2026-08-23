@@ -14,16 +14,21 @@ public class EthiopianTimeService : IEthiopianTimeService
 {
     private static readonly TimeSpan AddisOffset = TimeSpan.FromHours(3);
 
-    private static readonly TimeSpan OfficeStart = new(2, 30, 0);
-    private static readonly TimeSpan OfficeEnd = new(11, 30, 0);
-    private static readonly TimeSpan LunchStart = new(6, 30, 0);
-    private static readonly TimeSpan LunchEnd = new(8, 0, 0);
-    private static readonly TimeSpan SaturdayEnd = new(6, 0, 0);
+    // NOTE: these are 24-hour Gregorian wall-clock times in Africa/Addis_Ababa
+    // (UTC+3), because ToLocal() below produces a UTC+3 Gregorian DateTime.
+    // The Ethiopian-clock equivalents staff quote day to day are:
+    //   08:30 = 2:30 LT, 17:30 = 11:30 LT, 12:30 = 6:30 LT,
+    //   14:00 = 8:00 LT, Saturday close 12:30 = 6:30 LT.
+    private static readonly TimeSpan OfficeStart = new(8, 30, 0);   // 8:30 AM
+    private static readonly TimeSpan OfficeEnd = new(17, 30, 0);    // 5:30 PM
+    private static readonly TimeSpan LunchStart = new(12, 30, 0);   // 12:30 PM
+    private static readonly TimeSpan LunchEnd = new(14, 0, 0);      // 2:00 PM
+    private static readonly TimeSpan SaturdayEnd = new(12, 30, 0);  // 12:30 PM (half day)
 
     private DateTime ToLocal(DateTimeOffset utc) => utc.ToOffset(AddisOffset).DateTime;
     private DateTimeOffset ToUtc(DateTime local) => new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), AddisOffset).ToUniversalTime();
 
-    /// <summary>The office end-of-day time-of-day for a given local calendar day — Saturday closes at 6:00, Mon-Fri at 11:30, Sunday has none (see IsWorkingDay).</summary>
+    /// <summary>The office end-of-day time-of-day for a given local calendar day — Saturday closes at 12:30 PM, Mon-Fri at 5:30 PM, Sunday has none (see IsWorkingDay).</summary>
     private static TimeSpan? DayEnd(DayOfWeek day) => day switch
     {
         DayOfWeek.Sunday => null,

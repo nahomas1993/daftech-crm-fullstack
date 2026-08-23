@@ -226,16 +226,21 @@ export class DashboardComponent {
     private dashboardSvc: DashboardService,
     public locations: LocationService,
   ) {
+    // allowSignalWrites: both effects kick off async loads that write
+    // signals (loadDashboard clears dashboardError synchronously, the
+    // services set their own state). Without this flag Angular throws
+    // NG0600 the moment the effect runs, the fetch never happens, and the
+    // page sits on "Loading dashboard..." forever with no charts and no error.
     effect(() => {
       const key = this.recipientKey();
       if (key) void this.notificationsSvc.loadFor(key.type, key.id);
-    });
+    }, { allowSignalWrites: true });
 
     effect(() => {
       if (!this.isAdmin()) return;
       const f = this.filter(); // re-run whenever the filter changes
       void this.loadDashboard(f);
-    });
+    }, { allowSignalWrites: true });
   }
 
   /** Guards against an out-of-order response from a superseded filter overwriting a newer one. */
