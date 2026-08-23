@@ -4,11 +4,11 @@ namespace DaftechCrm.Application.DTOs;
 
 /// <summary>
 /// One eligible Trainer's current workload, used both to recommend a
-/// manual pick to Admin and to rank candidates for auto-assignment when a
-/// Training agreement is created — see ITrainerWorkloadService and
-/// TrainingAssignment. Every count is a snapshot as of the call (not
-/// cached), since both callers need the up-to-date picture at the moment
-/// of assignment.
+/// manual pick to Admin and to rank candidates for Automatic Assignment
+/// when assigning trainers to a system/product's training roster — see
+/// ITrainerWorkloadService and TrainingAssignment. Every count is a
+/// snapshot as of the call (not cached), since both callers need the
+/// up-to-date picture at the moment of assignment.
 /// </summary>
 public record TrainerWorkloadDto(
     Guid EmployeeId,
@@ -21,8 +21,8 @@ public record TrainerWorkloadDto(
     int HighPriorityTicketCount,
     /// <summary>Tickets not yet resolved whose ExpectedResolutionBy has already passed.</summary>
     int OverdueTicketCount,
-    /// <summary>Training agreements currently assigned to this Trainer whose TrainingSession hasn't reached Completed yet (NotStarted/InProgress/FollowUpRequired).</summary>
-    int ActiveTrainingAssignmentCount,
+    /// <summary>System/products this Trainer is on the training roster for whose TrainingCompletionStatus isn't yet Completed — an open commitment they may still need to log sessions against.</summary>
+    int OpenTrainingAssignmentCount,
     /// <summary>
     /// A single weighted score combining every dimension above, used only
     /// to rank/recommend and to compute the relative-to-peers "excessive
@@ -37,11 +37,13 @@ public record TrainerWorkloadDto(
 );
 
 /// <summary>
-/// The full picture Admin sees when assigning a Trainer to a Training
-/// agreement: every eligible Trainer's workload, plus which one the
-/// system recommends. Admin can still pick any of them (including one
-/// flagged IsExcessiveWorkload) — this is a recommendation, never an
-/// enforced restriction.
+/// The full picture Admin sees when assigning Trainers to a
+/// system/product's training roster: every eligible Trainer's workload,
+/// plus which one the system recommends. Admin can still pick any of them
+/// (including one flagged IsExcessiveWorkload) for Manual Assignment —
+/// this is a recommendation, never an enforced restriction; Automatic
+/// Assignment (ISystemProductService.AutoAssignTrainersAsync) follows the
+/// ranking directly.
 /// </summary>
 public record TrainerAssignmentRecommendationDto(
     IReadOnlyList<TrainerWorkloadDto> EligibleTrainers,

@@ -12,8 +12,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<SystemProduct> SystemProductsSet => Set<SystemProduct>();
     public DbSet<AgreementType> AgreementTypesSet => Set<AgreementType>();
     public DbSet<Agreement> AgreementsSet => Set<Agreement>();
-    public DbSet<TrainingSession> TrainingSessionsSet => Set<TrainingSession>();
     public DbSet<TrainingAssignment> TrainingAssignmentsSet => Set<TrainingAssignment>();
+    public DbSet<TrainingRecord> TrainingRecordsSet => Set<TrainingRecord>();
     public DbSet<Ticket> TicketsSet => Set<Ticket>();
     public DbSet<TicketAuditEntry> TicketAuditEntriesSet => Set<TicketAuditEntry>();
     public DbSet<Employee> EmployeesSet => Set<Employee>();
@@ -36,8 +36,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public IQueryable<SystemProduct> SystemProducts => SystemProductsSet;
     public IQueryable<AgreementType> AgreementTypes => AgreementTypesSet;
     public IQueryable<Agreement> Agreements => AgreementsSet;
-    public IQueryable<TrainingSession> TrainingSessions => TrainingSessionsSet;
     public IQueryable<TrainingAssignment> TrainingAssignments => TrainingAssignmentsSet;
+    public IQueryable<TrainingRecord> TrainingRecords => TrainingRecordsSet;
     public IQueryable<Ticket> Tickets => TicketsSet;
     public IQueryable<TicketAuditEntry> TicketAuditEntries => TicketAuditEntriesSet;
     public IQueryable<Employee> Employees => EmployeesSet;

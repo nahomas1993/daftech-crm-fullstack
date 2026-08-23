@@ -105,11 +105,15 @@ export interface ClientRegisteredResult {
   emailError?: string;
 }
 
+export type TrainingCompletionStatus = 'NotStarted' | 'InProgress' | 'Completed';
+
 /**
  * One system/product a client has deployed — sits between Client and
  * Agreement: Client -> SystemProduct -> Agreement -> AgreementType. A
  * client can have multiple; creating a new one never replaces an existing
- * one.
+ * one. Training lives directly here (trainingAssignments, trainingCompletionStatus)
+ * rather than as an Agreement — see AgreementType, whose "Training" value
+ * is kept only as a lookup, no business rule keys off it anymore.
  */
 export interface SystemProduct {
   id: string;
@@ -119,9 +123,13 @@ export interface SystemProduct {
   name: string;
   description?: string;
   deploymentDate?: string; // ISO date
+  /** System-derived from Admin's one-click Mark Training Completed action — not editable directly. Unlocks a Support agreement once Completed; more trainingRecords can still be added afterward. */
+  trainingCompletionStatus: TrainingCompletionStatus;
+  /** Who's currently assigned to train a client on this system/product — a roster, not a task list. See TrainingAssignment. */
+  trainingAssignments: TrainingAssignment[];
 }
 
-/** Admin-managed lookup — Support and Training always exist (see AgreementTypeNames on the backend); an Admin can add further custom types. */
+/** Admin-managed lookup — Support and Training always exist (see AgreementTypeNames on the backend); an Admin can add further custom types. Training is kept as a lookup value only — the training workflow itself lives on SystemProduct, not as an Agreement. */
 export interface AgreementType {
   id: string;
   name: string;
@@ -130,51 +138,35 @@ export interface AgreementType {
   isSystemDefined: boolean;
 }
 
-export type TrainingCompletionStatus = 'NotStarted' | 'InProgress' | 'Completed' | 'FollowUpRequired';
-
-/** Lifecycle of one Trainer's individual assignment within a TrainingSession. Rejected goes back to Assigned once the trainer resubmits. */
-export type TrainingAssignmentStatus = 'Assigned' | 'Submitted' | 'Approved' | 'RejectedNeedsRework';
-
-/** One Trainer's participation in a TrainingSession — a session can have several of these at once (see Training.TrainersPerSession in Settings). */
+/** One Trainer/Technician assigned to train a client on a SystemProduct — a roster entry, no lifecycle of its own. Being on this roster is what allows logging a TrainingRecord against this system/product. */
 export interface TrainingAssignment {
   id: string;
-  trainingSessionId: string;
   trainerEmployeeId: string;
   trainerEmployeeName: string;
   assignedAt: string; // ISO datetime
-  workDescription?: string;
-  fileName?: string;
-  status: TrainingAssignmentStatus;
-  submittedAt?: string; // ISO datetime
-  reviewedByName?: string;
-  reviewedAt?: string; // ISO datetime
-  reviewNotes?: string;
 }
 
 /**
- * The full training workflow record for a Training-type Agreement —
- * one-to-one, keyed by the agreement's id. Reachable from the Client,
- * SystemProduct, and Agreement detail pages.
+ * One training session actually conducted, logged by the Trainer who
+ * conducted it — "Add Training" on the trainer's own page. Open-ended: a
+ * system/product can accumulate any number of these over time, even after
+ * its trainingCompletionStatus is already Completed (e.g. a refresher).
+ * There is no submit/approve step per record — Admin reviews the
+ * accumulated set informally, then marks the whole SystemProduct's
+ * training Completed as a separate one-click action.
  */
-export interface TrainingSession {
-  agreementId: string;
-  trainerAssignments: TrainingAssignment[];
-  startDate?: string; // ISO date
-  /** Set once training finishes — this is what "training complete" means for the training-before-support gate. Stays editable afterward. */
-  endDate?: string; // ISO date
-  location?: string;
-  participants?: string;
-  attendance?: string;
-  topicsCovered?: string;
-  issuesOrQuestions?: string;
-  trainerComments?: string;
-  clientRepresentativeConfirmation?: string;
-  clientRepresentativeComments?: string;
-  /** System-derived: advances to Completed only once every trainerAssignment is Approved. */
-  completionStatus: TrainingCompletionStatus;
-  followUpRequired: boolean;
-  followUpNotes?: string;
-  scanFileName?: string;
+export interface TrainingRecord {
+  id: string;
+  systemProductId: string;
+  systemProductName: string;
+  clientId: string;
+  clientName: string;
+  trainerEmployeeId: string;
+  trainerEmployeeName: string;
+  trainingDate: string; // ISO date
+  description: string;
+  fileName?: string;
+  createdAt: string; // ISO datetime
 }
 
 export interface Agreement {
@@ -195,8 +187,6 @@ export interface Agreement {
   status: AgreementStatus;
   billingTier: BillingTier;
   details?: string;
-  /** Present only when agreementTypeName is "Training". */
-  trainingSession?: TrainingSession;
 }
 
 export interface Ticket {
@@ -571,7 +561,8 @@ export interface TrainerWorkload {
   pendingTicketCount: number;
   highPriorityTicketCount: number;
   overdueTicketCount: number;
-  activeTrainingAssignmentCount: number;
+  /** System/products this Trainer is on the training roster for whose training isn't yet Completed. */
+  openTrainingAssignmentCount: number;
   workloadScore: number;
   isExcessiveWorkload: boolean;
 }

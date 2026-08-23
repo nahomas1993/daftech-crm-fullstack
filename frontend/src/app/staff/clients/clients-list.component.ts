@@ -3,6 +3,7 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
 import { LocationService } from '../../core/services/location.service';
+import { SystemProductService } from '../../core/services/system-product.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
@@ -71,11 +72,11 @@ import { ClientRegisteredResult } from '../../core/models';
           <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="registering()" (click)="submit()">
             {{ registering() ? 'Registering…' : 'Register Client' }}
           </button>
-        } @else {
+        } @else if (!systemProductCreated()) {
           <div class="credential-panel">
             <h4>✅ Account created — share these credentials now</h4>
             <p class="text-muted" style="font-size:0.82rem; margin: 0.3rem 0 0.9rem;">
-              This one-time password will not be shown again. Continuing will take you straight to this client's Agreement page to set up their System/Product and sign an agreement.
+              This one-time password will not be shown again.
               @if (justRegistered()!.emailSent) {
                 An email with these details was also sent to {{ justRegistered()!.client.email }}.
               } @else {
@@ -84,14 +85,36 @@ import { ClientRegisteredResult } from '../../core/models';
             </p>
             <div class="cred-row"><span class="cred-label">Username</span><span class="mono cred-value">{{ justRegistered()!.username }}</span></div>
             <div class="cred-row"><span class="cred-label">One-time password</span><span class="mono cred-value">{{ justRegistered()!.oneTimePassword }}</span></div>
-            <div style="display:flex; gap:0.5rem; margin-top:1rem;">
-              @if (!justRegistered()!.emailSent) {
+            @if (!justRegistered()!.emailSent) {
+              <div style="margin-top:1rem;">
                 <button class="btn btn-outline btn-sm" [disabled]="resending()" (click)="retryEmail(justRegistered()!.client.id)">
                   {{ resending() ? 'Retrying…' : 'Retry Email' }}
                 </button>
-              }
-              <button class="btn btn-primary btn-sm" (click)="continueToAgreement()">Continue to Agreement →</button>
+              </div>
+            }
+          </div>
+
+          <div class="panel panel-pad" style="margin-top:1rem; border:1px solid var(--slate-200);">
+            <h4 style="margin:0 0 0.3rem;">Now add {{ justRegistered()!.client.name }}'s System/Product</h4>
+            <p class="text-muted" style="font-size:0.82rem; margin:0 0 0.9rem;">
+              Completed by DAFTECH — you'll assign trainers to it next.
+            </p>
+            <div class="form-grid">
+              <div class="field"><label>System/Product Name</label><input type="text" [ngModel]="systemProductForm.name" (ngModelChange)="systemProductForm.name = $event" placeholder="e.g. Branch POS System" /></div>
+              <div class="field"><label>Deployment Date (optional)</label><input type="date" [ngModel]="systemProductForm.deploymentDate" (ngModelChange)="systemProductForm.deploymentDate = $event" /></div>
+              <div class="field" style="grid-column: 1 / -1;"><label>Description (optional)</label><textarea rows="2" [ngModel]="systemProductForm.description" (ngModelChange)="systemProductForm.description = $event"></textarea></div>
             </div>
+            @if (systemProductError()) { <p class="register-error" style="margin-top:0.75rem;">{{ systemProductError() }}</p> }
+            <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="savingSystemProduct()" (click)="submitSystemProduct()">
+              {{ savingSystemProduct() ? 'Saving…' : 'Save & Continue to Training Assignment →' }}
+            </button>
+          </div>
+        } @else {
+          <div class="credential-panel">
+            <h4>✅ System/Product added</h4>
+            <p class="text-muted" style="font-size:0.82rem; margin: 0.3rem 0 0.9rem;">
+              Taking you to Training Assignment for {{ systemProductCreated()!.name }}…
+            </p>
           </div>
         }
       </div>
@@ -235,6 +258,16 @@ export class ClientsListComponent {
   resending = signal(false);
   justRegistered = signal<ClientRegisteredResult | null>(null);
 
+  // Step 2 of registration (per the Client Registration & Training flow):
+  // once the client account exists, immediately prompt for their first
+  // System/Product before auto-redirecting to Training Assignment — see
+  // submitSystemProduct(). systemProductCreated is only set briefly, to
+  // show a short confirmation before the redirect actually happens.
+  systemProductForm = { name: '', description: '', deploymentDate: '' };
+  savingSystemProduct = signal(false);
+  systemProductError = signal('');
+  systemProductCreated = signal<{ id: string; name: string } | null>(null);
+
   editingId = signal<string | null>(null);
   savingEdit = signal(false);
   editError = signal('');
@@ -243,7 +276,12 @@ export class ClientsListComponent {
 
   form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
 
-  constructor(public clients: ClientService, public locations: LocationService, private router: Router) {}
+  constructor(
+    public clients: ClientService,
+    public locations: LocationService,
+    private systemProductsSvc: SystemProductService,
+    private router: Router,
+  ) {}
 
   filtered = computed(() => {
     const q = this.query().toLowerCase().trim();
@@ -263,6 +301,9 @@ export class ClientsListComponent {
 
   toggleForm() {
     this.justRegistered.set(null);
+    this.systemProductCreated.set(null);
+    this.systemProductForm = { name: '', description: '', deploymentDate: '' };
+    this.systemProductError.set('');
     this.showForm.set(!this.showForm());
   }
 
@@ -297,25 +338,49 @@ export class ClientsListComponent {
     }
   }
 
-  closeCredentialPanel() {
-    this.justRegistered.set(null);
-    this.showForm.set(false);
-  }
-
   /**
-   * After Admin registers a new client, this takes them straight to that
-   * client's Agreement page (requirement: no self-signup step needed —
-   * the Admin sets up the client's first System/Product and signs their
-   * first agreement right away). Navigates to the Client Detail page's
-   * Agreements tab, which is where System/Product + Agreement creation
-   * lives — see ClientDetailComponent.
+   * Step 2 of the Client Registration & Training flow: right after the
+   * client account is created, the Admin enters the client's first
+   * System/Product (completed by DAFTECH) here — never overwrites or
+   * replaces anything, this is always a fresh SystemProduct. On success,
+   * automatically redirects to Client Detail with that system/product's
+   * Training panel focused, so Manual/Automatic Assignment is the very
+   * next thing the Admin sees — see ClientDetailComponent's
+   * ?focusSystemProduct handling.
    */
-  continueToAgreement() {
+  async submitSystemProduct() {
     const clientId = this.justRegistered()?.client.id;
-    this.justRegistered.set(null);
-    this.showForm.set(false);
-    if (clientId) {
-      void this.router.navigate(['/admin/clients', clientId], { queryParams: { tab: 'agreements' } });
+    if (!clientId || !this.systemProductForm.name.trim()) {
+      this.systemProductError.set('Name is required.');
+      return;
+    }
+
+    this.savingSystemProduct.set(true);
+    this.systemProductError.set('');
+    try {
+      const created = await this.systemProductsSvc.create({
+        clientId,
+        name: this.systemProductForm.name,
+        description: this.systemProductForm.description || undefined,
+        deploymentDate: this.systemProductForm.deploymentDate || undefined,
+      });
+      this.systemProductCreated.set({ id: created.id, name: created.name });
+
+      // Brief confirmation, then the redirect — matches the credential
+      // panel's own "just registered" pause, so the Admin sees each step
+      // land before being moved on to the next.
+      setTimeout(() => {
+        this.justRegistered.set(null);
+        this.systemProductCreated.set(null);
+        this.showForm.set(false);
+        void this.router.navigate(['/admin/clients', clientId], {
+          queryParams: { tab: 'agreements', focusSystemProduct: created.id },
+        });
+      }, 900);
+    } catch (err: any) {
+      this.systemProductError.set(err?.error?.error ?? 'Could not add this system/product — please try again.');
+    } finally {
+      this.savingSystemProduct.set(false);
     }
   }
 

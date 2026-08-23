@@ -6,14 +6,20 @@ namespace DaftechCrm.Domain.Entities;
 ///
 ///   Client → SystemProduct → Agreement → AgreementType
 ///
+/// Training lives directly on SystemProduct (TrainingAssignments,
+/// TrainingRecords, TrainingCompletionStatus below) rather than as an
+/// Agreement — unlike Support, training is never itself a signed
+/// document; it's tracked activity that gates whether a Support agreement
+/// can later be signed for this SAME system/product (see
+/// AgreementService.CreateAsync).
+///
 /// A client can have multiple systems/products, and each one can carry
-/// its own set of agreements (a Support agreement, a Training agreement,
-/// etc.) with their own dates/status/details — creating a new
-/// SystemProduct or Agreement never overwrites an existing one, they
-/// simply accumulate under the client. Introduced together with
-/// AgreementType to replace the earlier flat Client → Agreement model
-/// (see AgreementService for the migration of pre-existing agreements
-/// into a per-client "General" SystemProduct).
+/// its own set of agreements (a Support agreement, etc.) with their own
+/// dates/status/details — creating a new SystemProduct or Agreement never
+/// overwrites an existing one, they simply accumulate under the client.
+/// Introduced together with AgreementType to replace the earlier flat
+/// Client → Agreement model (see AgreementService for the migration of
+/// pre-existing agreements into a per-client "General" SystemProduct).
 /// </summary>
 public class SystemProduct
 {
@@ -41,4 +47,20 @@ public class SystemProduct
     public DateTimeOffset? DeletedAt { get; set; }
 
     public ICollection<Agreement> Agreements { get; set; } = new List<Agreement>();
+
+    /// <summary>Every Trainer/Technician currently assigned to train on this system/product — see TrainingAssignment.</summary>
+    public ICollection<TrainingAssignment> TrainingAssignments { get; set; } = new List<TrainingAssignment>();
+
+    /// <summary>The open-ended log of training sessions actually conducted — see TrainingRecord.</summary>
+    public ICollection<TrainingRecord> TrainingRecords { get; set; } = new List<TrainingRecord>();
+
+    /// <summary>
+    /// Set by SystemProductService.MarkTrainingCompletedAsync — a one-click
+    /// Admin decision based on the accumulated TrainingRecords, not derived
+    /// automatically from any count/threshold. Completed unlocks signing a
+    /// Support agreement for this SAME system/product (see
+    /// AgreementService.CreateAsync) but doesn't stop more TrainingRecords
+    /// being logged afterward (e.g. a refresher) — see MarkTrainingCompletedAsync.
+    /// </summary>
+    public TrainingCompletionStatus TrainingCompletionStatus { get; set; } = TrainingCompletionStatus.NotStarted;
 }

@@ -6,15 +6,18 @@ import { BadgeComponent } from '../../shared/badge.component';
 /**
  * Client-facing view of all of the logged-in client's agreements — a
  * client can have multiple systems/products, and each can have multiple
- * agreements over time (e.g. a Training agreement followed by a Support
- * agreement). Read-only: uploads/edits stay staff-side, but the client
- * CAN view/download the scanned copy of their own signed agreement — the
- * backend already scopes GET /agreements/{id}/scanned-file to the owning
- * client (see AgreementsController.DownloadScannedFile), this page just
- * needed a button wired to it. Populated via
+ * agreements over time (e.g. several Support agreements as each expires
+ * and is renewed). Read-only: uploads/edits stay staff-side, but the
+ * client CAN view/download the scanned copy of their own signed
+ * agreement — the backend already scopes GET /agreements/{id}/scanned-file
+ * to the owning client (see AgreementsController.DownloadScannedFile),
+ * this page just needed a button wired to it. Populated via
  * AgreementService.refreshMyAgreements()/forClient(), the client-scoped
  * endpoint (see AgreementService class comments for why this is kept
- * separate from the staff-only full agreements list).
+ * separate from the staff-only full agreements list). Training itself is
+ * no longer part of Agreement (see SystemProduct.trainingAssignments/
+ * trainingRecords) so isn't shown here — the client's own training status
+ * isn't currently surfaced in the portal.
  */
 @Component({
   selector: 'app-portal-agreements',
@@ -57,23 +60,6 @@ import { BadgeComponent } from '../../shared/badge.component';
         @if (downloadError() && downloadErrorFor() === a.id) {
           <p class="doc-error">{{ downloadError() }}</p>
         }
-
-        @if (a.trainingSession; as ts) {
-          <h4 style="margin: 1rem 0 0.5rem;">Training</h4>
-          <dl>
-            <dt>Start</dt><dd>{{ ts.startDate || '—' }}</dd>
-            <dt>End</dt><dd>{{ ts.endDate || 'In progress' }}</dd>
-            <dt>Status</dt><dd>{{ ts.completionStatus }}</dd>
-            @if (ts.topicsCovered) { <dt>Topics Covered</dt><dd>{{ ts.topicsCovered }}</dd> }
-          </dl>
-          @if (ts.scanFileName) {
-            <div class="doc-row">
-              <button class="btn btn-outline btn-sm" [disabled]="downloadingTrainingId() === a.id" (click)="downloadTrainingScan(a.id)">
-                {{ downloadingTrainingId() === a.id ? 'Opening…' : '📄 View Training Sign-In Sheet' }}
-              </button>
-            </div>
-          }
-        }
       </div>
     }
     @empty {
@@ -94,7 +80,6 @@ import { BadgeComponent } from '../../shared/badge.component';
 })
 export class PortalAgreementsComponent {
   downloadingId = signal<string | null>(null);
-  downloadingTrainingId = signal<string | null>(null);
   downloadError = signal<string | null>(null);
   downloadErrorFor = signal<string | null>(null);
 
@@ -136,21 +121,6 @@ export class PortalAgreementsComponent {
       console.error('Failed to download scanned agreement', err);
     } finally {
       this.downloadingId.set(null);
-    }
-  }
-
-  async downloadTrainingScan(agreementId: string) {
-    this.downloadingTrainingId.set(agreementId);
-    this.downloadError.set(null);
-    try {
-      const blob = await this.agreementsSvc.downloadTrainingScan(agreementId);
-      this.openBlob(blob);
-    } catch (err) {
-      this.downloadError.set('Could not open this document — please try again.');
-      this.downloadErrorFor.set(agreementId);
-      console.error('Failed to download training scan', err);
-    } finally {
-      this.downloadingTrainingId.set(null);
     }
   }
 }

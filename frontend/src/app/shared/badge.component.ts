@@ -1,8 +1,8 @@
 import { Component, Input, computed, signal } from '@angular/core';
 
-const GREEN = new Set(['Active', 'Approved', 'Resolved', 'Free', 'Allowed', 'Closed']);
+const GREEN = new Set(['Active', 'Approved', 'Resolved', 'Free', 'Allowed', 'Closed', 'Completed']);
 const RED = new Set(['Expired', 'Rejected', 'Chargeable', 'Disabled', 'Revoked', 'Escalated']);
-const AMBER = new Set(['Pending', 'InProgress', 'Submitted', 'Forwarded', 'Assigned', 'Recurring']);
+const AMBER = new Set(['Pending', 'InProgress', 'Submitted', 'Forwarded', 'Assigned', 'Recurring', 'NotStarted']);
 // Distinct from AMBER on purpose: this is a "waiting on someone else" state reached
 // specifically after an employee marks a ticket Resolved, so it needs to read as
 // visually different from the "still being worked" statuses above.

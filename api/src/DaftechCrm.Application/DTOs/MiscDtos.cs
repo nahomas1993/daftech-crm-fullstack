@@ -7,58 +7,41 @@ public record AgreementTypeDto(Guid Id, string Name, string? Description, bool I
 public record CreateAgreementTypeRequest(string Name, string? Description);
 public record UpdateAgreementTypeRequest(string? Description);
 
-public record SystemProductDto(
-    Guid Id, Guid ClientId, string ReferenceNumber, string Name, string? Description, DateOnly? DeploymentDate
-);
-public record CreateSystemProductRequest(Guid ClientId, string Name, string? Description, DateOnly? DeploymentDate);
-public record UpdateSystemProductRequest(string Name, string? Description, DateOnly? DeploymentDate);
+/// <summary>One Trainer/Technician's assignment to train on this system/product — roster entry, no lifecycle of its own. See TrainingAssignment.</summary>
+public record TrainingAssignmentDto(Guid Id, Guid TrainerEmployeeId, string TrainerEmployeeName, DateTimeOffset AssignedAt);
 
-/// <summary>One Trainer's participation in a TrainingSession — see TrainingAssignment.</summary>
-public record TrainingAssignmentDto(
-    Guid Id, Guid TrainingSessionId, Guid TrainerEmployeeId, string TrainerEmployeeName,
-    DateTimeOffset AssignedAt, string? WorkDescription, string? FileName,
-    TrainingAssignmentStatus Status, DateTimeOffset? SubmittedAt,
-    string? ReviewedByName, DateTimeOffset? ReviewedAt, string? ReviewNotes
-);
-
-/// <summary>Trainer's submission of their completed work for a single TrainingAssignment. The file itself is uploaded separately (multipart) — see AgreementsController.SubmitTrainingAssignment.</summary>
-/// <summary>Request body for manually adding one more Trainer to a training session's roster — see AgreementsController.AddTrainingAssignment.</summary>
+/// <summary>Manual Assignment request body — Admin's pick from the dropdown (itself capped client-side, re-checked server-side against Training.MaxTrainersPerSystemProduct). See SystemProductsController.AddTrainingAssignment.</summary>
 public record AddTrainingAssignmentRequest(Guid TrainerEmployeeId);
 
-public record SubmitTrainingAssignmentRequest(string WorkDescription);
-
-/// <summary>Admin's review decision on a submitted TrainingAssignment. ReviewNotes is effectively required when Approve=false — the trainer needs to know what to fix before resubmitting.</summary>
-public record ReviewTrainingAssignmentRequest(bool Approve, string? ReviewNotes);
-
-public record TrainingSessionDto(
-    Guid AgreementId, IReadOnlyList<TrainingAssignmentDto> TrainerAssignments,
-    DateOnly? StartDate, DateOnly? EndDate, string? Location, string? Participants, string? Attendance,
-    string? TopicsCovered, string? IssuesOrQuestions, string? TrainerComments,
-    string? ClientRepresentativeConfirmation, string? ClientRepresentativeComments,
-    TrainingCompletionStatus CompletionStatus, bool FollowUpRequired, string? FollowUpNotes, string? ScanFileName
+/// <summary>One training session actually conducted and logged — see TrainingRecord.</summary>
+public record TrainingRecordDto(
+    Guid Id, Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName,
+    Guid TrainerEmployeeId, string TrainerEmployeeName,
+    DateOnly TrainingDate, string Description, string? FileName, DateTimeOffset CreatedAt
 );
 
 /// <summary>
-/// All fields optional/settable independently — the Admin/Trainer fills
-/// this in over time as the training session progresses (schedule it
-/// first, add attendance/topics/comments afterward, mark complete last).
-/// Trainer assignment itself is handled separately (auto-assigned at
-/// creation, adjustable via AddTrainingAssignment/RemoveTrainingAssignment)
-/// rather than through this request.
+/// "Add Training": the Trainer picks the Client's SystemProduct, enters
+/// the date and what was taught, and optionally attaches a file
+/// (uploaded separately, multipart — see TrainingController.UploadFile).
+/// callerEmployeeId (who conducted it) is resolved server-side from the
+/// JWT, never taken from this request.
 /// </summary>
-public record SaveTrainingSessionRequest(
-    DateOnly? StartDate, DateOnly? EndDate, string? Location,
-    string? Participants, string? Attendance, string? TopicsCovered, string? IssuesOrQuestions,
-    string? TrainerComments, string? ClientRepresentativeConfirmation, string? ClientRepresentativeComments,
-    bool FollowUpRequired, string? FollowUpNotes
+public record CreateTrainingRecordRequest(Guid SystemProductId, DateOnly TrainingDate, string Description);
+
+public record SystemProductDto(
+    Guid Id, Guid ClientId, string ReferenceNumber, string Name, string? Description, DateOnly? DeploymentDate,
+    TrainingCompletionStatus TrainingCompletionStatus, IReadOnlyList<TrainingAssignmentDto> TrainingAssignments
 );
+public record CreateSystemProductRequest(Guid ClientId, string Name, string? Description, DateOnly? DeploymentDate);
+public record UpdateSystemProductRequest(string Name, string? Description, DateOnly? DeploymentDate);
 
 public record AgreementDto(
     Guid Id, Guid SystemProductId, Guid ClientId, string ClientName, string SystemProductName,
     Guid AgreementTypeId, string AgreementTypeName,
     string DocumentNumber, string? ScannedFileUrl, string AgreementPlace,
     DateOnly SignDate, DateOnly ExpiryDate, int SupportWindowMonths, AgreementStatus Status, BillingTier BillingTier,
-    string? Details, TrainingSessionDto? TrainingSession
+    string? Details
 );
 
 /// <summary>
@@ -67,11 +50,11 @@ public record AgreementDto(
 /// today in the UI, but the Admin can set/backdate it) — creating an
 /// Agreement no longer forces "today" the way the old Client-level model
 /// did. If AgreementTypeId resolves to the Support type, creation is
-/// rejected unless the same SystemProduct already has a completed
-/// Training agreement (TrainingSession.EndDate set) — training must
-/// finish first, per-SystemProduct (see AgreementService.CreateAsync).
-/// Never overwrites an existing agreement — always inserts a new row,
-/// even for the same SystemProduct/AgreementType pair (e.g. a renewal).
+/// rejected unless the same SystemProduct's TrainingCompletionStatus is
+/// already Completed — training must finish first, per-SystemProduct
+/// (see AgreementService.CreateAsync). Never overwrites an existing
+/// agreement — always inserts a new row, even for the same
+/// SystemProduct/AgreementType pair (e.g. a renewal).
 /// </summary>
 public record CreateAgreementRequest(
     Guid SystemProductId, Guid AgreementTypeId, string? ScannedFileUrl, string AgreementPlace,

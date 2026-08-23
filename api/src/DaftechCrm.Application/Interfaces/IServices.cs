@@ -57,9 +57,10 @@ public interface IEmployeeService
     /// remove, or change responsibilities at any time; an employee can
     /// hold Technician and Trainer simultaneously (see EmployeeRole). Does
     /// not touch profile fields, IP allowlist, or account status. Removing
-    /// Trainer from an employee currently assigned to an in-progress
-    /// TrainingSession does not un-assign them — see AgreementService — an
-    /// Admin who wants that must reassign the training separately.
+    /// Trainer from an employee currently on a system/product's training
+    /// roster does not remove them from that roster — see
+    /// ISystemProductService — an Admin who wants that must remove them
+    /// from the roster separately.
     /// </summary>
     Task<EmployeeDto> SetResponsibilitiesAsync(Guid employeeId, SetEmployeeResponsibilitiesRequest request, CancellationToken ct = default);
 
@@ -155,18 +156,19 @@ public interface ITokenService
     Task RevokeAsync(string rawRefreshToken, string ipAddress, CancellationToken ct = default);
 }
 
-/// <summary>Manages the SystemProduct layer between Client and Agreement — see SystemProduct.</summary>
+/// <summary>Manages Agreements (signed documents) for a Client → SystemProduct — see Agreement. Training is tracked separately, directly on SystemProduct — see ISystemProductService.</summary>
 public interface IAgreementService
 {
     /// <summary>
     /// Creates (signs) an agreement for a Client → SystemProduct, under the
     /// given AgreementType. SignDate is admin-entered (not forced to
     /// today). If AgreementTypeId resolves to the Support type, throws
-    /// InvalidOperationException unless the same SystemProduct already has
-    /// a Training agreement with TrainingSession.EndDate set — training
-    /// must finish first, per-SystemProduct. Always inserts a new row —
-    /// never updates or replaces an existing agreement, even a prior one
-    /// for the same SystemProduct/AgreementType.
+    /// InvalidOperationException unless the same SystemProduct's
+    /// TrainingCompletionStatus is already Completed — training must
+    /// finish first, per-SystemProduct (see
+    /// ISystemProductService.MarkTrainingCompletedAsync). Always inserts a
+    /// new row — never updates or replaces an existing agreement, even a
+    /// prior one for the same SystemProduct/AgreementType.
     /// </summary>
     Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default);
@@ -179,9 +181,6 @@ public interface IAgreementService
     Task<IReadOnlyList<AgreementDto>> GetExpiringSoonAsync(CancellationToken ct = default);
     Task<AgreementDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>True if the given SystemProduct has a Training agreement with EndDate set — the precondition for signing a Support agreement for that SAME system/product. Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
-    Task<bool> SystemProductHasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default);
-
     /// <summary>
     /// Uploads and attaches a scanned document to the agreement. If the
     /// agreement already has a file attached, the old one is deleted after
@@ -192,75 +191,103 @@ public interface IAgreementService
 
     /// <summary>Retrieves the agreement's attached scanned file, or null if none is attached or the agreement doesn't exist.</summary>
     Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
-
-    /// <summary>The TrainingSession for a Training-type agreement, or null if the agreement isn't a Training agreement or doesn't exist.</summary>
-    Task<TrainingSessionDto?> GetTrainingSessionAsync(Guid agreementId, CancellationToken ct = default);
-
-    /// <summary>Sets/updates the TrainingSession fields for a Training-type agreement (schedule, attendance, topics, etc — NOT the trainer roster or CompletionStatus, which have their own dedicated methods below). All fields optional/incremental. Throws if the agreement isn't a Training agreement.</summary>
-    Task<TrainingSessionDto> SaveTrainingSessionAsync(Guid agreementId, SaveTrainingSessionRequest request, CancellationToken ct = default);
-
-    /// <summary>Manually adds one more Trainer to a Training agreement's session, on top of whatever auto-assignment already placed there. Throws if the employee doesn't hold the Trainer responsibility, or is already assigned to this session.</summary>
-    Task<TrainingSessionDto> AddTrainingAssignmentAsync(Guid agreementId, Guid trainerEmployeeId, CancellationToken ct = default);
-
-    /// <summary>Removes a Trainer from a Training agreement's session. Throws if the assignment has already been Approved — an approved assignment is part of the completed training record and shouldn't be silently dropped.</summary>
-    Task<TrainingSessionDto> RemoveTrainingAssignmentAsync(Guid agreementId, Guid assignmentId, CancellationToken ct = default);
-
-    /// <summary>
-    /// The trainer submits their own assignment for Admin review: work
-    /// description plus (optionally, via UploadTrainingAssignmentFileAsync)
-    /// an evidence file. Moves the assignment from Assigned or
-    /// RejectedNeedsRework to Submitted. Throws if the assignment is
-    /// already Submitted or Approved, or if callerEmployeeId isn't the
-    /// trainer on this assignment.
-    /// </summary>
-    Task<TrainingAssignmentDto> SubmitTrainingAssignmentAsync(Guid assignmentId, Guid callerEmployeeId, SubmitTrainingAssignmentRequest request, CancellationToken ct = default);
-
-    /// <summary>Uploads (or replaces) the trainer's evidence file for their own assignment. Can be called before or after Submit — re-uploading after a rejection doesn't itself resubmit; call SubmitTrainingAssignmentAsync again for that.</summary>
-    Task<TrainingAssignmentDto> UploadTrainingAssignmentFileAsync(Guid assignmentId, Guid callerEmployeeId, Stream content, string fileName, string contentType, CancellationToken ct = default);
-
-    /// <summary>Retrieves a trainer's uploaded evidence file for one assignment, or null if none is attached or the assignment doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadTrainingAssignmentFileAsync(Guid assignmentId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Admin reviews a Submitted assignment. Approving sets Status=Approved;
-    /// once every assignment on the session is Approved, the session's own
-    /// CompletionStatus is automatically advanced to Completed (and EndDate
-    /// set to today if not already set) — this is what unlocks signing a
-    /// Support agreement for the same system/product. Rejecting sets
-    /// Status=RejectedNeedsRework and leaves the session's CompletionStatus
-    /// untouched, so the trainer can revise and resubmit. Throws if the
-    /// assignment isn't currently Submitted.
-    /// </summary>
-    Task<TrainingSessionDto> ReviewTrainingAssignmentAsync(Guid assignmentId, ReviewTrainingAssignmentRequest request, string reviewedByName, CancellationToken ct = default);
-
-    /// <summary>Every TrainingAssignment currently held by the given Trainer, across all Training agreements — the "My Trainings" list for that employee. Newest-assigned first.</summary>
-    Task<IReadOnlyList<TrainingAssignmentDto>> GetAssignmentsForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default);
-
-    /// <summary>Uploads/replaces the scanned document (e.g. sign-in sheet) for a Training agreement's session.</summary>
-    Task<TrainingSessionDto> UploadTrainingScanAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
-
-    /// <summary>Retrieves a training session's attached scan, or null if none is attached or the agreement doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadTrainingScanAsync(Guid agreementId, CancellationToken ct = default);
 }
 
-/// <summary>Manages the SystemProduct layer between Client and Agreement — see SystemProduct.</summary>
+/// <summary>
+/// Manages the SystemProduct layer between Client and Agreement (see
+/// SystemProduct) AND the training workflow that lives directly on it:
+/// the assigned-trainer roster, the open-ended TrainingRecord log, and the
+/// one-click Admin decision that marks training Completed.
+/// </summary>
 public interface ISystemProductService
 {
-    /// <summary>Creates a new system/product for a client. Never overwrites or replaces an existing one — a client accumulates as many as it has.</summary>
+    /// <summary>Creates a new system/product for a client. Never overwrites or replaces an existing one — a client accumulates as many as it has. TrainingCompletionStatus starts NotStarted with an empty trainer roster — see AutoAssignTrainersAsync/AddTrainingAssignmentAsync to populate it.</summary>
     Task<SystemProductDto> CreateAsync(CreateSystemProductRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<SystemProductDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
     Task<SystemProductDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<SystemProductDto> UpdateAsync(Guid id, UpdateSystemProductRequest request, CancellationToken ct = default);
 
-    /// <summary>Soft-deletes — agreements under this system/product are left intact for history.</summary>
+    /// <summary>Soft-deletes — agreements/training records under this system/product are left intact for history.</summary>
     Task DeleteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>True if TrainingCompletionStatus is Completed — the precondition for signing a Support agreement for this SAME system/product (see IAgreementService.CreateAsync). Lets the UI disable/explain the "New Agreement" action before the user even tries.</summary>
+    Task<bool> HasCompletedTrainingAsync(Guid systemProductId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Manually adds one Trainer/Technician to the system/product's
+    /// training roster — Admin's pick from a dropdown that only offers
+    /// employees holding the Trainer responsibility, capped client-side
+    /// and re-checked here against Training.MaxTrainersPerSystemProduct
+    /// (see SystemConfigurationService). Throws if the employee doesn't
+    /// hold the Trainer responsibility, is already on the roster, or the
+    /// roster is already at the configured maximum.
+    /// </summary>
+    Task<SystemProductDto> AddTrainingAssignmentAsync(Guid systemProductId, Guid trainerEmployeeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Automatic Assignment: picks up to Training.MaxTrainersPerSystemProduct
+    /// Trainers by current workload (see ITrainerWorkloadService) and adds
+    /// them to the roster in one call — the counterpart to manually adding
+    /// one at a time via AddTrainingAssignmentAsync. Only fills empty
+    /// slots up to the cap (skips employees already on the roster); picks
+    /// nothing and returns the roster unchanged if it's already at the cap.
+    /// </summary>
+    Task<SystemProductDto> AutoAssignTrainersAsync(Guid systemProductId, CancellationToken ct = default);
+
+    /// <summary>Removes a Trainer from the roster. Does not touch any TrainingRecord rows they've already logged — those remain as history regardless of current roster membership.</summary>
+    Task<SystemProductDto> RemoveTrainingAssignmentAsync(Guid systemProductId, Guid assignmentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// One-click Admin decision: marks TrainingCompletionStatus Completed
+    /// based on Admin's own judgment of the accumulated TrainingRecords —
+    /// there is no automatic threshold or per-record selection. Unlocks
+    /// signing a Support agreement for this system/product. Does not lock
+    /// out further TrainingRecords — a trainer can still log a refresher
+    /// afterward without affecting this status.
+    /// </summary>
+    Task<SystemProductDto> MarkTrainingCompletedAsync(Guid systemProductId, CancellationToken ct = default);
 }
 
-/// <summary>Manages the admin-editable AgreementType lookup (Support/Training always present — see AgreementTypeNames — plus any custom types an Admin adds).</summary>
+/// <summary>
+/// The open-ended training activity log — see TrainingRecord. A Trainer
+/// logs one of these each time they actually conduct a session; there is
+/// no submit/approve lifecycle per record (contrast with, say, Tickets) —
+/// Admin's review happens informally, then is captured all at once via
+/// ISystemProductService.MarkTrainingCompletedAsync.
+/// </summary>
+public interface ITrainingRecordService
+{
+    /// <summary>
+    /// Logs one training session conducted by callerEmployeeId (resolved
+    /// server-side from the caller's JWT, never trusted from the request
+    /// body) against request.SystemProductId. Throws if the caller isn't
+    /// currently on that system/product's training roster (see
+    /// ISystemProductService.AddTrainingAssignmentAsync/AutoAssignTrainersAsync)
+    /// — only an assigned Trainer may log against it. Always inserts a new
+    /// row; a client/system-product can accumulate any number of these
+    /// over time, including after MarkTrainingCompletedAsync (e.g. a
+    /// refresher).
+    /// </summary>
+    Task<TrainingRecordDto> CreateAsync(Guid callerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default);
+
+    /// <summary>Every TrainingRecord logged by the given Trainer, across every system/product — the "My Trainings" list for that employee. Newest first.</summary>
+    Task<IReadOnlyList<TrainingRecordDto>> GetForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default);
+
+    /// <summary>Every TrainingRecord logged against one system/product — newest first. Shown on the SystemProduct/Client detail page alongside the roster and the Mark Completed action.</summary>
+    Task<IReadOnlyList<TrainingRecordDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
+
+    /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may replace its file.</summary>
+    Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>Retrieves a training record's supporting file, or null if none is attached or the record doesn't exist.</summary>
+    Task<RetrievedFile?> DownloadFileAsync(Guid recordId, CancellationToken ct = default);
+}
+
+/// <summary>Manages the admin-editable AgreementType lookup (Support always present — see AgreementTypeNames — plus any custom types an Admin adds).</summary>
 /// <summary>
 /// Workload-aware Trainer assignment — surfaces every eligible Trainer's
 /// current workload (open/pending/high-priority/overdue tickets, plus
-/// existing training assignments) and recommends the one with the most
+/// open training assignments) and recommends the one with the most
 /// reasonable workload, without enforcing that choice. See
 /// TrainerWorkloadDtos.cs for the exact fields and weighting rationale.
 /// </summary>
@@ -278,17 +305,16 @@ public interface ITrainerWorkloadService
     Task<TrainerAssignmentRecommendationDto> GetEligibleTrainersAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Picks up to <paramref name="count"/> distinct Trainers for a new
-    /// TrainingSession, ordered by the same WorkloadScore as
-    /// GetEligibleTrainersAsync (lowest/least-loaded first) — the
-    /// auto-assignment counterpart to that recommend-only call. Returns
-    /// fewer than <paramref name="count"/> if there aren't enough eligible
-    /// Trainers (never throws for a short supply); returns an empty list
-    /// if none are eligible at all. Each pick is computed against a
-    /// snapshot taken once at the start of the call, so picking trainer 2
-    /// isn't affected by trainer 1 having just been notionally assigned
-    /// within this same call — ActiveTrainingAssignmentCount only reflects
-    /// commitments that existed in the database before this call started.
+    /// Picks up to <paramref name="count"/> distinct Trainers for a
+    /// system/product's training roster, ordered by the same WorkloadScore
+    /// as GetEligibleTrainersAsync (lowest/least-loaded first) — the
+    /// engine behind ISystemProductService.AutoAssignTrainersAsync's
+    /// Automatic Assignment. Returns fewer than <paramref name="count"/>
+    /// if there aren't enough eligible Trainers (never throws for a short
+    /// supply); returns an empty list if none are eligible at all. Each
+    /// pick is computed against a snapshot taken once at the start of the
+    /// call, so picking trainer 2 isn't affected by trainer 1 having just
+    /// been notionally assigned within this same call.
     /// </summary>
     Task<IReadOnlyList<Guid>> SelectTrainersForAssignmentAsync(int count, CancellationToken ct = default);
 }

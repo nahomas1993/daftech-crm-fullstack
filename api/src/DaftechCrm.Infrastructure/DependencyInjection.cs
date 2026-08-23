@@ -135,6 +135,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IClientService, ClientService>();
         services.AddScoped<ISystemProductService, SystemProductService>();
+        services.AddScoped<ITrainingRecordService, TrainingRecordService>();
         services.AddScoped<IAgreementTypeService, AgreementTypeService>();
         services.AddScoped<IAgreementService, AgreementService>();
         services.AddScoped<INotificationService, NotificationService>();
@@ -177,9 +178,11 @@ public static class DependencyInjection
         await db.Database.MigrateAsync();
 
         // AgreementTypes (Support/Training) must exist before anything else
-        // seeds an Agreement against them, AND must exist on every startup
-        // (not just a fresh database) since the training-before-support
-        // gate depends on them by name — see EnsureCoreAgreementTypesAsync.
+        // seeds an Agreement against them, AND Support specifically must
+        // exist on every startup (not just a fresh database) since the
+        // training-before-support gate depends on it by name — see
+        // EnsureCoreAgreementTypesAsync. Training is kept seeded too, as a
+        // lookup value, even though no business rule keys off it anymore.
         await EnsureCoreAgreementTypesAsync(db);
 
         if (!await db.EmployeesSet.AnyAsync())
@@ -189,16 +192,15 @@ public static class DependencyInjection
             db.SystemProductsSet.AddRange(SeedData.SystemProducts());
             await db.SaveChangesAsync();
 
-            // Agreements before TrainingSessions — a TrainingSession's key
-            // IS its Agreement's id (one-to-one), so the Agreement row must
-            // exist first.
-            db.AgreementsSet.AddRange(SeedData.Agreements());
-            await db.SaveChangesAsync();
-
-            db.TrainingSessionsSet.AddRange(SeedData.TrainingSessions());
-            await db.SaveChangesAsync();
-
+            // Training roster/log depend only on SystemProducts existing
+            // (TrainingAssignment/TrainingRecord key off SystemProductId,
+            // not off any Agreement) — seeded independently of Agreements
+            // below.
             db.TrainingAssignmentsSet.AddRange(SeedData.TrainingAssignments());
+            db.TrainingRecordsSet.AddRange(SeedData.TrainingRecords());
+            await db.SaveChangesAsync();
+
+            db.AgreementsSet.AddRange(SeedData.Agreements());
             await db.SaveChangesAsync();
         }
 

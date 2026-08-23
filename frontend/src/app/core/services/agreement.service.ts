@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Agreement, BillingTier, PagedResult, TrainingSession, TrainingAssignment, TrainerAssignmentRecommendation } from '../models';
+import { Agreement, BillingTier, PagedResult } from '../models';
 import { API_BASE_URL } from './api-base';
 import { AuthService } from './auth.service';
 
@@ -116,19 +116,15 @@ export class AgreementService {
     return atDate >= start && atDate <= windowEnd;
   }
 
-  /** Whether the given system/product has a Training agreement with an End Date set — the precondition for signing a Support agreement for that SAME system/product. Check this before showing/enabling "New Support Agreement". */
-  async systemProductHasCompletedTraining(systemProductId: string): Promise<boolean> {
-    return firstValueFrom(this.http.get<boolean>(`${API_BASE_URL}/agreements/system-product/${systemProductId}/training-complete`));
-  }
-
   /**
    * Creates (signs) an agreement for a client's system/product, under the
    * given agreement type. signDate is admin-entered (defaults to today at
    * the call site, but the admin can back-date it). Rejected with 409 if
-   * agreementTypeId resolves to Support but the same system/product has no
-   * completed Training agreement yet — callers should catch that and show
-   * a clear message. Never overwrites an existing agreement — always
-   * creates a new row.
+   * agreementTypeId resolves to Support but the same system/product's
+   * training hasn't been marked Completed yet (see
+   * SystemProductService.hasCompletedTraining/markTrainingCompleted) —
+   * callers should catch that and show a clear message. Never overwrites
+   * an existing agreement — always creates a new row.
    */
   async createAgreement(data: {
     systemProductId: string; agreementTypeId: string; agreementPlace: string; signDate: string;
@@ -162,91 +158,6 @@ export class AgreementService {
   async downloadScannedFile(agreementId: string): Promise<Blob> {
     return firstValueFrom(
       this.http.get(`${API_BASE_URL}/agreements/${agreementId}/scanned-file`, { responseType: 'blob' })
-    );
-  }
-
-  /** Every eligible Trainer's current workload plus a recommendation — shown to Admin when assigning a Training agreement's trainer. See TrainingSessionDetailComponent. */
-  async getTrainerWorkload(): Promise<TrainerAssignmentRecommendation> {
-    return firstValueFrom(this.http.get<TrainerAssignmentRecommendation>(`${API_BASE_URL}/agreements/trainer-workload`));
-  }
-
-  /** The training session for a Training-type agreement. Reachable the same way from the Client, SystemProduct, and Agreement detail pages — all call this by agreement id. Throws (404) if the agreement isn't a Training agreement. */
-  async getTrainingSession(agreementId: string): Promise<TrainingSession> {
-    return firstValueFrom(this.http.get<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session`));
-  }
-
-  /** Sets/updates the training session's own fields — dates, location, participants, attendance, topics, issues, trainer comments, client rep confirmation, follow-up. Does NOT touch the trainer roster (see addTrainingAssignment/removeTrainingAssignment) or completionStatus, which is system-derived from assignment approvals. */
-  async saveTrainingSession(agreementId: string, data: {
-    startDate?: string; endDate?: string; location?: string;
-    participants?: string; attendance?: string; topicsCovered?: string; issuesOrQuestions?: string;
-    trainerComments?: string; clientRepresentativeConfirmation?: string; clientRepresentativeComments?: string;
-    followUpRequired: boolean; followUpNotes?: string;
-  }): Promise<TrainingSession> {
-    return firstValueFrom(this.http.put<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session`, data));
-  }
-
-  /** Manually adds one more Trainer to a training session's roster, on top of whatever workload-based auto-assignment already placed there. */
-  async addTrainingAssignment(agreementId: string, trainerEmployeeId: string): Promise<TrainingSession> {
-    return firstValueFrom(
-      this.http.post<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session/assignments`, { trainerEmployeeId })
-    );
-  }
-
-  /** Removes a Trainer from a training session's roster. Fails (400) if that assignment has already been approved. */
-  async removeTrainingAssignment(agreementId: string, assignmentId: string): Promise<TrainingSession> {
-    return firstValueFrom(
-      this.http.delete<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session/assignments/${assignmentId}`)
-    );
-  }
-
-  /** The trainer submits their own assignment (work description) for Admin review. Only the assigned trainer may call this for their own assignment. */
-  async submitTrainingAssignment(assignmentId: string, workDescription: string): Promise<TrainingAssignment> {
-    return firstValueFrom(
-      this.http.post<TrainingAssignment>(`${API_BASE_URL}/agreements/training-session/assignments/${assignmentId}/submit`, { workDescription })
-    );
-  }
-
-  /** Uploads (or replaces) the trainer's own evidence file for one assignment. */
-  async uploadTrainingAssignmentFile(assignmentId: string, file: File): Promise<TrainingAssignment> {
-    const form = new FormData();
-    form.append('file', file, file.name);
-    return firstValueFrom(
-      this.http.post<TrainingAssignment>(`${API_BASE_URL}/agreements/training-session/assignments/${assignmentId}/file`, form)
-    );
-  }
-
-  /** Fetches a trainer's uploaded evidence file as a Blob. */
-  async downloadTrainingAssignmentFile(assignmentId: string): Promise<Blob> {
-    return firstValueFrom(
-      this.http.get(`${API_BASE_URL}/agreements/training-session/assignments/${assignmentId}/file`, { responseType: 'blob' })
-    );
-  }
-
-  /** Admin approves or rejects a submitted assignment. Approving may complete the whole session once every assignment on it is approved. reviewNotes is required when rejecting. */
-  async reviewTrainingAssignment(assignmentId: string, approve: boolean, reviewNotes?: string): Promise<TrainingSession> {
-    return firstValueFrom(
-      this.http.post<TrainingSession>(`${API_BASE_URL}/agreements/training-session/assignments/${assignmentId}/review`, { approve, reviewNotes })
-    );
-  }
-
-  /** The logged-in Trainer's own assignments across every Training agreement — the "My Trainings" list. */
-  async getMyTrainingAssignments(): Promise<TrainingAssignment[]> {
-    return firstValueFrom(this.http.get<TrainingAssignment[]>(`${API_BASE_URL}/agreements/training-session/my-assignments`));
-  }
-
-  /** Uploads (or replaces) the scanned document (e.g. sign-in sheet) for a training session. */
-  async uploadTrainingScan(agreementId: string, file: File): Promise<TrainingSession> {
-    const form = new FormData();
-    form.append('file', file, file.name);
-    return firstValueFrom(
-      this.http.post<TrainingSession>(`${API_BASE_URL}/agreements/${agreementId}/training-session/scan`, form)
-    );
-  }
-
-  /** Fetches a training session's scan as a Blob — same reasoning as downloadScannedFile above. */
-  async downloadTrainingScan(agreementId: string): Promise<Blob> {
-    return firstValueFrom(
-      this.http.get(`${API_BASE_URL}/agreements/${agreementId}/training-session/scan`, { responseType: 'blob' })
     );
   }
 }

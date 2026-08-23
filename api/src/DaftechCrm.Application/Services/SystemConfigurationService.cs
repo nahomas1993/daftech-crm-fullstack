@@ -62,8 +62,8 @@ public class SystemConfigurationService : ISystemConfigurationService
                 "How long a password-reset OTP emailed to a user stays valid.",
                 "int", "15"),
 
-            new("Training.TrainersPerSession", "Training", "Trainers assigned per training",
-                "How many Trainers are automatically assigned, by current workload, the moment a Training agreement is created. An Admin can still add or remove individual trainers afterward.",
+            new("Training.MaxTrainersPerSystemProduct", "Training", "Maximum trainers per system/product",
+                "The ceiling on how many Trainers/Technicians can be assigned to train a client on one system/product — caps both the manual-assignment dropdown and how many Automatic Assignment can pick by workload.",
                 "int", "1"),
         };
     }

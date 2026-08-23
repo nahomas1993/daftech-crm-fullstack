@@ -152,11 +152,7 @@ tbody tr:last-child td { border-bottom: none; }
 .text-muted { color: var(--slate-500); }
 .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
 
-/* Brand mark — the actual DAFTECH logo image, used in sidebars and login screens */
-.brand-logo-img {
-  object-fit: contain;
-  display: block;
-}
-.brand-logo-sm { width: 34px; height: 34px; }
-.brand-logo-md { width: 44px; height: 44px; }
-.brand-logo-lg { width: 64px; height: 64px; }
+/* Brand mark is now drawn natively as inline SVG — see
+   app/shared/brand-logo.component.ts (<app-brand-logo>). The old raster
+   .brand-logo-img classes and assets/daftech-logo.png were removed because
+   the image shipped its own background and looked pasted onto the UI. */

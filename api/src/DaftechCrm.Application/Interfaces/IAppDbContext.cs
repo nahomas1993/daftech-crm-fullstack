@@ -13,8 +13,8 @@ public interface IAppDbContext
     IQueryable<SystemProduct> SystemProducts { get; }
     IQueryable<AgreementType> AgreementTypes { get; }
     IQueryable<Agreement> Agreements { get; }
-    IQueryable<TrainingSession> TrainingSessions { get; }
     IQueryable<TrainingAssignment> TrainingAssignments { get; }
+    IQueryable<TrainingRecord> TrainingRecords { get; }
     IQueryable<Ticket> Tickets { get; }
     IQueryable<TicketAuditEntry> TicketAuditEntries { get; }
     IQueryable<Employee> Employees { get; }

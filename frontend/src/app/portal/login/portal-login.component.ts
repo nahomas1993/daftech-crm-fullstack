@@ -3,15 +3,16 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { ForgotPasswordModalComponent } from '../../shared/forgot-password-modal.component';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 
 @Component({
   selector: 'app-portal-login',
   standalone: true,
-  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent],
+  imports: [FormsModule, RouterLink, ForgotPasswordModalComponent, BrandLogoComponent],
   template: `
     <div class="wrap">
       <div class="card panel panel-pad">
-        <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-md" />
+        <app-brand-logo [size]="44"></app-brand-logo>
         <h2>Client Portal</h2>
         <p class="text-muted" style="margin: 0.35rem 0 1.25rem;">Sign in with the username and password your Admin gave you.</p>
 
@@ -67,7 +68,7 @@ import { ForgotPasswordModalComponent } from '../../shared/forgot-password-modal
     }
     .card { width: 380px; max-width: 100%; text-align: center; }
     .card .lbl, .card .input-group, .card .err { text-align: left; }
-    .brand-logo-img { margin: 0 auto 0.75rem; }
+    app-brand-logo { display: block; margin: 0 auto 0.75rem; }
     .lbl { display: block; font-size: 0.78rem; font-weight: 600; color: var(--slate-500); margin-bottom: 0.3rem; }
     .input-group { position: relative; display: flex; align-items: center; }
     .input-icon {

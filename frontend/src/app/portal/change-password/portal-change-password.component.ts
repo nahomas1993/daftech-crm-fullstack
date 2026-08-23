@@ -3,15 +3,16 @@ import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 
 @Component({
   selector: 'app-portal-change-password',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, BrandLogoComponent],
   template: `
     <div class="wrap">
       <div class="card panel panel-pad">
-        <img src="assets/daftech-logo.png" alt="DAFTECH" class="brand-logo-img brand-logo-md" style="margin: 0 auto 0.75rem;" />
+        <app-brand-logo [size]="44" style="margin: 0 auto 0.75rem;"></app-brand-logo>
         <h2>Set a New Password</h2>
         <p class="text-muted" style="margin: 0.35rem 0 1.25rem;">
           You're signing in with a one-time password. Choose a new password to continue.

@@ -4,12 +4,15 @@ namespace DaftechCrm.Domain.Entities;
 
 /// <summary>
 /// One agreement, signed for a specific Client → SystemProduct, under a
-/// specific AgreementType (Support, Training, or any admin-defined type).
-/// A SystemProduct can carry multiple agreements (e.g. one Training
-/// agreement and one Support agreement, or several Support agreements
-/// over time as each expires and is renewed) — creating a new Agreement
-/// never overwrites or replaces an existing one; each has its own
-/// SignDate/dates/status/details and its own row (see
+/// specific AgreementType. Support is the primary type in active use —
+/// training is no longer modeled as a signed agreement at all (see
+/// SystemProduct.TrainingAssignments/TrainingRecords/TrainingCompletionStatus),
+/// so a real deployment should only ever see Support (and any other
+/// admin-defined non-training type) agreements created going forward. A
+/// SystemProduct can carry multiple agreements over time (e.g. several
+/// Support agreements as each expires and is renewed) — creating a new
+/// Agreement never overwrites or replaces an existing one; each has its
+/// own SignDate/dates/status/details and its own row (see
 /// AgreementService.CreateAsync, which only ever inserts).
 ///
 /// Client is still reachable via SystemProduct.Client, but no longer
@@ -48,22 +51,13 @@ public class Agreement
     /// <summary>Free-text notes/details specific to this agreement — e.g. scope clarifications, special terms. Optional.</summary>
     public string? Details { get; set; }
 
-    /// <summary>
-    /// Populated only for a Training-type agreement: the full training
-    /// workflow record (participants, attendance, topics, trainer, etc.)
-    /// backing this agreement. Null for a Support (or other non-Training)
-    /// agreement. See TrainingSession.
-    /// </summary>
-    public TrainingSession? TrainingSession { get; set; }
-
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
 
     /// <summary>
     /// A ticket raised against this agreement is Free while today falls within
     /// [SignDate, SignDate + SupportWindowMonths]; Chargeable afterward.
     /// Mirrors the frontend's AgreementService.isWithinSupportWindow so both
-    /// sides agree on the derived chargeable flag. Meaningful for Support
-    /// agreements; Training agreements don't carry tickets.
+    /// sides agree on the derived chargeable flag.
     /// </summary>
     public bool IsWithinSupportWindow(DateOnly onDate)
     {

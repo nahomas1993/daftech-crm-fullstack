@@ -81,6 +81,8 @@ public class SystemProductConfiguration : IEntityTypeConfiguration<SystemProduct
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.Description).HasColumnType("text");
         b.HasMany(x => x.Agreements).WithOne(a => a.SystemProduct).HasForeignKey(a => a.SystemProductId);
+        b.HasMany(x => x.TrainingAssignments).WithOne(a => a.SystemProduct).HasForeignKey(a => a.SystemProductId);
+        b.HasMany(x => x.TrainingRecords).WithOne(r => r.SystemProduct).HasForeignKey(r => r.SystemProductId);
     }
 }
 
@@ -112,30 +114,6 @@ public class AgreementConfiguration : IEntityTypeConfiguration<Agreement>
         b.Property(x => x.ScannedFileUrl).HasMaxLength(500);
         b.Property(x => x.AgreementPlace).HasMaxLength(200);
         b.Property(x => x.Details).HasColumnType("text");
-        // TrainingSession is one-to-one, owned by AgreementId as its own key (see
-        // TrainingSessionConfiguration) — never cascade-deleted implicitly here;
-        // TrainingSessionConfiguration states the delete behavior explicitly.
-        b.HasOne(x => x.TrainingSession).WithOne(t => t.Agreement).HasForeignKey<TrainingSession>(t => t.AgreementId);
-    }
-}
-
-public class TrainingSessionConfiguration : IEntityTypeConfiguration<TrainingSession>
-{
-    public void Configure(EntityTypeBuilder<TrainingSession> b)
-    {
-        b.ToTable("training_sessions");
-        b.HasKey(x => x.AgreementId);
-        b.Property(x => x.Location).HasMaxLength(300);
-        b.Property(x => x.Participants).HasColumnType("text");
-        b.Property(x => x.Attendance).HasColumnType("text");
-        b.Property(x => x.TopicsCovered).HasColumnType("text");
-        b.Property(x => x.IssuesOrQuestions).HasColumnType("text");
-        b.Property(x => x.TrainerComments).HasColumnType("text");
-        b.Property(x => x.ClientRepresentativeConfirmation).HasMaxLength(300);
-        b.Property(x => x.ClientRepresentativeComments).HasColumnType("text");
-        b.Property(x => x.FollowUpNotes).HasColumnType("text");
-        b.Property(x => x.ScanStorageKey).HasMaxLength(500);
-        b.Property(x => x.ScanFileName).HasMaxLength(300);
     }
 }
 
@@ -145,29 +123,51 @@ public class TrainingAssignmentConfiguration : IEntityTypeConfiguration<Training
     {
         b.ToTable("training_assignments");
         b.HasKey(x => x.Id);
-        b.Property(x => x.WorkDescription).HasColumnType("text");
-        b.Property(x => x.FileStorageKey).HasMaxLength(500);
-        b.Property(x => x.FileName).HasMaxLength(300);
-        b.Property(x => x.ReviewedByName).HasMaxLength(200);
-        b.Property(x => x.ReviewNotes).HasColumnType("text");
 
-        // Deleting the owning TrainingSession removes its assignments too —
-        // there is no code path that deletes a TrainingSession on its own
-        // (it lives and dies with its Agreement), so this only matters for
-        // the (currently unused) case of a hard Agreement delete.
-        b.HasOne(x => x.TrainingSession).WithMany(t => t.TrainerAssignments)
-            .HasForeignKey(x => x.TrainingSessionId).OnDelete(DeleteBehavior.Cascade);
+        // Deleting the owning SystemProduct removes its training roster too —
+        // matches how Agreements are configured for the same SystemProduct
+        // (no explicit delete behavior override there either, so this stays
+        // consistent with EF's default cascade for a required FK).
+        b.HasOne(x => x.SystemProduct).WithMany(s => s.TrainingAssignments)
+            .HasForeignKey(x => x.SystemProductId).OnDelete(DeleteBehavior.Cascade);
 
-        // Restrict rather than SetNull (unlike the old singular
-        // TrainerEmployeeId, which was nullable) because TrainerEmployeeId
-        // is required here — a TrainingAssignment without a trainer isn't
-        // a meaningful row, it should be removed instead. In practice
-        // Employee soft-delete (IsDeleted) never issues a real DELETE, so
-        // this Restrict only guards against a hypothetical hard delete.
+        // Restrict — an employee being deleted must not silently delete
+        // roster history. In practice Employee soft-delete (IsDeleted)
+        // never issues a real DELETE, so this only guards against a
+        // hypothetical hard delete.
         b.HasOne(x => x.TrainerEmployee).WithMany()
             .HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.Restrict);
 
-        b.HasIndex(x => x.TrainingSessionId);
+        b.HasIndex(x => x.SystemProductId);
+        b.HasIndex(x => x.TrainerEmployeeId);
+        // A trainer can only be on a given system/product's roster once —
+        // enforced here rather than just in TrainingAssignmentService, so
+        // it holds even under concurrent requests.
+        b.HasIndex(x => new { x.SystemProductId, x.TrainerEmployeeId }).IsUnique();
+    }
+}
+
+public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingRecord>
+{
+    public void Configure(EntityTypeBuilder<TrainingRecord> b)
+    {
+        b.ToTable("training_records");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Description).HasColumnType("text").IsRequired();
+        b.Property(x => x.FileStorageKey).HasMaxLength(500);
+        b.Property(x => x.FileName).HasMaxLength(300);
+
+        // Deleting the owning SystemProduct removes its training log too —
+        // same reasoning as TrainingAssignmentConfiguration above.
+        b.HasOne(x => x.SystemProduct).WithMany(s => s.TrainingRecords)
+            .HasForeignKey(x => x.SystemProductId).OnDelete(DeleteBehavior.Cascade);
+
+        // Restrict — a training record is a historical fact about who
+        // conducted it; deleting that employee must not delete the record.
+        b.HasOne(x => x.TrainerEmployee).WithMany()
+            .HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.Restrict);
+
+        b.HasIndex(x => x.SystemProductId);
         b.HasIndex(x => x.TrainerEmployeeId);
     }
 }

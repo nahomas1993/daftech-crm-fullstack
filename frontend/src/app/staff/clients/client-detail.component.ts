@@ -7,23 +7,29 @@ import { SystemProductService } from '../../core/services/system-product.service
 import { AgreementService } from '../../core/services/agreement.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
+import { TrainingService } from '../../core/services/training.service';
 import { BadgeComponent } from '../../shared/badge.component';
-import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/models';
+import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload } from '../../core/models';
 
 /**
  * Client -> System/Product -> Agreement -> Agreement Type. Each
  * System/Product is its own expandable panel; agreements for it are
- * fetched and shown per-panel. Signing a Support agreement for a
- * System/Product is blocked until that SAME System/Product has a Training
- * agreement with an End Date set (see AgreementService.CreateAsync on the
- * backend — this UI mirrors that gate but the server is the source of
- * truth). Creating a new System/Product or Agreement never overwrites an
- * existing one — everything here is additive.
+ * fetched and shown per-panel, alongside its training roster and
+ * open-ended training record log (see SystemProduct.trainingAssignments/
+ * trainingCompletionStatus and TrainingRecord). Signing a Support
+ * agreement for a System/Product is blocked until that SAME
+ * System/Product's training has been marked Completed (see
+ * SystemProductService.markTrainingCompleted on the frontend,
+ * AgreementService.CreateAsync on the backend — this UI mirrors that gate
+ * but the server is the source of truth). Creating a new System/Product,
+ * Agreement, or TrainingRecord never overwrites an existing one —
+ * everything here is additive.
  *
- * Supports a `?tab=agreements` query param so the "Continue to Agreement"
- * redirect after Admin registers a new client (see
- * ClientsListComponent.continueToAgreement) can land the Admin straight on
- * this section — see the effect() in the constructor.
+ * Supports a `?tab=agreements` query param so the redirect after Admin
+ * registers a new client and adds its first System/Product (see
+ * ClientsListComponent) can land the Admin straight on this section, and
+ * a `?focusSystemProduct=<id>` param to auto-open that system/product's
+ * Training Assignment panel — see the effect() in the constructor.
  */
 @Component({
   selector: 'app-client-detail',
@@ -61,7 +67,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
           </button>
         </div>
         <p class="text-muted" style="font-size:0.78rem; margin: 0.3rem 0 0;">
-          A client may have multiple systems/products, and each may carry multiple agreements — nothing shown here is ever overwritten by adding another.
+          A client may have multiple systems/products, and each may carry multiple agreements and training records — nothing shown here is ever overwritten by adding another.
         </p>
 
         @if (showNewSystemForm()) {
@@ -88,7 +94,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
         }
 
         @for (sp of systemProducts(); track sp.id) {
-          <div class="system-product-panel">
+          <div class="system-product-panel" [id]="'system-product-' + sp.id">
             <div class="header-row">
               <div>
                 <h4 style="margin:0;">{{ sp.name }}</h4>
@@ -148,7 +154,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
                     <p class="text-muted" style="font-size:0.76rem; margin: 0.8rem 0 0;">Checking training status for this system/product…</p>
                   } @else if (canSignSupport() === false) {
                     <p class="upload-error" style="margin: 0.8rem 0 0;">
-                      This system/product has no completed training yet. A Training agreement must be signed and every assigned trainer's work approved before a Support agreement can be signed for it.
+                      This system/product's training hasn't been marked Completed yet — see the Training panel below.
                     </p>
                   }
                 }
@@ -162,7 +168,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
             }
 
             <div class="table-scroll" style="margin-top:0.85rem;"><table>
-              <thead><tr><th>Type</th><th>Doc #</th><th>Sign Date</th><th>Expiry</th><th>Tier</th><th>Status</th><th>Document</th><th></th></tr></thead>
+              <thead><tr><th>Type</th><th>Doc #</th><th>Sign Date</th><th>Expiry</th><th>Tier</th><th>Status</th><th>Document</th></tr></thead>
               <tbody>
                 @for (a of agreementsFor(sp.id); track a.id) {
                   <tr>
@@ -177,16 +183,85 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
                         <button class="btn btn-outline btn-sm" (click)="download(a.id)">Download</button>
                       } @else { <span class="text-muted">None</span> }
                     </td>
-                    <td>
-                      @if (a.agreementTypeName === 'Training') {
-                        <a [routerLink]="['/admin/clients', c.id, 'training', a.id]" class="btn btn-outline btn-sm">Training Session</a>
-                      }
-                    </td>
                   </tr>
                 }
-                @empty { <tr><td colspan="8" class="text-muted">No agreements yet for this system/product.</td></tr> }
+                @empty { <tr><td colspan="7" class="text-muted">No agreements yet for this system/product.</td></tr> }
               </tbody>
             </table></div>
+
+            <div class="training-panel">
+              <div class="header-row">
+                <h5 style="margin:0;">Training</h5>
+                <app-badge [status]="sp.trainingCompletionStatus"></app-badge>
+              </div>
+
+              <div class="roster">
+                <p class="text-muted" style="font-size:0.76rem; margin: 0.6rem 0 0.4rem;">Assigned Trainers</p>
+                @if (sp.trainingAssignments.length === 0) {
+                  <p class="text-muted" style="font-size:0.82rem;">No trainers assigned yet.</p>
+                } @else {
+                  <ul class="roster-list">
+                    @for (ta of sp.trainingAssignments; track ta.id) {
+                      <li>
+                        {{ ta.trainerEmployeeName }}
+                        <button class="btn btn-outline btn-sm" (click)="removeTrainer(sp.id, ta.id)">Remove</button>
+                      </li>
+                    }
+                  </ul>
+                }
+
+                <div class="assign-row">
+                  <select [(ngModel)]="manualTrainerSelection[sp.id]" style="max-width:260px;">
+                    <option value="">Select a trainer…</option>
+                    @for (w of availableTrainers(sp); track w.employeeId) {
+                      <option [value]="w.employeeId">
+                        {{ w.employeeName }}{{ w.employeeId === recommendedTrainerId() ? ' (recommended)' : '' }}{{ w.isExcessiveWorkload ? ' — excessive workload' : '' }}
+                      </option>
+                    }
+                  </select>
+                  <button class="btn btn-outline btn-sm" [disabled]="!manualTrainerSelection[sp.id] || rosterBusy() === sp.id" (click)="addTrainerManually(sp.id)">
+                    Manual Assign
+                  </button>
+                  <button class="btn btn-outline btn-sm" [disabled]="rosterBusy() === sp.id" (click)="autoAssign(sp.id)">
+                    Automatic Assignment
+                  </button>
+                </div>
+                @if (rosterError()[sp.id]) { <p class="upload-error" style="margin-top:0.4rem;">{{ rosterError()[sp.id] }}</p> }
+              </div>
+
+              <div class="records">
+                <p class="text-muted" style="font-size:0.76rem; margin: 0.9rem 0 0.4rem;">Training Records</p>
+                @if (recordsFor(sp.id).length === 0) {
+                  <p class="text-muted" style="font-size:0.82rem;">No training sessions logged yet.</p>
+                } @else {
+                  <div class="table-scroll"><table>
+                    <thead><tr><th>Date</th><th>Trainer</th><th>Description</th><th>File</th></tr></thead>
+                    <tbody>
+                      @for (r of recordsFor(sp.id); track r.id) {
+                        <tr>
+                          <td>{{ r.trainingDate }}</td>
+                          <td>{{ r.trainerEmployeeName }}</td>
+                          <td>{{ r.description }}</td>
+                          <td>
+                            @if (r.fileName) {
+                              <button class="btn btn-outline btn-sm" (click)="downloadRecordFile(r)">{{ r.fileName }}</button>
+                            } @else { <span class="text-muted">None</span> }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table></div>
+                }
+
+                @if (sp.trainingCompletionStatus !== 'Completed') {
+                  <button class="btn btn-primary btn-sm" style="margin-top:0.8rem;" [disabled]="markingComplete() === sp.id" (click)="markTrainingCompleted(sp.id)">
+                    {{ markingComplete() === sp.id ? 'Saving…' : 'Mark Training Completed' }}
+                  </button>
+                } @else {
+                  <p class="text-muted" style="font-size:0.78rem; margin-top:0.6rem;">Training marked Completed — a trainer can still log a refresher session above if needed.</p>
+                }
+              </div>
+            </div>
           </div>
         }
         @empty {
@@ -229,6 +304,10 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement } from '../../core/model
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.76rem; font-weight: 600; color: var(--slate-500); }
     .upload-error { color: var(--red); font-size: 0.85rem; }
+    .training-panel { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px dashed var(--slate-200); }
+    .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+    .roster-list li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
+    .assign-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
   `],
 })
 export class ClientDetailComponent {
@@ -253,6 +332,16 @@ export class ClientDetailComponent {
   // agreements list was.
   private agreementsBySystemProduct = signal<Record<string, Agreement[]>>({});
 
+  // Training records fetched per system/product, same keying reasoning.
+  private recordsBySystemProduct = signal<Record<string, TrainingRecord[]>>({});
+
+  trainerWorkloads = signal<TrainerWorkload[]>([]);
+  recommendedTrainerId = signal<string | undefined>(undefined);
+  manualTrainerSelection: Record<string, string> = {};
+  rosterBusy = signal<string | null>(null);
+  rosterError = signal<Record<string, string>>({});
+  markingComplete = signal<string | null>(null);
+
   agreementForm: {
     agreementTypeId: string; agreementPlace: string; signDate: string;
     supportWindowMonths: number; billingTier: BillingTier; details: string;
@@ -264,23 +353,33 @@ export class ClientDetailComponent {
     public agreementsSvc: AgreementService,
     public agreementTypesSvc: AgreementTypeService,
     private ticketsSvc: TicketService,
+    private trainingSvc: TrainingService,
     private route: ActivatedRoute,
   ) {
     // Load this client's systems/products as soon as the client id is
-    // known, then each one's agreements.
+    // known, then each one's agreements and training records.
     effect(() => {
       const clientId = this.id();
       if (clientId) void this.refreshSystemProducts(clientId);
     });
 
-    // Supports the ?tab=agreements redirect from
-    // ClientsListComponent.continueToAgreement — scrolls the Agreements
-    // section into view once the page has rendered.
+    void this.loadTrainerWorkload();
+
+    // Supports the ?tab=agreements redirect from ClientsListComponent
+    // (after registering a client and adding its first system/product) —
+    // scrolls the Agreements section, and if ?focusSystemProduct=<id> is
+    // also present, scrolls straight to that system/product's panel so
+    // Training Assignment is immediately visible.
     effect(() => {
       const clientId = this.id();
-      const tab = this.route.snapshot.queryParamMap.get('tab');
+      const params = this.route.snapshot.queryParamMap;
+      const tab = params.get('tab');
+      const focusSystemProductId = params.get('focusSystemProduct');
       if (clientId && tab === 'agreements') {
-        setTimeout(() => document.getElementById('agreements-section')?.scrollIntoView({ behavior: 'smooth' }), 150);
+        setTimeout(() => {
+          const targetId = focusSystemProductId ? `system-product-${focusSystemProductId}` : 'agreements-section';
+          document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
+        }, 150);
       }
     });
   }
@@ -291,6 +390,16 @@ export class ClientDetailComponent {
 
   agreementsFor(systemProductId: string): Agreement[] {
     return this.agreementsBySystemProduct()[systemProductId] ?? [];
+  }
+
+  recordsFor(systemProductId: string): TrainingRecord[] {
+    return this.recordsBySystemProduct()[systemProductId] ?? [];
+  }
+
+  /** Trainers not already on this system/product's roster — the only ones worth showing in the Manual Assign dropdown. */
+  availableTrainers(sp: { trainingAssignments: { trainerEmployeeId: string }[] }): TrainerWorkload[] {
+    const assignedIds = new Set(sp.trainingAssignments.map(a => a.trainerEmployeeId));
+    return this.trainerWorkloads().filter(w => !assignedIds.has(w.employeeId));
   }
 
   isSelectedTypeSupport = computed(() => {
@@ -311,7 +420,7 @@ export class ClientDetailComponent {
 
   private async refreshSystemProducts(clientId: string) {
     const list = await this.systemProductsSvc.refreshForClient(clientId);
-    await Promise.all(list.map(sp => this.refreshAgreementsFor(sp.id)));
+    await Promise.all(list.map(sp => Promise.all([this.refreshAgreementsFor(sp.id), this.refreshRecordsFor(sp.id)])));
   }
 
   private async refreshAgreementsFor(systemProductId: string) {
@@ -323,12 +432,31 @@ export class ClientDetailComponent {
     }
   }
 
+  private async refreshRecordsFor(systemProductId: string) {
+    try {
+      const list = await this.trainingSvc.getForSystemProduct(systemProductId);
+      this.recordsBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
+    } catch (err) {
+      console.error('Failed to load training records for system/product', err);
+    }
+  }
+
+  private async loadTrainerWorkload() {
+    try {
+      const rec = await this.systemProductsSvc.getTrainerWorkload();
+      this.trainerWorkloads.set(rec.eligibleTrainers);
+      this.recommendedTrainerId.set(rec.recommendedTrainerEmployeeId);
+    } catch (err) {
+      console.error('Failed to load trainer workload', err);
+    }
+  }
+
   toggleNewSystemForm() {
     this.systemError.set(null);
     this.showNewSystemForm.set(!this.showNewSystemForm());
   }
 
-  /** Always creates a brand-new SystemProduct — never overwrites or replaces one the client already has. */
+  /** Always creates a brand-new SystemProduct — never overwrites or replaces one the client already has. Starts with an empty training roster. */
   async submitNewSystem(clientId: string) {
     if (!this.newSystemForm.name.trim()) {
       this.systemError.set('Name is required.');
@@ -377,7 +505,7 @@ export class ClientDetailComponent {
   private async refreshTrainingCheck(systemProductId: string) {
     this.trainingCheckPending.set(true);
     try {
-      this.canSignSupport.set(await this.agreementsSvc.systemProductHasCompletedTraining(systemProductId));
+      this.canSignSupport.set(await this.systemProductsSvc.hasCompletedTraining(systemProductId));
     } catch (err) {
       console.error('Failed to check training status', err);
       this.canSignSupport.set(null);
@@ -396,7 +524,7 @@ export class ClientDetailComponent {
    * Always creates a brand-new Agreement scoped to this system/product —
    * never touches or overwrites any existing agreement. Rejected with 409
    * by the server if a Support agreement is requested but training isn't
-   * complete yet for this SAME system/product.
+   * marked Completed yet for this SAME system/product.
    */
   async submitAgreement(systemProductId: string) {
     if (this.isSelectedTypeSupport() && this.canSignSupport() === false) return;
@@ -425,7 +553,7 @@ export class ClientDetailComponent {
       this.agreementForm = this.blankAgreementForm();
     } catch (err: any) {
       if (err?.status === 409) {
-        this.uploadError.set(err?.error ?? 'This system/product has no completed training yet — the Support agreement cannot be signed.');
+        this.uploadError.set(err?.error ?? "This system/product's training hasn't been marked Completed yet — the Support agreement cannot be signed.");
       } else {
         this.uploadError.set('The agreement was saved, but a later step failed. You can retry uploads from the agreements list above.');
       }
@@ -446,6 +574,81 @@ export class ClientDetailComponent {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to download scanned document', err);
+    }
+  }
+
+  private async refreshSystemProductOnly(systemProductId: string, clientId: string) {
+    // The roster/status changed on one system/product — cheapest correct
+    // refresh is re-fetching the whole client list (it's already cached
+    // and small), rather than patching just one entry's nested arrays by
+    // hand and risking it drifting from the server.
+    await this.systemProductsSvc.refreshForClient(clientId);
+  }
+
+  async addTrainerManually(systemProductId: string) {
+    const trainerEmployeeId = this.manualTrainerSelection[systemProductId];
+    if (!trainerEmployeeId) return;
+
+    this.rosterBusy.set(systemProductId);
+    this.rosterError.update(m => ({ ...m, [systemProductId]: '' }));
+    try {
+      await this.systemProductsSvc.addTrainingAssignment(systemProductId, trainerEmployeeId);
+      await this.refreshSystemProductOnly(systemProductId, this.id());
+      this.manualTrainerSelection[systemProductId] = '';
+    } catch (err: any) {
+      this.rosterError.update(m => ({ ...m, [systemProductId]: err?.error ?? 'Could not assign this trainer — please try again.' }));
+      console.error(err);
+    } finally {
+      this.rosterBusy.set(null);
+    }
+  }
+
+  async autoAssign(systemProductId: string) {
+    this.rosterBusy.set(systemProductId);
+    this.rosterError.update(m => ({ ...m, [systemProductId]: '' }));
+    try {
+      await this.systemProductsSvc.autoAssignTrainers(systemProductId);
+      await this.refreshSystemProductOnly(systemProductId, this.id());
+    } catch (err: any) {
+      this.rosterError.update(m => ({ ...m, [systemProductId]: err?.error ?? 'Could not auto-assign trainers — please try again.' }));
+      console.error(err);
+    } finally {
+      this.rosterBusy.set(null);
+    }
+  }
+
+  async removeTrainer(systemProductId: string, assignmentId: string) {
+    try {
+      await this.systemProductsSvc.removeTrainingAssignment(systemProductId, assignmentId);
+      await this.refreshSystemProductOnly(systemProductId, this.id());
+    } catch (err) {
+      console.error('Failed to remove training assignment', err);
+    }
+  }
+
+  async markTrainingCompleted(systemProductId: string) {
+    this.markingComplete.set(systemProductId);
+    try {
+      await this.systemProductsSvc.markTrainingCompleted(systemProductId);
+      await this.refreshSystemProductOnly(systemProductId, this.id());
+    } catch (err) {
+      console.error('Failed to mark training completed', err);
+    } finally {
+      this.markingComplete.set(null);
+    }
+  }
+
+  async downloadRecordFile(r: TrainingRecord) {
+    try {
+      const blob = await this.trainingSvc.downloadFile(r.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = r.fileName ?? '';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download training record file', err);
     }
   }
 }

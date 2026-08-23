@@ -53,52 +53,40 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<bool>("IsDeleted").HasColumnType("boolean");
                 b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("ReferenceNumber").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
+                b.Property<int>("TrainingCompletionStatus").HasColumnType("integer");
                 b.HasKey("Id");
                 b.HasIndex("ClientId");
                 b.HasIndex("ReferenceNumber").IsUnique();
                 b.ToTable("system_products");
             });
 
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingSession", b =>
-            {
-                b.Property<Guid>("AgreementId").HasColumnType("uuid");
-                b.Property<string>("Attendance").HasColumnType("text");
-                b.Property<string>("ClientRepresentativeComments").HasColumnType("text");
-                b.Property<string>("ClientRepresentativeConfirmation").HasMaxLength(300).HasColumnType("character varying(300)");
-                b.Property<int>("CompletionStatus").HasColumnType("integer");
-                b.Property<DateOnly?>("EndDate").HasColumnType("date");
-                b.Property<bool>("FollowUpRequired").HasColumnType("boolean");
-                b.Property<string>("FollowUpNotes").HasColumnType("text");
-                b.Property<string>("IssuesOrQuestions").HasColumnType("text");
-                b.Property<string>("Location").HasMaxLength(300).HasColumnType("character varying(300)");
-                b.Property<string>("Participants").HasColumnType("text");
-                b.Property<string>("ScanFileName").HasMaxLength(300).HasColumnType("character varying(300)");
-                b.Property<string>("ScanStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
-                b.Property<DateOnly?>("StartDate").HasColumnType("date");
-                b.Property<string>("TopicsCovered").HasColumnType("text");
-                b.Property<string>("TrainerComments").HasColumnType("text");
-                b.HasKey("AgreementId");
-                b.ToTable("training_sessions");
-            });
-
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingAssignment", b =>
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<DateTimeOffset>("AssignedAt").HasColumnType("timestamp with time zone");
+                b.Property<Guid>("SystemProductId").HasColumnType("uuid");
+                b.Property<Guid>("TrainerEmployeeId").HasColumnType("uuid");
+                b.HasKey("Id");
+                b.HasIndex("SystemProductId");
+                b.HasIndex("TrainerEmployeeId");
+                b.HasIndex("SystemProductId", "TrainerEmployeeId").IsUnique();
+                b.ToTable("training_assignments");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingRecord", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+                b.Property<string>("Description").IsRequired().HasColumnType("text");
                 b.Property<string>("FileName").HasMaxLength(300).HasColumnType("character varying(300)");
                 b.Property<string>("FileStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
-                b.Property<string>("ReviewNotes").HasColumnType("text");
-                b.Property<DateTimeOffset?>("ReviewedAt").HasColumnType("timestamp with time zone");
-                b.Property<string>("ReviewedByName").HasMaxLength(200).HasColumnType("character varying(200)");
-                b.Property<int>("Status").HasColumnType("integer");
-                b.Property<DateTimeOffset?>("SubmittedAt").HasColumnType("timestamp with time zone");
+                b.Property<Guid>("SystemProductId").HasColumnType("uuid");
                 b.Property<Guid>("TrainerEmployeeId").HasColumnType("uuid");
-                b.Property<Guid>("TrainingSessionId").HasColumnType("uuid");
-                b.Property<string>("WorkDescription").HasColumnType("text");
+                b.Property<DateOnly>("TrainingDate").HasColumnType("date");
                 b.HasKey("Id");
+                b.HasIndex("SystemProductId");
                 b.HasIndex("TrainerEmployeeId");
-                b.HasIndex("TrainingSessionId");
-                b.ToTable("training_assignments");
+                b.ToTable("training_records");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.AppNotification", b =>
@@ -440,41 +428,45 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Navigation("AgreementType");
             });
 
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingSession", b =>
-            {
-                // One-to-one, keyed by AgreementId itself (see
-                // TrainingSessionConfiguration) — deleting the owning
-                // Agreement is not a code path any service exposes, so this
-                // FK relationship never needs its own delete behavior beyond
-                // EF's default for a shared-key dependent.
-                b.HasOne("DaftechCrm.Domain.Entities.Agreement", "Agreement")
-                    .WithOne("TrainingSession")
-                    .HasForeignKey("DaftechCrm.Domain.Entities.TrainingSession", "AgreementId")
-                    .OnDelete(DeleteBehavior.Cascade)
-                    .IsRequired();
-                b.Navigation("Agreement");
-            });
-
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingAssignment", b =>
             {
-                // Deleting the owning TrainingSession removes its
-                // assignments too — see TrainingAssignmentConfiguration.
-                b.HasOne("DaftechCrm.Domain.Entities.TrainingSession", "TrainingSession")
-                    .WithMany("TrainerAssignments")
-                    .HasForeignKey("TrainingSessionId")
+                // Deleting the owning SystemProduct removes its training
+                // roster too — see TrainingAssignmentConfiguration.
+                b.HasOne("DaftechCrm.Domain.Entities.SystemProduct", "SystemProduct")
+                    .WithMany("TrainingAssignments")
+                    .HasForeignKey("SystemProductId")
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
                 // A trainer being deleted/soft-deleted must not delete
-                // training history — Restrict (TrainerEmployeeId is
-                // required here, unlike the old nullable single-trainer
-                // field) since Employee soft-delete never issues a real
-                // DELETE in practice.
+                // roster history — Restrict, since Employee soft-delete
+                // never issues a real DELETE in practice.
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "TrainerEmployee")
                     .WithMany()
                     .HasForeignKey("TrainerEmployeeId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
-                b.Navigation("TrainingSession");
+                b.Navigation("SystemProduct");
+                b.Navigation("TrainerEmployee");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingRecord", b =>
+            {
+                // Deleting the owning SystemProduct removes its training
+                // log too — same reasoning as TrainingAssignment above.
+                b.HasOne("DaftechCrm.Domain.Entities.SystemProduct", "SystemProduct")
+                    .WithMany("TrainingRecords")
+                    .HasForeignKey("SystemProductId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+                // A training record is a historical fact about who
+                // conducted it — Restrict, not Cascade/SetNull, so
+                // deleting that employee can't delete the record.
+                b.HasOne("DaftechCrm.Domain.Entities.Employee", "TrainerEmployee")
+                    .WithMany()
+                    .HasForeignKey("TrainerEmployeeId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+                b.Navigation("SystemProduct");
                 b.Navigation("TrainerEmployee");
             });
 
@@ -601,7 +593,6 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
             {
                 b.Navigation("Tickets");
-                b.Navigation("TrainingSession");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.AgreementType", b =>
@@ -612,11 +603,8 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.SystemProduct", b =>
             {
                 b.Navigation("Agreements");
-            });
-
-            modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingSession", b =>
-            {
-                b.Navigation("TrainerAssignments");
+                b.Navigation("TrainingAssignments");
+                b.Navigation("TrainingRecords");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Client", b =>

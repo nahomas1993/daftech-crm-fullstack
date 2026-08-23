@@ -43,8 +43,6 @@ public static class SeedData
 
     public static readonly Guid Agreement1 = Guid.Parse("33333333-0000-0000-0000-000000000001");
     public static readonly Guid Agreement2 = Guid.Parse("33333333-0000-0000-0000-000000000002");
-    public static readonly Guid Agreement1Training = Guid.Parse("44444444-0000-0000-0000-000000000001");
-    public static readonly Guid Agreement2Training = Guid.Parse("44444444-0000-0000-0000-000000000002");
 
     /// <summary>Dev-only known password for every seeded account. Never used outside seed data.</summary>
     public const string SeedPassword = "DaftechDemo1!";
@@ -122,7 +120,7 @@ public static class SeedData
         };
     }
 
-    /// <summary>One demo SystemProduct per demo client — the layer every Agreement now hangs off of (see SystemProduct).</summary>
+    /// <summary>One demo SystemProduct per demo client — the layer that now sits between Client and Agreement (see SystemProduct). TrainingCompletionStatus/roster/records for each are seeded separately below (TrainingAssignments/TrainingRecords), matching the story SystemProducts() sets up here.</summary>
     public static IEnumerable<SystemProduct> SystemProducts()
     {
         yield return new SystemProduct
@@ -130,35 +128,35 @@ public static class SeedData
             Id = Client1System, ClientId = Client1, ReferenceNumber = "DAF-SYS-2025-0001",
             Name = "Branch POS & Inventory System", Description = "Core point-of-sale and inventory system across all branches.",
             DeploymentDate = DateOnly.Parse("2025-01-15"),
+            // Training already completed — this is what allows Agreement1
+            // (the Support agreement below) to have been signed at all.
+            TrainingCompletionStatus = TrainingCompletionStatus.Completed,
         };
         yield return new SystemProduct
         {
             Id = Client2System, ClientId = Client2, ReferenceNumber = "DAF-SYS-2025-0002",
             Name = "Loan Origination Portal", Description = "Client-facing loan application and origination workflow.",
             DeploymentDate = DateOnly.Parse("2024-12-01"),
+            // Training still in progress — deliberately no Support
+            // agreement exists for this system/product, since signing one
+            // would violate the per-SystemProduct training-first rule the
+            // app enforces (see AgreementService.CreateAsync).
+            TrainingCompletionStatus = TrainingCompletionStatus.InProgress,
         };
     }
 
     /// <summary>
-    /// Demo agreements, one per demo client's SystemProduct:
-    ///  - Client1: a completed Training agreement (TrainingSession.EndDate
-    ///    set) followed by a Support agreement — the Support agreement is
-    ///    only allowed because training for the SAME SystemProduct is
-    ///    already complete (see AgreementService.CreateAsync).
-    ///  - Client2: a Training agreement still in progress (no EndDate) and
-    ///    deliberately NO Support agreement, since signing one would
-    ///    violate the same per-SystemProduct training-first rule the app
-    ///    enforces.
+    /// Demo agreements — Support only now (training is no longer modeled
+    /// as an Agreement at all — see SystemProduct.TrainingAssignments/
+    /// TrainingRecords/TrainingCompletionStatus, and TrainingAssignments()/
+    /// TrainingRecords() below):
+    ///  - Client1: one Support agreement, allowed only because
+    ///    Client1System.TrainingCompletionStatus is already Completed.
+    ///  - Client2: no Support agreement — its SystemProduct's training is
+    ///    still InProgress, so signing one would be rejected.
     /// </summary>
     public static IEnumerable<Agreement> Agreements()
     {
-        yield return new Agreement
-        {
-            Id = Agreement1Training, SystemProductId = Client1System, AgreementTypeId = TrainingAgreementType,
-            DocumentNumber = "DAF-AGR-2025-0001", AgreementPlace = "Addis Ababa",
-            SignDate = DateOnly.Parse("2025-01-20"), ExpiryDate = DateOnly.Parse("2025-02-10"),
-            SupportWindowMonths = 0, Status = AgreementStatus.Expired, BillingTier = BillingTier.Intermediate,
-        };
         yield return new Agreement
         {
             Id = Agreement1, SystemProductId = Client1System, AgreementTypeId = SupportAgreementType,
@@ -166,55 +164,54 @@ public static class SeedData
             ExpiryDate = DateOnly.Parse("2027-02-10"),
             SupportWindowMonths = 12, Status = AgreementStatus.Active, BillingTier = BillingTier.Intermediate,
         };
-        yield return new Agreement
-        {
-            Id = Agreement2Training, SystemProductId = Client2System, AgreementTypeId = TrainingAgreementType,
-            DocumentNumber = "DAF-AGR-2024-0003", AgreementPlace = "Addis Ababa", SignDate = DateOnly.Parse("2025-01-15"),
-            ExpiryDate = DateOnly.Parse("2025-03-15"),
-            SupportWindowMonths = 0, Status = AgreementStatus.Pending, BillingTier = BillingTier.Basic,
-        };
     }
 
-    public static readonly Guid Agreement1TrainingAssignment = Guid.Parse("77777777-0000-0000-0000-000000000001");
-    public static readonly Guid Agreement2TrainingAssignment = Guid.Parse("77777777-0000-0000-0000-000000000002");
+    public static readonly Guid Client1TrainingAssignment = Guid.Parse("77777777-0000-0000-0000-000000000001");
+    public static readonly Guid Client2TrainingAssignment = Guid.Parse("77777777-0000-0000-0000-000000000002");
 
-    /// <summary>TrainingSession rows for the two demo Training agreements above — see Agreements().</summary>
-    public static IEnumerable<TrainingSession> TrainingSessions()
-    {
-        yield return new TrainingSession
-        {
-            AgreementId = Agreement1Training,
-            StartDate = DateOnly.Parse("2025-01-20"), EndDate = DateOnly.Parse("2025-02-10"),
-            Location = "Bole Head Office", Participants = "Front-desk and finance staff",
-            Attendance = "8 of 9 invited staff attended", TopicsCovered = "POS entry, end-of-day reconciliation, inventory adjustments",
-            CompletionStatus = TrainingCompletionStatus.Completed,
-        };
-        yield return new TrainingSession
-        {
-            AgreementId = Agreement2Training,
-            StartDate = DateOnly.Parse("2025-01-15"), EndDate = null,
-            Location = "Merkato Branch", Participants = "Branch staff onboarding — in progress, end date not yet confirmed.",
-            CompletionStatus = TrainingCompletionStatus.InProgress,
-        };
-    }
-
-    /// <summary>TrainingAssignment rows for the two demo TrainingSessions above — one Trainer each, matching the (Completed / InProgress) story those sessions already tell.</summary>
+    /// <summary>Training roster for the two demo SystemProducts above — Nebil (the one seeded Trainer) assigned to both.</summary>
     public static IEnumerable<TrainingAssignment> TrainingAssignments()
     {
         yield return new TrainingAssignment
         {
-            Id = Agreement1TrainingAssignment, TrainingSessionId = Agreement1Training, TrainerEmployeeId = Emp2Tech,
+            Id = Client1TrainingAssignment, SystemProductId = Client1System, TrainerEmployeeId = Emp2Tech,
             AssignedAt = DateTimeOffset.Parse("2025-01-18T09:00:00Z"),
-            WorkDescription = "Delivered POS entry, end-of-day reconciliation, and inventory adjustment training to front-desk and finance staff.",
-            Status = TrainingAssignmentStatus.Approved,
-            SubmittedAt = DateTimeOffset.Parse("2025-02-10T16:00:00Z"),
-            ReviewedByName = "Nahom Alehegne", ReviewedAt = DateTimeOffset.Parse("2025-02-11T08:30:00Z"),
         };
         yield return new TrainingAssignment
         {
-            Id = Agreement2TrainingAssignment, TrainingSessionId = Agreement2Training, TrainerEmployeeId = Emp2Tech,
+            Id = Client2TrainingAssignment, SystemProductId = Client2System, TrainerEmployeeId = Emp2Tech,
             AssignedAt = DateTimeOffset.Parse("2025-01-14T09:00:00Z"),
-            Status = TrainingAssignmentStatus.Assigned,
+        };
+    }
+
+    /// <summary>
+    /// The open-ended training log for the two demo SystemProducts —
+    /// Client1 shows two sessions (matching its Completed status: Admin
+    /// judged this was enough and marked it Completed), Client2 shows one
+    /// so far (matching its InProgress status: still ongoing).
+    /// </summary>
+    public static IEnumerable<TrainingRecord> TrainingRecords()
+    {
+        yield return new TrainingRecord
+        {
+            SystemProductId = Client1System, TrainerEmployeeId = Emp2Tech,
+            TrainingDate = DateOnly.Parse("2025-01-20"),
+            Description = "POS entry and end-of-day reconciliation walkthrough with front-desk and finance staff. 8 of 9 invited staff attended.",
+            CreatedAt = DateTimeOffset.Parse("2025-01-20T15:00:00Z"),
+        };
+        yield return new TrainingRecord
+        {
+            SystemProductId = Client1System, TrainerEmployeeId = Emp2Tech,
+            TrainingDate = DateOnly.Parse("2025-02-10"),
+            Description = "Follow-up session covering inventory adjustments and stock transfer entry.",
+            CreatedAt = DateTimeOffset.Parse("2025-02-10T15:30:00Z"),
+        };
+        yield return new TrainingRecord
+        {
+            SystemProductId = Client2System, TrainerEmployeeId = Emp2Tech,
+            TrainingDate = DateOnly.Parse("2025-01-15"),
+            Description = "Branch staff onboarding session — loan application intake and document upload workflow.",
+            CreatedAt = DateTimeOffset.Parse("2025-01-15T14:00:00Z"),
         };
     }
 

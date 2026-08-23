@@ -111,7 +111,12 @@ public class ClientsController : ControllerBase
 public class SystemProductsController : ControllerBase
 {
     private readonly ISystemProductService _systemProducts;
-    public SystemProductsController(ISystemProductService systemProducts) => _systemProducts = systemProducts;
+    private readonly ITrainerWorkloadService _trainerWorkload;
+    public SystemProductsController(ISystemProductService systemProducts, ITrainerWorkloadService trainerWorkload)
+    {
+        _systemProducts = systemProducts;
+        _trainerWorkload = trainerWorkload;
+    }
 
     /// <summary>A client may only list their own systems/products; any employee may list any client's.</summary>
     [HttpGet("client/{clientId:guid}")]
@@ -124,7 +129,7 @@ public class SystemProductsController : ControllerBase
         return Ok(await _systemProducts.GetForClientAsync(clientId, ct));
     }
 
-    /// <summary>Creates a new system/product for a client. Never overwrites or replaces one the client already has.</summary>
+    /// <summary>Creates a new system/product for a client. Never overwrites or replaces one the client already has. Starts with an empty training roster — see AddTrainingAssignment/AutoAssignTrainers below.</summary>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
     public async Task<ActionResult<SystemProductDto>> Create([FromBody] CreateSystemProductRequest request, CancellationToken ct)
@@ -162,6 +167,143 @@ public class SystemProductsController : ControllerBase
     {
         try { await _systemProducts.DeleteAsync(id, ct); return NoContent(); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Whether this system/product's training has been marked Completed — the precondition for signing a Support agreement for it (see AgreementsController.Create). Any employee may check any system/product (ownership is enforced one level up, via the client).</summary>
+    [HttpGet("{id:guid}/training-complete")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    public async Task<ActionResult<bool>> HasCompletedTraining(Guid id, CancellationToken ct) =>
+        Ok(await _systemProducts.HasCompletedTrainingAsync(id, ct));
+
+    /// <summary>
+    /// Every eligible Trainer's current workload plus a recommendation —
+    /// used for Manual Assignment's dropdown. Automatic Assignment (see
+    /// AutoAssignTrainers below) follows this same ranking directly rather
+    /// than requiring the Admin to read it first. Not scoped to one
+    /// system/product — workload is about the Trainer's overall current
+    /// load.
+    /// </summary>
+    [HttpGet("trainer-workload")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<TrainerAssignmentRecommendationDto>> GetTrainerWorkload(CancellationToken ct) =>
+        Ok(await _trainerWorkload.GetEligibleTrainersAsync(ct));
+
+    /// <summary>Manual Assignment: Admin picks one Trainer/Technician from the dropdown (itself capped client-side at the configured maximum) to add to this system/product's training roster.</summary>
+    [HttpPost("{id:guid}/training-assignments")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> AddTrainingAssignment(Guid id, [FromBody] AddTrainingAssignmentRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.AddTrainingAssignmentAsync(id, request.TrainerEmployeeId, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>Automatic Assignment: fills this system/product's remaining training-roster slots (up to the configured maximum) by current Trainer workload.</summary>
+    [HttpPost("{id:guid}/training-assignments/auto")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> AutoAssignTrainers(Guid id, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.AutoAssignTrainersAsync(id, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>Removes a Trainer from this system/product's training roster. Any TrainingRecord rows they already logged remain as history.</summary>
+    [HttpDelete("{id:guid}/training-assignments/{assignmentId:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> RemoveTrainingAssignment(Guid id, Guid assignmentId, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.RemoveTrainingAssignmentAsync(id, assignmentId, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>One-click Admin decision: marks this system/product's training Completed based on Admin's own review of the accumulated TrainingRecords (see TrainingController.GetForSystemProduct). Unlocks signing a Support agreement for it. Does not stop further TrainingRecords being logged afterward.</summary>
+    [HttpPost("{id:guid}/training-complete")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<SystemProductDto>> MarkTrainingCompleted(Guid id, CancellationToken ct)
+    {
+        try { return Ok(await _systemProducts.MarkTrainingCompletedAsync(id, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+}
+
+[ApiController]
+[Route("api/training")]
+[Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+public class TrainingController : ControllerBase
+{
+    private readonly ITrainingRecordService _training;
+    public TrainingController(ITrainingRecordService training) => _training = training;
+
+    /// <summary>
+    /// "Add Training": the calling Trainer logs one session they conducted
+    /// against request.SystemProductId — date, description, and
+    /// (separately, via UploadFile below) an optional supporting file.
+    /// Only a Trainer currently on that system/product's training roster
+    /// may do this. Always inserts a new record; call repeatedly for
+    /// multiple sessions against the same client/system-product.
+    /// </summary>
+    [HttpPost]
+    public async Task<ActionResult<TrainingRecordDto>> Create([FromBody] CreateTrainingRecordRequest request, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        try { return Ok(await _training.CreateAsync(callerId, request, ct)); }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You are not assigned")) { return this.ForbidOwnership(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>The calling Trainer's own logged training records across every system/product — the "My Trainings" list.</summary>
+    [HttpGet("my-records")]
+    public async Task<ActionResult<IReadOnlyList<TrainingRecordDto>>> GetMyRecords(CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        return Ok(await _training.GetForTrainerAsync(callerId, ct));
+    }
+
+    /// <summary>Every training record logged against one system/product — the log Admin reviews before deciding to mark training Completed (see SystemProductsController.MarkTrainingCompleted). Reachable from the Client, System/Product, and Agreement detail pages.</summary>
+    [HttpGet("system-product/{systemProductId:guid}")]
+    public async Task<ActionResult<IReadOnlyList<TrainingRecordDto>>> GetForSystemProduct(Guid systemProductId, CancellationToken ct) =>
+        Ok(await _training.GetForSystemProductAsync(systemProductId, ct));
+
+    /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may attach/replace its file.</summary>
+    [HttpPost("{id:guid}/file")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<ActionResult<TrainingRecordDto>> UploadFile(Guid id, IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest("No file was provided.");
+
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var dto = await _training.UploadFileAsync(id, callerId, stream, file.FileName, file.ContentType, ct);
+            return Ok(dto);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You can only"))
+        {
+            return this.ForbidOwnership();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (FileValidationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>Streams a training record's supporting file back to the caller.</summary>
+    [HttpGet("{id:guid}/file")]
+    public async Task<IActionResult> DownloadFile(Guid id, CancellationToken ct)
+    {
+        var file = await _training.DownloadFileAsync(id, ct);
+        return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
 }
 
@@ -207,27 +349,7 @@ public class AgreementTypesController : ControllerBase
 public class AgreementsController : ControllerBase
 {
     private readonly IAgreementService _agreements;
-    private readonly ITrainerWorkloadService _trainerWorkload;
-    public AgreementsController(IAgreementService agreements, ITrainerWorkloadService trainerWorkload)
-    {
-        _agreements = agreements;
-        _trainerWorkload = trainerWorkload;
-    }
-
-    /// <summary>
-    /// Every eligible Trainer's current workload plus a recommendation —
-    /// informational only (auto-assignment itself happens automatically
-    /// when a Training agreement is created — see
-    /// ITrainerWorkloadService.SelectTrainersForAssignmentAsync via
-    /// AgreementService.CreateAsync). Shown to Admin as context when
-    /// manually adding an extra trainer via AddTrainingAssignment below.
-    /// Not scoped to one agreement/system-product — workload is about the
-    /// Trainer's overall current load, not one specific assignment.
-    /// </summary>
-    [HttpGet("trainer-workload")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<TrainerAssignmentRecommendationDto>> GetTrainerWorkload(CancellationToken ct) =>
-        Ok(await _trainerWorkload.GetEligibleTrainersAsync(ct));
+    public AgreementsController(IAgreementService agreements) => _agreements = agreements;
 
     [HttpGet]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
@@ -263,8 +385,9 @@ public class AgreementsController : ControllerBase
     /// <summary>
     /// Creates (signs) an agreement for a Client's System/Product, under the
     /// given AgreementType. Rejected with 409 if a Support agreement is
-    /// requested but the same system/product has no completed training yet
-    /// — training must finish first, per system/product. Always inserts a
+    /// requested but the same system/product's training hasn't been marked
+    /// Completed yet (see SystemProductsController.MarkTrainingCompleted) —
+    /// training must finish first, per system/product. Always inserts a
     /// new row — never overwrites an existing agreement.
     /// </summary>
     [HttpPost]
@@ -281,17 +404,6 @@ public class AgreementsController : ControllerBase
             return Conflict(ex.Message);
         }
     }
-
-    /// <summary>
-    /// Whether the given system/product has a Training agreement with an
-    /// End Date set — the precondition for signing a Support agreement for
-    /// that SAME system/product. Any employee may check any system/product
-    /// (ownership is enforced one level up, via the client).
-    /// </summary>
-    [HttpGet("system-product/{systemProductId:guid}/training-complete")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    public async Task<ActionResult<bool>> SystemProductHasCompletedTraining(Guid systemProductId, CancellationToken ct) =>
-        Ok(await _agreements.SystemProductHasCompletedTrainingAsync(systemProductId, ct));
 
     /// <summary>A client may only fetch their own agreement by id; any employee may fetch any agreement.</summary>
     [HttpGet("{id:guid}")]
@@ -350,178 +462,6 @@ public class AgreementsController : ControllerBase
         }
 
         var file = await _agreements.DownloadScannedFileAsync(id, ct);
-        return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
-    }
-
-    /// <summary>
-    /// The training-session record for a Training-type agreement. Reachable
-    /// from here as well as from the Client and System/Product detail
-    /// pages (all three call this same endpoint by agreement id) — see
-    /// requirement that training records must be accessible from the
-    /// Client, System/Product, and Agreement. A client may only fetch their
-    /// own; null (404) if the agreement isn't a Training agreement.
-    /// </summary>
-    [HttpGet("{id:guid}/training-session")]
-    public async Task<ActionResult<TrainingSessionDto>> GetTrainingSession(Guid id, CancellationToken ct)
-    {
-        var a = await _agreements.GetByIdAsync(id, ct);
-        if (a is null) return NotFound();
-
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client && callerId != a.ClientId)
-            return NotFound();
-
-        var session = await _agreements.GetTrainingSessionAsync(id, ct);
-        return session is null ? NotFound() : Ok(session);
-    }
-
-    /// <summary>
-    /// Sets/updates the training session's own fields — dates, location,
-    /// participants, attendance, topics, issues, trainer comments, client
-    /// representative confirmation, and follow-up. Does NOT touch the
-    /// trainer roster (see AddTrainingAssignment/RemoveTrainingAssignment)
-    /// or CompletionStatus, which is now system-derived from assignment
-    /// approvals (see ReviewTrainingAssignment). All fields optional/
-    /// incremental — the Admin fills this in as the session progresses.
-    /// </summary>
-    [HttpPut("{id:guid}/training-session")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<TrainingSessionDto>> SaveTrainingSession(Guid id, [FromBody] SaveTrainingSessionRequest request, CancellationToken ct)
-    {
-        try { return Ok(await _agreements.SaveTrainingSessionAsync(id, request, ct)); }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
-    }
-
-    /// <summary>Manually adds one more Trainer to a training session's roster, on top of whatever workload-based auto-assignment already placed there when the agreement was created.</summary>
-    [HttpPost("{id:guid}/training-session/assignments")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<TrainingSessionDto>> AddTrainingAssignment(Guid id, [FromBody] AddTrainingAssignmentRequest request, CancellationToken ct)
-    {
-        try { return Ok(await _agreements.AddTrainingAssignmentAsync(id, request.TrainerEmployeeId, ct)); }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
-    }
-
-    /// <summary>Removes a Trainer from a training session's roster. Blocked once that assignment has been approved.</summary>
-    [HttpDelete("{id:guid}/training-session/assignments/{assignmentId:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<TrainingSessionDto>> RemoveTrainingAssignment(Guid id, Guid assignmentId, CancellationToken ct)
-    {
-        try { return Ok(await _agreements.RemoveTrainingAssignmentAsync(id, assignmentId, ct)); }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
-    }
-
-    /// <summary>The trainer submits their own assignment (work description) for Admin review. Only the assigned trainer may submit their own assignment.</summary>
-    [HttpPost("training-session/assignments/{assignmentId:guid}/submit")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    public async Task<ActionResult<TrainingAssignmentDto>> SubmitTrainingAssignment(Guid assignmentId, [FromBody] SubmitTrainingAssignmentRequest request, CancellationToken ct)
-    {
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
-
-        try { return Ok(await _agreements.SubmitTrainingAssignmentAsync(assignmentId, callerId, request, ct)); }
-        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You can only")) { return this.ForbidOwnership(); }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
-    }
-
-    /// <summary>Uploads (or replaces) the trainer's own evidence file for one assignment. Only the assigned trainer may upload to their own assignment.</summary>
-    [HttpPost("training-session/assignments/{assignmentId:guid}/file")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    [RequestSizeLimit(20 * 1024 * 1024)]
-    public async Task<ActionResult<TrainingAssignmentDto>> UploadTrainingAssignmentFile(Guid assignmentId, IFormFile file, CancellationToken ct)
-    {
-        if (file is null || file.Length == 0)
-            return BadRequest("No file was provided.");
-
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
-
-        try
-        {
-            await using var stream = file.OpenReadStream();
-            var dto = await _agreements.UploadTrainingAssignmentFileAsync(assignmentId, callerId, stream, file.FileName, file.ContentType, ct);
-            return Ok(dto);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You can only"))
-        {
-            return this.ForbidOwnership();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return NotFound(ex.Message);
-        }
-        catch (FileValidationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-    }
-
-    /// <summary>Streams a trainer's uploaded evidence file back to the caller.</summary>
-    [HttpGet("training-session/assignments/{assignmentId:guid}/file")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    public async Task<IActionResult> DownloadTrainingAssignmentFile(Guid assignmentId, CancellationToken ct)
-    {
-        var file = await _agreements.DownloadTrainingAssignmentFileAsync(assignmentId, ct);
-        return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
-    }
-
-    /// <summary>Admin approves or rejects a submitted assignment. Approving may complete the whole session (once every assignment on it is approved), unlocking a Support agreement for the same system/product.</summary>
-    [HttpPost("training-session/assignments/{assignmentId:guid}/review")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    public async Task<ActionResult<TrainingSessionDto>> ReviewTrainingAssignment(Guid assignmentId, [FromBody] ReviewTrainingAssignmentRequest request, CancellationToken ct)
-    {
-        var reviewerName = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.UniqueName)?.Value ?? "Admin";
-        try { return Ok(await _agreements.ReviewTrainingAssignmentAsync(assignmentId, request, reviewerName, ct)); }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
-    }
-
-    /// <summary>The calling Trainer's own assignments across every Training agreement — the "My Trainings" list.</summary>
-    [HttpGet("training-session/my-assignments")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    public async Task<ActionResult<IReadOnlyList<TrainingAssignmentDto>>> GetMyTrainingAssignments(CancellationToken ct)
-    {
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
-
-        return Ok(await _agreements.GetAssignmentsForTrainerAsync(callerId, ct));
-    }
-
-    /// <summary>Uploads (or replaces) the scanned document (e.g. sign-in sheet) for a training session.</summary>
-    [HttpPost("{id:guid}/training-session/scan")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
-    [RequestSizeLimit(20 * 1024 * 1024)]
-    public async Task<ActionResult<TrainingSessionDto>> UploadTrainingScan(Guid id, IFormFile file, CancellationToken ct)
-    {
-        if (file is null || file.Length == 0)
-            return BadRequest("No file was provided.");
-
-        try
-        {
-            await using var stream = file.OpenReadStream();
-            var dto = await _agreements.UploadTrainingScanAsync(id, stream, file.FileName, file.ContentType, ct);
-            return Ok(dto);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return NotFound(ex.Message);
-        }
-        catch (FileValidationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-    }
-
-    /// <summary>Streams a training session's scan back to the caller. A client may only download their own.</summary>
-    [HttpGet("{id:guid}/training-session/scan")]
-    public async Task<IActionResult> DownloadTrainingScan(Guid id, CancellationToken ct)
-    {
-        var a = await _agreements.GetByIdAsync(id, ct);
-        if (a is null) return NotFound();
-
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client && callerId != a.ClientId)
-            return NotFound();
-
-        var file = await _agreements.DownloadTrainingScanAsync(id, ct);
         return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
     }
 }
