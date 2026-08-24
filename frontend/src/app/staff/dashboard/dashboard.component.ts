@@ -99,6 +99,12 @@ function describeDashboardError(err: unknown): string {
       </div>
 
       @if (dashboardData(); as d) {
+        @if (sectionFailed(d, 'kpis')) {
+          <div class="panel panel-pad" style="margin-top:1.25rem;">
+            <p class="upload-error" style="margin-top:0;">Ticket KPIs could not be calculated on this load — the figures below may be incomplete.</p>
+            <button class="btn btn-outline btn-sm" style="margin-top:0.75rem;" (click)="reloadDashboard()">Retry</button>
+          </div>
+        }
         <div class="cards">
           <div class="panel panel-pad card">
             <div class="card-label">Total Tickets</div>
@@ -141,20 +147,40 @@ function describeDashboardError(err: unknown): string {
         <div class="chart-grid">
           <div class="panel panel-pad" style="grid-column: 1 / -1;">
             <h3 style="margin-bottom:0.9rem;">Support &amp; Expiration Overview</h3>
+            @if (sectionFailed(d, 'supportOverview')) {
+              <p class="upload-error" style="margin-top:0;">This chart could not be loaded. The rest of the dashboard is up to date.</p>
+              <button class="btn btn-outline btn-sm" (click)="reloadDashboard()">Retry</button>
+            } @else {
             <app-count-bar-chart [chartData]="supportOverviewBars(d)"></app-count-bar-chart>
             <p class="text-muted" style="font-size:0.75rem; margin-top:0.7rem;">This graph is derived directly from the Support &amp; Expiration metrics on the Reports page.</p>
+            }
           </div>
           <div class="panel panel-pad">
             <h3 style="margin-bottom:0.9rem;">Tickets by Region</h3>
+            @if (sectionFailed(d, 'ticketsByRegion')) {
+              <p class="upload-error" style="margin-top:0;">This chart could not be loaded. The rest of the dashboard is up to date.</p>
+              <button class="btn btn-outline btn-sm" (click)="reloadDashboard()">Retry</button>
+            } @else {
             <app-count-bar-chart [chartData]="regionBars(d)"></app-count-bar-chart>
+            }
           </div>
           <div class="panel panel-pad">
             <h3 style="margin-bottom:0.9rem;">Tickets by Failure Type</h3>
+            @if (sectionFailed(d, 'ticketsByFailureType')) {
+              <p class="upload-error" style="margin-top:0;">This chart could not be loaded. The rest of the dashboard is up to date.</p>
+              <button class="btn btn-outline btn-sm" (click)="reloadDashboard()">Retry</button>
+            } @else {
             <app-count-bar-chart [chartData]="failureTypeBars(d)"></app-count-bar-chart>
+            }
           </div>
           <div class="panel panel-pad">
             <h3 style="margin-bottom:0.9rem;">Employee Performance (Resolved Tickets)</h3>
+            @if (sectionFailed(d, 'ticketsByEmployee')) {
+              <p class="upload-error" style="margin-top:0;">This chart could not be loaded. The rest of the dashboard is up to date.</p>
+              <button class="btn btn-outline btn-sm" (click)="reloadDashboard()">Retry</button>
+            } @else {
             <app-count-bar-chart [chartData]="employeeBars(d)"></app-count-bar-chart>
+            }
           </div>
           <div class="panel panel-pad">
             <h3 style="margin-bottom:0.9rem;">Ticket Status</h3>
@@ -166,7 +192,12 @@ function describeDashboardError(err: unknown): string {
           </div>
           <div class="panel panel-pad" style="grid-column: 1 / -1;">
             <h3 style="margin-bottom:0.9rem;">Monthly Trend</h3>
+            @if (sectionFailed(d, 'monthlyTrend')) {
+              <p class="upload-error" style="margin-top:0;">This chart could not be loaded. The rest of the dashboard is up to date.</p>
+              <button class="btn btn-outline btn-sm" (click)="reloadDashboard()">Retry</button>
+            } @else {
             <app-line-chart [data]="trendSeries(d)" [xLabels]="trendLabels(d)"></app-line-chart>
+            }
           </div>
         </div>
       } @else if (dashboardError()) {
@@ -328,6 +359,11 @@ export class DashboardComponent {
     const key = this.recipientKey();
     return key ? this.notificationsSvc.unreadCountFor(key.type, key.id) : 0;
   });
+
+  /** True when the API reported it couldn't build this dashboard section on the last load. */
+  sectionFailed(d: DashboardData, section: string): boolean {
+    return (d.failedSections ?? []).includes(section);
+  }
 
   // --- Chart data shaping ---
 

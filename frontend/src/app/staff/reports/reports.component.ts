@@ -136,6 +136,7 @@ const MONTHS = [
         <p class="text-muted">Loading report…</p>
       } @else if (loadError()) {
         <p class="upload-error">{{ loadError() }}</p>
+        <button class="btn btn-outline btn-sm" style="margin-top:0.75rem;" (click)="load()">Retry</button>
       } @else {
         <div class="table-scroll">
           @switch (activeType()) {

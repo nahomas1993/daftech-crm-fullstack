@@ -10,6 +10,7 @@ using DaftechCrm.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DaftechCrm.Infrastructure;
 
@@ -174,8 +175,9 @@ public static class DependencyInjection
         using var scope = services.CreateScope();
 
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetService<ILoggerFactory>()?.CreateLogger("DaftechCrm.Migrations");
 
-        await db.Database.MigrateAsync();
+        await MigrateAndVerifyAsync(db, logger);
 
         // AgreementTypes (Support/Training) must exist before anything else
         // seeds an Agreement against them, AND Support specifically must
@@ -205,6 +207,54 @@ public static class DependencyInjection
         }
 
         await EnsureDemoAccountsAsync(db);
+    }
+
+
+    /// <summary>
+    /// Applies migrations and then *verifies* the result, instead of trusting
+    /// that MigrateAsync silently did the right thing.
+    ///
+    /// Background: a migration was once committed without its Designer
+    /// metadata file. EF therefore never discovered it, MigrateAsync
+    /// completed "successfully", the new column was never created, and every
+    /// screen that read it started returning 500s in production with no
+    /// startup error to point at. This check turns that class of failure into
+    /// a loud, immediate startup failure with an actionable message.
+    /// </summary>
+    private static async Task MigrateAndVerifyAsync(AppDbContext db, ILogger? logger)
+    {
+        var known = db.Database.GetMigrations().ToList();
+        var pendingBefore = (await db.Database.GetPendingMigrationsAsync()).ToList();
+
+        logger?.LogInformation(
+            "Migrations: {KnownCount} compiled into this build, {PendingCount} pending before startup migration. Pending: {Pending}",
+            known.Count, pendingBefore.Count, pendingBefore.Count == 0 ? "(none)" : string.Join(", ", pendingBefore));
+
+        await db.Database.MigrateAsync();
+
+        var pendingAfter = (await db.Database.GetPendingMigrationsAsync()).ToList();
+        if (pendingAfter.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Database migration did not complete: the following migrations are still pending after MigrateAsync: " +
+                string.Join(", ", pendingAfter) +
+                ". Refusing to start against a schema this build was not compiled for.");
+        }
+
+        var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
+
+        // Migration files that exist in the repository but were never compiled
+        // into the migrations list are invisible to EF — exactly the failure
+        // mode that caused the dashboard/report outage. Surface it loudly.
+        var unknownToBuild = applied.Except(known).ToList();
+        if (unknownToBuild.Count > 0)
+        {
+            logger?.LogWarning(
+                "The database contains {Count} migration(s) this build does not know about ({Migrations}). The deployed code may be older than the schema.",
+                unknownToBuild.Count, string.Join(", ", unknownToBuild));
+        }
+
+        logger?.LogInformation("Migrations verified: schema is up to date ({AppliedCount} applied).", applied.Count);
     }
 
     /// <summary>

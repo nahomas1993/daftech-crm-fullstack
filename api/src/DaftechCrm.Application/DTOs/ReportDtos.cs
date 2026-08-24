@@ -119,7 +119,15 @@ public record DashboardDataDto(
     IReadOnlyList<TicketStatusSliceDto> TicketsByStatus,
     IReadOnlyList<RatingSliceDto> RatingDistribution,
     IReadOnlyList<MonthlyPointDto> MonthlyTrend,
-    SupportOverviewDto SupportOverview
+    SupportOverviewDto SupportOverview,
+    /// <summary>
+    /// Names of dashboard sections that could not be computed on this
+    /// request (e.g. "supportOverview", "ticketsByFailureType"). The
+    /// endpoint returns 200 with the sections that DID succeed rather than
+    /// failing the whole page with a 500 — the Dashboard renders a
+    /// per-widget notice for anything listed here. Empty on a healthy load.
+    /// </summary>
+    IReadOnlyList<string>? FailedSections = null
 );
 
 /// <summary>

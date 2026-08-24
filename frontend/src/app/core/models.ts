@@ -618,4 +618,6 @@ export interface DashboardData {
   ratingDistribution: RatingSlice[];
   monthlyTrend: MonthlyPoint[];
   supportOverview: SupportOverview;
+  /** Sections the API could not build on this request — the Dashboard shows a per-widget notice instead of blanking the page. */
+  failedSections?: string[];
 }

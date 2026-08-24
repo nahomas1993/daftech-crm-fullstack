@@ -278,42 +278,56 @@ public class ReportService : IReportService
         var tickets = await query.ToListAsync(ct);
         var now = DateTimeOffset.UtcNow;
 
-        // --- KPIs ---
-        var openTickets = tickets.Count(t => t.Status is not (TicketStatus.Closed or TicketStatus.Escalated));
-        var resolvedTickets = tickets.Count(t => t.ResolvedAt != null);
-        var overdueTickets = tickets.Count(t => t.ResolvedAt == null && t.ExpectedResolutionBy != null && t.ExpectedResolutionBy < now);
-        var withBoth = tickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
-        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
-        var onTimeCount = withBoth.Count(t =>
-            _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
-            (t.ExpectedResolutionMinutes is int mins ? mins : fallbackSpan.TotalMinutes));
-        var resolutionRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : 0;
-        var ratedScores = tickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
-        var avgSatisfaction = ratedScores.Count > 0 ? ratedScores.Average() : (double?)null;
+        // Each chart/KPI block below is computed in isolation: one bad
+        // section (a missing related row, a schema drift) degrades that one
+        // widget instead of returning a 500 for the entire Dashboard, which
+        // is what previously blanked the whole page.
+        var failedSections = new List<string>();
+        T Section<T>(string name, Func<T> compute, T fallback)
+        {
+            try { return compute(); }
+            catch (Exception) { failedSections.Add(name); return fallback; }
+        }
 
-        var kpis = new DashboardKpisDto(tickets.Count, openTickets, resolvedTickets, overdueTickets, resolutionRate, avgSatisfaction);
+        // --- KPIs ---
+        var kpis = Section("kpis", () =>
+        {
+            var openTickets = tickets.Count(t => t.Status is not (TicketStatus.Closed or TicketStatus.Escalated));
+            var resolvedTickets = tickets.Count(t => t.ResolvedAt != null);
+            var overdueTickets = tickets.Count(t => t.ResolvedAt == null && t.ExpectedResolutionBy != null && t.ExpectedResolutionBy < now);
+            var withBoth = tickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
+            var onTimeCount = withBoth.Count(t =>
+                _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
+                (t.ExpectedResolutionMinutes is int mins ? mins : TimeSpan.FromDays(_options.OnTimeResolutionTargetDays).TotalMinutes));
+            var resolutionRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : 0;
+            var ratedScores = tickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
+            var avgSatisfaction = ratedScores.Count > 0 ? ratedScores.Average() : (double?)null;
+            return new DashboardKpisDto(tickets.Count, openTickets, resolvedTickets, overdueTickets, resolutionRate, avgSatisfaction);
+        }, new DashboardKpisDto(tickets.Count, 0, 0, 0, 0, null));
+
+        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
 
         // --- Bar: tickets by region ---
-        var byRegion = tickets
+        var byRegion = Section("ticketsByRegion", () => tickets
             .GroupBy(t => t.Client?.Region ?? "Unspecified")
             .Select(g => new RegionTicketCountDto(g.Key, g.Count()))
             .OrderByDescending(r => r.TicketCount)
-            .ToList();
+            .ToList(), new List<RegionTicketCountDto>());
 
         // --- Bar: tickets by failure type ---
-        var byFailureType = tickets
+        var byFailureType = Section("ticketsByFailureType", () => tickets
             .GroupBy(t => t.FailureType?.Name ?? "Unspecified")
             .Select(g => new FailureTypeTicketCountDto(g.Key, g.Count()))
             .OrderByDescending(f => f.TicketCount)
-            .ToList();
+            .ToList(), new List<FailureTypeTicketCountDto>());
 
         // --- Bar: employee performance (resolved-ticket counts) ---
-        var byEmployee = tickets
+        var byEmployee = Section("ticketsByEmployee", () => tickets
             .Where(t => t.AssignedEmployee != null && t.ResolvedAt != null)
             .GroupBy(t => t.AssignedEmployee?.FullName ?? "Unknown employee")
             .Select(g => new EmployeeTicketCountDto(g.Key, g.Count()))
             .OrderByDescending(e => e.ResolvedCount)
-            .ToList();
+            .ToList(), new List<EmployeeTicketCountDto>());
 
         // --- Donut: ticket status (every status represented, even at 0 — see GetOperationsOverviewAsync above for the same rationale) ---
         var byStatus = Enum.GetValues<TicketStatus>()
@@ -327,11 +341,25 @@ public class ReportService : IReportService
             .ToList();
 
         // --- Line: monthly tickets / resolved / on-time rate, last 6 calendar months (in Ethiopian local time, for consistency with every other date-bucketing decision in this app) ---
-        var monthlyTrend = BuildMonthlyTrend(tickets, fallbackSpan);
-        var supportOverview = await GetSupportOverviewAsync(ct);
+        var monthlyTrend = Section("monthlyTrend", () => BuildMonthlyTrend(tickets, fallbackSpan), new List<MonthlyPointDto>());
 
-        var result = new DashboardDataDto(kpis, byRegion, byFailureType, byEmployee, byStatus, ratingDistribution, monthlyTrend, supportOverview);
-        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(2));
+        SupportOverviewDto supportOverview;
+        try
+        {
+            supportOverview = await GetSupportOverviewAsync(ct);
+        }
+        catch (Exception)
+        {
+            failedSections.Add("supportOverview");
+            supportOverview = new SupportOverviewDto(0, 0, 0, [], [], []);
+        }
+
+        var result = new DashboardDataDto(kpis, byRegion, byFailureType, byEmployee, byStatus, ratingDistribution, monthlyTrend, supportOverview, failedSections);
+
+        // Only cache a fully successful build — otherwise a transient failure
+        // would be served from cache for the next two minutes.
+        if (failedSections.Count == 0)
+            _cache.Set(cacheKey, result, TimeSpan.FromMinutes(2));
         return result;
     }
 

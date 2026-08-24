@@ -69,6 +69,9 @@ builder.Services.AddDaftechRateLimiting();
 var emailProvider = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>()?.Provider ?? EmailProvider.Smtp;
 var healthChecksBuilder = builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"])
+    // Guards against the schema/build mismatch that caused the dashboard and
+    // report 500s: a migration that never applied is now visibly unhealthy.
+    .AddCheck<MigrationsHealthCheck>("migrations", tags: ["ready"])
     .AddCheck<StorageHealthCheck>("storage", tags: ["ready"]);
 
 if (emailProvider == EmailProvider.BrevoApi)
