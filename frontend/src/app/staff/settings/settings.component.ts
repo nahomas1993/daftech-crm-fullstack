@@ -5,7 +5,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { SystemConfigurationService } from '../../core/services/system-configuration.service';
 import { LocationService } from '../../core/services/location.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
-import { LocationType, DurationUnit } from '../../core/models';
+import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
 type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes';
