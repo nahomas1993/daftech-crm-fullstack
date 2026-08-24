@@ -331,8 +331,13 @@ export class SettingsComponent implements OnInit {
     return this.drafts()[key] ?? '';
   }
 
-  setDraft(key: string, value: string) {
-    this.drafts.update(d => ({ ...d, [key]: value }));
+  setDraft(key: string, value: unknown) {
+    // Number inputs hand back a number (or null when cleared) via ngModel.
+    // Settings are stored and sent as strings, so normalize here — sending a
+    // raw number made the API reject the payload before it ever reached the
+    // controller, which is what "Save Changes" silently failing looked like.
+    const normalized = value === null || value === undefined ? '' : String(value);
+    this.drafts.update(d => ({ ...d, [key]: normalized }));
     this.configSuccess.set(false);
   }
 
@@ -357,7 +362,7 @@ export class SettingsComponent implements OnInit {
       this.resetDrafts();
       this.configSuccess.set(true);
     } catch (e: any) {
-      this.configError.set(e?.error ?? e?.error?.text ?? 'Could not save configuration — please try again.');
+      this.configError.set(this.extractErrorMessage(e, 'Could not save configuration — please try again.'));
     } finally {
       this.savingConfig.set(false);
     }

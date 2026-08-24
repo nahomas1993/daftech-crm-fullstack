@@ -338,9 +338,16 @@ public class TicketReportService : ITicketReportService
 
     public async Task<string> ExportCsvAsync(string reportType, TicketReportFilter filter, CancellationToken ct = default)
     {
-        var (_, headers, rows) = await BuildExportDataAsync(reportType, filter, ct);
+        var (title, headers, rows) = await BuildExportDataAsync(reportType, filter, ct);
 
         var sb = new StringBuilder();
+        // Branded letterhead rows so an exported sheet is identifiable on its
+        // own. Generated here rather than pasted in by hand, and kept to plain
+        // rows so Excel/Sheets still parse the table below it.
+        sb.AppendLine(CsvEscape("DAF-TECH Computer Engineering"));
+        sb.AppendLine(CsvEscape(title));
+        sb.AppendLine(CsvEscape($"Generated {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC · {rows.Count} row(s)"));
+        sb.AppendLine();
         sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
         foreach (var row in rows)
             sb.AppendLine(string.Join(",", row.Select(CsvEscape)));

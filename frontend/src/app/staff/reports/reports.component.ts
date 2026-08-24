@@ -7,6 +7,7 @@ import { FailureTypeService } from '../../core/services/failure-type.service';
 import { LocationService } from '../../core/services/location.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 import {
   ReportType, REPORT_TYPE_LABELS, TicketReportFilter, TableReportResult,
   CustomerSupportReportRow, EmployeePerformanceReportRow, RegionalReportRow,
@@ -37,8 +38,18 @@ const MONTHS = [
 @Component({
   selector: 'app-reports',
   standalone: true,
-  imports: [FormsModule, SlicePipe, DecimalPipe, BadgeComponent, PaginationComponent],
+  imports: [FormsModule, SlicePipe, DecimalPipe, BadgeComponent, PaginationComponent, BrandLogoComponent],
   template: `
+    <!-- Print-only letterhead: the app's own inline-SVG brand mark, so a
+         printed report carries the logo without any pasted-in image. -->
+    <div class="print-letterhead">
+      <app-brand-logo [size]="42" variant="full"></app-brand-logo>
+      <div class="print-meta">
+        <div class="print-title">{{ labelFor(activeType()) }} Report</div>
+        <div class="print-sub">Generated {{ today }}</div>
+      </div>
+    </div>
+
     <h1>Reports</h1>
     <p class="text-muted" style="margin-top:0.3rem;">Filterable, exportable tables — for charts and live KPIs, see the Dashboard.</p>
 
@@ -262,8 +273,21 @@ const MONTHS = [
     .filter-actions { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
     .upload-error { color: var(--red); font-size: 0.85rem; }
     .warn-text { color: var(--red); font-weight: 600; }
+    .print-letterhead { display: none; }
     @media print {
       .tabs, .filter-bar, .pagination, nav, .app-sidebar { display: none !important; }
+      .print-letterhead {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding-bottom: 0.6rem;
+        margin-bottom: 0.9rem;
+        border-bottom: 2px solid var(--brand-blue, #1d4ed8);
+      }
+      .print-meta { text-align: right; }
+      .print-title { font-weight: 700; font-size: 1rem; }
+      .print-sub { font-size: 0.72rem; color: var(--slate-500, #64748b); }
     }
   `],
 })
@@ -272,6 +296,8 @@ export class ReportsComponent {
   statuses = STATUSES;
   phases = PHASES;
   months = MONTHS;
+
+  readonly today = new Date().toLocaleString();
 
   activeType = signal<ReportType>('customer-support');
   filter: TicketReportFilter = {};

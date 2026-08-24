@@ -25,6 +25,18 @@ public static class TabularPdfRenderer
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
+    private const string BrandCharcoal = "#2B2B2B";
+    private const string BrandBlue = "#1D4ED8";
+
+    /// <summary>The DAFTECH triangle mark, identical to the in-app inline SVG logo.</summary>
+    private const string BrandMarkSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <path d="M50 6 L69 40 Q57 33 43 36 Z" fill="#D92D20" />
+          <path d="M38 32 L38 78 L8 78 Z" fill="#1D4ED8" />
+          <path d="M62 36 L92 78 L56 78 Q66 60 62 36 Z" fill="#D92D20" />
+        </svg>
+        """;
+
     public static byte[] Render(string title, string[] headers, IReadOnlyList<string[]> rows)
     {
         var document = Document.Create(container =>
@@ -35,10 +47,30 @@ public static class TabularPdfRenderer
                 page.Margin(28);
                 page.DefaultTextStyle(x => x.FontSize(9));
 
-                page.Header().Column(col =>
+                page.Header().Column(header =>
                 {
-                    col.Item().Text(title).FontSize(16).Bold();
-                    col.Item().PaddingTop(2).Text($"Generated {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC · {rows.Count} row(s)").FontSize(8).FontColor(Colors.Grey.Darken1);
+                    header.Item().Row(row =>
+                    {
+                        // Brand mark drawn as vector SVG at render time — no
+                        // bitmap file is embedded or pasted in, so it stays
+                        // crisp at any zoom and needs no asset deployment.
+                        row.ConstantItem(34).Height(34).Svg(BrandMarkSvg);
+
+                        row.RelativeItem().PaddingLeft(8).Column(brand =>
+                        {
+                            brand.Item().Text("DAF-TECH").FontSize(13).Bold().LetterSpacing(0.12f).FontColor(BrandCharcoal);
+                            brand.Item().Text("Computer Engineering").FontSize(7.5f).FontColor(Colors.Grey.Darken1);
+                        });
+
+                        row.ConstantItem(260).AlignRight().Column(meta =>
+                        {
+                            meta.Item().AlignRight().Text(title).FontSize(14).Bold();
+                            meta.Item().AlignRight().Text($"Generated {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC · {rows.Count} row(s)")
+                                .FontSize(8).FontColor(Colors.Grey.Darken1);
+                        });
+                    });
+
+                    header.Item().PaddingTop(6).LineHorizontal(1).LineColor(BrandBlue);
                 });
 
                 page.Content().PaddingTop(12).Table(table =>

@@ -29,7 +29,11 @@ export class SystemConfigurationService {
   /** Saves one or more settings in a single request, then refreshes the local cache. */
   async update(changes: { key: string; value: string }[]): Promise<void> {
     const updated = await firstValueFrom(
-      this.http.put<SystemSetting[]>(`${API_BASE_URL}/system-configuration`, { settings: changes })
+      this.http.put<SystemSetting[]>(`${API_BASE_URL}/system-configuration`, {
+        // The API models every value as a string; coerce defensively so a
+        // numeric input value can never produce a 400 from JSON binding.
+        settings: changes.map(c => ({ key: c.key, value: String(c.value ?? '') })),
+      })
     );
     this._settings.set(updated);
   }
