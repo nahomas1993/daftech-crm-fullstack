@@ -3,8 +3,8 @@ export type EmployeeAccountStatus = 'Active' | 'Disabled';
 export type AgreementStatus = 'Active' | 'Expired' | 'Pending';
 export type BillingTier = 'Basic' | 'Intermediate' | 'Advanced';
 
-/** Matches Domain.Enums.TicketCategory — note SqlDatabaseError, not the slash-form display string. */
-export type TicketCategory = 'SqlDatabaseError' | 'Bug' | 'Other';
+/** Matches Domain.Enums.TicketCategory. */
+export type TicketCategory = 'Frontend' | 'Backend' | 'Database';
 
 /**
  * Matches Domain.Enums.TicketStatus. Assignment is automatic (no manual
@@ -60,9 +60,9 @@ export type NotificationRecipientType = 'Admin' | 'ItSupport' | 'Employee' | 'Cl
 
 /** Display helpers — the API uses PascalCase enum names without spaces/slashes; these map back to the spec's human-readable labels. */
 export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
-  SqlDatabaseError: 'SQL/Database error',
-  Bug: 'Bug',
-  Other: 'Other',
+  Frontend: 'Frontend',
+  Backend: 'Backend',
+  Database: 'Database',
 };
 
 export const EMPLOYEE_ROLE_LABELS: Record<EmployeeRole, string> = {
@@ -478,10 +478,27 @@ export type DurationUnit = 'Hours' | 'Days' | 'Months';
 /** Admin-defined kind of client-system failure with an expected resolution duration, chosen by the client on ticket submission. */
 export interface FailureType {
   id: string;
+  category: TicketCategory;
   name: string;
   description?: string;
   durationValue: number;
   durationUnit: DurationUnit;
+}
+
+export interface ExpiringClient {
+  clientId: string; clientName: string; agreementId: string; systemProductName: string;
+  expiryDate: string; daysUntilExpiry: number;
+}
+export interface SupportClient {
+  clientId: string; clientName: string; ticketCount: number;
+}
+export interface SupportOverview {
+  approachingExpirationCount: number;
+  freeSupportClientCount: number;
+  chargeableSupportClientCount: number;
+  approachingExpiration: ExpiringClient[];
+  freeSupportClients: SupportClient[];
+  chargeableSupportClients: SupportClient[];
 }
 
 // --- Reports module (tables only — see Dashboard for charts/KPIs) ---
@@ -600,4 +617,5 @@ export interface DashboardData {
   ticketsByStatus: TicketStatusSlice[];
   ratingDistribution: RatingSlice[];
   monthlyTrend: MonthlyPoint[];
+  supportOverview: SupportOverview;
 }

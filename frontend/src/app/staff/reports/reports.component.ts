@@ -298,6 +298,17 @@ export class ReportsComponent {
     public locations: LocationService,
   ) {
     void this.load();
+    void this.loadSupportOverview();
+  }
+
+  private async loadSupportOverview() {
+    try {
+      this.supportOverview.set(await this.overviewReports.getSupportOverview());
+      this.supportOverviewError.set(null);
+    } catch (err) {
+      console.error('Support overview failed', err);
+      this.supportOverviewError.set('Could not load support overview.');
+    }
   }
 
   labelFor(t: ReportType): string {

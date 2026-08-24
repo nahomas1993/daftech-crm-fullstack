@@ -106,6 +106,10 @@ public class TicketService : ITicketService
             failureType = await _db.FailureTypes
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.Id == requestedFailureTypeId, ct);
+            if (failureType is null)
+                throw new ValidationException("Selected failure type was not found.");
+            if (failureType.Category != request.Category)
+                throw new ValidationException("Selected failure type does not belong to the selected category.");
         }
 
         var canAssignNow = _officeTime.IsWorkingMoment(now) && FitsBeforeCloseIfSaturday(now, failureType);

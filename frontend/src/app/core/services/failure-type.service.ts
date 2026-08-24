@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { FailureType, DurationUnit } from '../models';
+import { FailureType, DurationUnit, TicketCategory } from '../models';
 import { API_BASE_URL } from './api-base';
 
 /**
@@ -43,14 +43,14 @@ export class FailureTypeService {
     }
   }
 
-  async create(name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { name, description, durationValue, durationUnit }));
+  async create(category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { category, name, description, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }
 
-  async update(id: string, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { name, description, durationValue, durationUnit }));
+  async update(id: string, category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { category, name, description, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }

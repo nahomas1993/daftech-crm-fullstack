@@ -402,6 +402,7 @@ public interface IReportService
 
     /// <summary>System-wide snapshot for the admin Reports page's "Overall Operations" pie chart — every ticket by current status, plus headline counts.</summary>
     Task<OperationsOverviewDto> GetOperationsOverviewAsync(CancellationToken ct = default);
+    Task<SupportOverviewDto> GetSupportOverviewAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Everything the Dashboard's charts/KPI cards need in one call — bar

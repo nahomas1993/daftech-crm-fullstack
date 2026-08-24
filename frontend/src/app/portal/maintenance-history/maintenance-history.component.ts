@@ -41,10 +41,10 @@ const REFRESH_INTERVAL_MS = 20_000;
         } @else {
           <div class="field">
             <label>Category</label>
-            <select [ngModel]="category()" (ngModelChange)="category.set($event)">
-              <option value="SqlDatabaseError">SQL/Database error</option>
-              <option value="Bug">Bug</option>
-              <option value="Other">Other</option>
+            <select [ngModel]="category()" (ngModelChange)="category.set($event); failureTypeId.set('')">
+              <option value="Frontend">Frontend</option>
+              <option value="Backend">Backend</option>
+              <option value="Database">Database</option>
             </select>
           </div>
           <div class="field" style="margin-top:0.8rem;">
@@ -53,7 +53,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               <select [ngModel]="failureTypeId()" (ngModelChange)="failureTypeId.set($event)">
                 <option value="">Not sure / other…</option>
                 @for (f of failureTypes.types(); track f.id) {
-                  <option [value]="f.id">{{ f.name }}</option>
+                  @if (f.category === category()) { <option [value]="f.id">{{ f.name }}</option> }
                 }
               </select>
               @if (selectedFailureType(); as ft) {
@@ -192,7 +192,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 })
 export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
-  category = signal<TicketCategory>('Bug');
+  category = signal<TicketCategory>('Frontend');
   failureTypeId = signal<string>('');
   description = signal('');
   selectedFile = signal<File | null>(null);

@@ -639,6 +639,10 @@ public class ReportsController : ControllerBase
     public async Task<ActionResult<OperationsOverviewDto>> GetOperationsOverview(CancellationToken ct) =>
         Ok(await _reports.GetOperationsOverviewAsync(ct));
 
+    [HttpGet("support-overview")]
+    public async Task<ActionResult<SupportOverviewDto>> GetSupportOverview(CancellationToken ct) =>
+        Ok(await _reports.GetSupportOverviewAsync(ct));
+
     /// <summary>
     /// Everything the Dashboard's charts/KPI cards need in one call. All
     /// query parameters are optional; an unset filter simply doesn't

@@ -15,6 +15,7 @@ public enum DurationUnit { Hours, Days, Months }
 public class FailureType
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public DaftechCrm.Domain.Enums.TicketCategory Category { get; set; }
     public string Name { get; set; } = default!;
 
     /// <summary>Optional admin-entered explanation of what this failure type covers, shown alongside the name in the admin settings list. Not shown to clients — the Submit Issue dropdown only needs the name to pick from.</summary>

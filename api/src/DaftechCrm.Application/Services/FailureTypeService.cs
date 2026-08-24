@@ -2,18 +2,29 @@ using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace DaftechCrm.Application.Services;
 
 public class FailureTypeService : IFailureTypeService
 {
     private readonly IAppDbContext _db;
-    public FailureTypeService(IAppDbContext db) => _db = db;
+    private readonly IMemoryCache _cache;
+    private const string CacheKey = "failure-types:all";
+    public FailureTypeService(IAppDbContext db, IMemoryCache cache) { _db = db; _cache = cache; }
 
-    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Name, f.Description, f.DurationValue, f.DurationUnit);
+    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Category, f.Name, f.Description, f.DurationValue, f.DurationUnit);
 
-    public async Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default) =>
-        await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Name).Select(f => new FailureTypeDto(f.Id, f.Name, f.Description, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
+    public async Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default)
+    {
+        if (_cache.TryGetValue(CacheKey, out IReadOnlyList<FailureTypeDto>? cached) && cached is not null)
+            return cached;
+
+        var result = await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Name)
+            .Select(f => new FailureTypeDto(f.Id, f.Category, f.Name, f.Description, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
+        _cache.Set(CacheKey, result, TimeSpan.FromMinutes(10));
+        return result;
+    }
 
     public async Task<FailureTypeDto> CreateAsync(CreateFailureTypeRequest request, CancellationToken ct = default)
     {
@@ -29,9 +40,10 @@ public class FailureTypeService : IFailureTypeService
 
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
-        var entry = new FailureType { Name = name, Description = description, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
+        var entry = new FailureType { Category = request.Category, Name = name, Description = description, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
         _db.Add(entry);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CacheKey);
         return ToDto(entry);
     }
 
@@ -50,12 +62,14 @@ public class FailureTypeService : IFailureTypeService
         if (exists)
             throw new InvalidOperationException($"A failure type named \"{name}\" already exists.");
 
+        entry.Category = request.Category;
         entry.Name = name;
         entry.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         entry.DurationValue = request.DurationValue;
         entry.DurationUnit = request.DurationUnit;
         _db.Update(entry);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CacheKey);
         return ToDto(entry);
     }
 
@@ -66,5 +80,6 @@ public class FailureTypeService : IFailureTypeService
 
         _db.Remove(entry);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CacheKey);
     }
 }

@@ -368,6 +368,7 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.FailureType", b =>
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<int>("Category").HasColumnType("integer");
                 b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
                 b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<int>("DurationValue").HasColumnType("integer");

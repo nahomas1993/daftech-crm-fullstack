@@ -5,6 +5,7 @@ using DaftechCrm.Domain.Entities;
 using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace DaftechCrm.Application.Services;
 
@@ -14,13 +15,15 @@ public class ReportService : IReportService
     private readonly TicketWorkflowOptions _options;
     private readonly IAiNarrativeReportService _aiNarrative;
     private readonly IEthiopianTimeService _officeTime;
+    private readonly IMemoryCache _cache;
 
-    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IAiNarrativeReportService aiNarrative, IEthiopianTimeService officeTime)
+    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IAiNarrativeReportService aiNarrative, IEthiopianTimeService officeTime, IMemoryCache cache)
     {
         _db = db;
         _options = options.Value;
         _aiNarrative = aiNarrative;
         _officeTime = officeTime;
+        _cache = cache;
     }
 
     /// <summary>
@@ -182,9 +185,59 @@ public class ReportService : IReportService
         return new OperationsOverviewDto(byStatus, totalTickets, activeClients, activeEmployees, openAgreements);
     }
 
+    public async Task<SupportOverviewDto> GetSupportOverviewAsync(CancellationToken ct = default)
+    {
+        const string cacheKey = "reports:support-overview";
+        if (_cache.TryGetValue(cacheKey, out SupportOverviewDto? cached) && cached is not null)
+            return cached;
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var horizon = today.AddDays(30);
+
+        var expiring = await _db.Agreements.AsNoTracking()
+            .Where(a => a.Status == AgreementStatus.Active && a.ExpiryDate >= today && a.ExpiryDate <= horizon)
+            .Select(a => new ExpiringClientDto(
+                a.SystemProduct.ClientId,
+                a.SystemProduct.Client.Name,
+                a.Id,
+                a.SystemProduct.Name,
+                a.ExpiryDate,
+                0))
+            .ToListAsync(ct);
+
+        var expiringWithDays = expiring
+            .Select(x => x with { DaysUntilExpiry = x.ExpiryDate.DayNumber - today.DayNumber })
+            .OrderBy(x => x.DaysUntilExpiry)
+            .ToList();
+
+        var freeClients = await _db.Tickets.AsNoTracking().Where(t => !t.Chargeable)
+            .GroupBy(t => new { t.ClientId, t.Client.Name })
+            .Select(g => new SupportClientDto(g.Key.ClientId, g.Key.Name, g.Count()))
+            .OrderByDescending(x => x.TicketCount).ToListAsync(ct);
+        var chargeableClients = await _db.Tickets.AsNoTracking().Where(t => t.Chargeable)
+            .GroupBy(t => new { t.ClientId, t.Client.Name })
+            .Select(g => new SupportClientDto(g.Key.ClientId, g.Key.Name, g.Count()))
+            .OrderByDescending(x => x.TicketCount).ToListAsync(ct);
+
+        var result = new SupportOverviewDto(
+            expiringWithDays.Count,
+            freeClients.Count,
+            chargeableClients.Count,
+            expiringWithDays,
+            freeClients,
+            chargeableClients);
+
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+        return result;
+    }
+
     /// <summary>See IReportService.GetDashboardDataAsync. Applies DashboardFilter once up front, then every chart/KPI below is computed from that same filtered ticket set — so a support manager filtering to "this month, Addis Ababa" sees every chart on the page agree with each other.</summary>
     public async Task<DashboardDataDto> GetDashboardDataAsync(DashboardFilter filter, CancellationToken ct = default)
     {
+        var cacheKey = $"reports:dashboard:{filter.FromDate:yyyy-MM-dd}:{filter.ToDate:yyyy-MM-dd}:{filter.Region ?? "*"}";
+        if (_cache.TryGetValue(cacheKey, out DashboardDataDto? cached) && cached is not null)
+            return cached;
+
         var query = _db.Tickets.AsNoTracking()
             .Include(t => t.Client)
             .Include(t => t.FailureType)
@@ -251,8 +304,11 @@ public class ReportService : IReportService
 
         // --- Line: monthly tickets / resolved / on-time rate, last 6 calendar months (in Ethiopian local time, for consistency with every other date-bucketing decision in this app) ---
         var monthlyTrend = BuildMonthlyTrend(tickets, fallbackSpan);
+        var supportOverview = await GetSupportOverviewAsync(ct);
 
-        return new DashboardDataDto(kpis, byRegion, byFailureType, byEmployee, byStatus, ratingDistribution, monthlyTrend);
+        var result = new DashboardDataDto(kpis, byRegion, byFailureType, byEmployee, byStatus, ratingDistribution, monthlyTrend, supportOverview);
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(2));
+        return result;
     }
 
     private List<MonthlyPointDto> BuildMonthlyTrend(List<Ticket> tickets, TimeSpan fallbackSpan)

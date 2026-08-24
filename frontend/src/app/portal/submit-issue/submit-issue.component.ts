@@ -36,10 +36,10 @@ import { TicketCategory } from '../../core/models';
       } @else if (!submittedId()) {
         <div class="field">
           <label>Category</label>
-          <select [ngModel]="category()" (ngModelChange)="category.set($event)">
-            <option value="SqlDatabaseError">SQL/Database error</option>
-            <option value="Bug">Bug</option>
-            <option value="Other">Other</option>
+          <select [ngModel]="category()" (ngModelChange)="category.set($event); failureTypeId.set('')">
+            <option value="Frontend">Frontend</option>
+            <option value="Backend">Backend</option>
+            <option value="Database">Database</option>
           </select>
         </div>
         <div class="field" style="margin-top:0.8rem;">
@@ -48,7 +48,7 @@ import { TicketCategory } from '../../core/models';
             <select [ngModel]="failureTypeId()" (ngModelChange)="failureTypeId.set($event)">
               <option value="">Not sure / other…</option>
               @for (f of failureTypes.types(); track f.id) {
-                <option [value]="f.id">{{ f.name }}</option>
+                @if (f.category === category()) { <option [value]="f.id">{{ f.name }}</option> }
               }
             </select>
           } @else if (failureTypes.loading()) {
@@ -115,7 +115,7 @@ import { TicketCategory } from '../../core/models';
   `],
 })
 export class SubmitIssueComponent {
-  category = signal<TicketCategory>('Bug');
+  category = signal<TicketCategory>('Frontend');
   failureTypeId = signal<string>('');
   description = signal('');
   selectedFile = signal<File | null>(null);

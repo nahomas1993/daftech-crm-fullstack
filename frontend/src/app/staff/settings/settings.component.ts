@@ -170,6 +170,9 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
           </p>
 
           <div class="ft-add-row">
+            <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
+              @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
+            </select>
             <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
             <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
@@ -186,6 +189,9 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
               <li class="entry-row">
                 @if (editingFtId() === ft.id) {
                   <div class="ft-edit-row">
+                    <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
+                      @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
+                    </select>
                     <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
                     <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
@@ -201,7 +207,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   </div>
                 } @else {
                   <span class="entry-name">
-                    {{ ft.name }} — {{ ft.durationValue }} {{ ft.durationUnit.toLowerCase() }}
+                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ ft.durationUnit.toLowerCase() }}
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
                   </span>
                   <div class="entry-actions">
@@ -260,8 +266,8 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
     .edit-input { width: auto; flex: 1; }
     .btn-danger { color: var(--red); border-color: var(--red); }
 
-    .ft-add-row { display: grid; grid-template-columns: 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
-    .ft-edit-row { display: grid; grid-template-columns: 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
+    .ft-add-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
+    .ft-edit-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -492,6 +498,8 @@ export class SettingsComponent implements OnInit {
 
   // --- Failure Types tab ---
 
+  categories: TicketCategory[] = ['Frontend', 'Backend', 'Database'];
+  newFtCategory = signal<TicketCategory>('Frontend');
   newFtName = signal('');
   newFtDescription = signal('');
   newFtValue = signal<number>(1);
@@ -499,10 +507,13 @@ export class SettingsComponent implements OnInit {
   savingFailureTypes = signal(false);
   failureTypesError = signal<string | null>(null);
   editingFtId = signal<string | null>(null);
+  editingFtCategory = signal<TicketCategory>('Frontend');
   editingFtName = signal('');
   editingFtDescription = signal('');
   editingFtValue = signal<number>(1);
   editingFtUnit = signal<DurationUnit>('Days');
+
+  categoryLabel(category: TicketCategory): string { return TICKET_CATEGORY_LABELS[category]; }
 
   async addFailureType() {
     const name = this.newFtName().trim();
@@ -511,7 +522,7 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.create(name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined);
+      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined);
       this.newFtName.set('');
       this.newFtDescription.set('');
       this.newFtValue.set(1);
@@ -523,8 +534,9 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  startFtEdit(ft: { id: string; name: string; description?: string; durationValue: number; durationUnit: DurationUnit }) {
+  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; durationValue: number; durationUnit: DurationUnit }) {
     this.editingFtId.set(ft.id);
+    this.editingFtCategory.set(ft.category);
     this.editingFtName.set(ft.name);
     this.editingFtDescription.set(ft.description ?? '');
     this.editingFtValue.set(ft.durationValue);
@@ -543,7 +555,7 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.update(id, name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined);
+      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined);
       this.cancelFtEdit();
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');

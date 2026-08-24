@@ -8,7 +8,7 @@ public enum AgreementStatus { Active, Expired, Pending }
 
 public enum BillingTier { Basic, Intermediate, Advanced }
 
-public enum TicketCategory { SqlDatabaseError, Bug, Other }
+public enum TicketCategory { Frontend, Backend, Database }
 
 public enum TicketStatus
 {

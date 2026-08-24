@@ -124,9 +124,26 @@ function describeDashboardError(err: unknown): string {
             <div class="card-label">Customer Satisfaction</div>
             <div class="card-value">{{ d.kpis.averageSatisfactionScore != null ? (d.kpis.averageSatisfactionScore | number:'1.0-0') + '/100' : '—' }}</div>
           </div>
+          <div class="panel panel-pad card">
+            <div class="card-label">Approaching Expiration</div>
+            <div class="card-value" [class.warn]="d.supportOverview.approachingExpirationCount > 0">{{ d.supportOverview.approachingExpirationCount }}</div>
+          </div>
+          <div class="panel panel-pad card">
+            <div class="card-label">Free Support Clients</div>
+            <div class="card-value">{{ d.supportOverview.freeSupportClientCount }}</div>
+          </div>
+          <div class="panel panel-pad card">
+            <div class="card-label">Chargeable Support Clients</div>
+            <div class="card-value">{{ d.supportOverview.chargeableSupportClientCount }}</div>
+          </div>
         </div>
 
         <div class="chart-grid">
+          <div class="panel panel-pad" style="grid-column: 1 / -1;">
+            <h3 style="margin-bottom:0.9rem;">Support &amp; Expiration Overview</h3>
+            <app-count-bar-chart [chartData]="supportOverviewBars(d)"></app-count-bar-chart>
+            <p class="text-muted" style="font-size:0.75rem; margin-top:0.7rem;">This graph is derived directly from the Support &amp; Expiration metrics on the Reports page.</p>
+          </div>
           <div class="panel panel-pad">
             <h3 style="margin-bottom:0.9rem;">Tickets by Region</h3>
             <app-count-bar-chart [chartData]="regionBars(d)"></app-count-bar-chart>
@@ -324,6 +341,14 @@ export class DashboardComponent {
 
   employeeBars(d: DashboardData): CountBarDatum[] {
     return d.ticketsByEmployee.map(e => ({ label: e.employeeName, value: e.resolvedCount }));
+  }
+
+  supportOverviewBars(d: DashboardData): CountBarDatum[] {
+    return [
+      { label: 'Approaching Expiration', value: d.supportOverview.approachingExpirationCount },
+      { label: 'Free Support', value: d.supportOverview.freeSupportClientCount },
+      { label: 'Chargeable Support', value: d.supportOverview.chargeableSupportClientCount },
+    ];
   }
 
   statusSlices(d: DashboardData): DonutSlice[] {

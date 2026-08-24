@@ -67,6 +67,19 @@ public record EmployeePerformanceReportDto(
     string? AiUnavailableReason
 );
 
+
+public record ExpiringClientDto(Guid ClientId, string ClientName, Guid AgreementId, string SystemProductName, DateOnly ExpiryDate, int DaysUntilExpiry);
+public record SupportClientDto(Guid ClientId, string ClientName, int TicketCount);
+
+public record SupportOverviewDto(
+    int ApproachingExpirationCount,
+    int FreeSupportClientCount,
+    int ChargeableSupportClientCount,
+    IReadOnlyList<ExpiringClientDto> ApproachingExpiration,
+    IReadOnlyList<SupportClientDto> FreeSupportClients,
+    IReadOnlyList<SupportClientDto> ChargeableSupportClients
+);
+
 // --- Dashboard (charts + KPIs only — see TicketReportDtos.cs for the
 // Reports module's table-only DTOs; the two are intentionally separate
 // per the product's Reports-vs-Dashboard split) ---
@@ -105,7 +118,8 @@ public record DashboardDataDto(
     IReadOnlyList<EmployeeTicketCountDto> TicketsByEmployee,
     IReadOnlyList<TicketStatusSliceDto> TicketsByStatus,
     IReadOnlyList<RatingSliceDto> RatingDistribution,
-    IReadOnlyList<MonthlyPointDto> MonthlyTrend
+    IReadOnlyList<MonthlyPointDto> MonthlyTrend,
+    SupportOverviewDto SupportOverview
 );
 
 /// <summary>
