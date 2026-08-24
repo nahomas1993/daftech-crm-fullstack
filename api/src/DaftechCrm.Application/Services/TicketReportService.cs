@@ -130,8 +130,8 @@ public class TicketReportService : ITicketReportService
         var tickets = await query.Skip(paging.Skip).Take(paging.PageSize).ToListAsync(ct);
 
         var rows = tickets.Select(t => new CustomerSupportReportRow(
-            t.Id, t.Client.Name, t.Client.Region, t.Client.Zone, t.Client.Woreda,
-            t.Agreement.SystemProduct.Name, t.FailureType?.Name, t.DateSubmitted,
+            t.Id, t.Client?.Name ?? "Unknown client", t.Client?.Region, t.Client?.Zone, t.Client?.Woreda,
+            t.Agreement?.SystemProduct?.Name ?? "Unspecified", t.FailureType?.Name, t.DateSubmitted,
             t.AssignedEmployee?.FullName, t.Status, t.SupportPhase,
             t.Chargeable, t.ResolvedAt, t.SatisfactionScore
         )).ToList();
@@ -147,7 +147,7 @@ public class TicketReportService : ITicketReportService
 
         var now = DateTimeOffset.UtcNow;
         var allRows = tickets
-            .GroupBy(t => new { t.AssignedEmployeeId, Name = t.AssignedEmployee!.FullName })
+            .GroupBy(t => new { t.AssignedEmployeeId, Name = t.AssignedEmployee?.FullName ?? "Unknown employee" })
             .Select(g =>
             {
                 var withBoth = g.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
@@ -178,7 +178,7 @@ public class TicketReportService : ITicketReportService
         var tickets = await FilteredTickets(filter).ToListAsync(ct);
 
         var allRows = tickets
-            .GroupBy(t => new { t.Client.Region, t.Client.Zone, t.Client.Woreda })
+            .GroupBy(t => new { Region = t.Client?.Region, Zone = t.Client?.Zone, Woreda = t.Client?.Woreda })
             .Select(g =>
             {
                 var withBoth = g.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
@@ -242,7 +242,7 @@ public class TicketReportService : ITicketReportService
             bool? onTime = t.AssignedAt != null ? IsOnTime(t) : null;
 
             return new ResolutionTimeReportRow(
-                t.Id, t.Client.Name, t.FailureType?.Name, t.AssignedEmployee?.FullName,
+                t.Id, t.Client?.Name ?? "Unknown client", t.FailureType?.Name, t.AssignedEmployee?.FullName,
                 t.AssignedAt, t.ResolvedAt, resolutionHours, expected.TotalHours, onTime
             );
         }).ToList();
@@ -259,7 +259,7 @@ public class TicketReportService : ITicketReportService
         var tickets = await query.Skip(paging.Skip).Take(paging.PageSize).ToListAsync(ct);
 
         var rows = tickets.Select(t => new CustomerRatingReportRow(
-            t.Id, t.Client.Name, t.AssignedEmployee?.FullName, t.ResolvedAt,
+            t.Id, t.Client?.Name ?? "Unknown client", t.AssignedEmployee?.FullName, t.ResolvedAt,
             t.SatisfactionStars!.Value, t.SatisfactionScore!.Value, t.ClosureReason
         )).ToList();
 

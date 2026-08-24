@@ -194,30 +194,54 @@ public class ReportService : IReportService
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var horizon = today.AddDays(30);
 
+        // Projected through nullable locals rather than straight into
+        // ExpiringClientDto: EF renders the SystemProduct/Client navigations
+        // as LEFT JOINs, so an agreement whose SystemProduct (or that
+        // product's Client) row is missing yields NULLs, and materializing
+        // those into the DTO's non-nullable Guid/string members threw and
+        // took the whole Dashboard down with a 500. Orphans are skipped.
         var expiring = await _db.Agreements.AsNoTracking()
             .Where(a => a.Status == AgreementStatus.Active && a.ExpiryDate >= today && a.ExpiryDate <= horizon)
-            .Select(a => new ExpiringClientDto(
-                a.SystemProduct.ClientId,
-                a.SystemProduct.Client.Name,
-                a.Id,
-                a.SystemProduct.Name,
+            .Select(a => new
+            {
+                AgreementId = a.Id,
+                ClientId = (Guid?)a.SystemProduct.ClientId,
+                ClientName = (string?)a.SystemProduct.Client.Name,
+                ProductName = (string?)a.SystemProduct.Name,
                 a.ExpiryDate,
-                0))
+            })
             .ToListAsync(ct);
 
         var expiringWithDays = expiring
-            .Select(x => x with { DaysUntilExpiry = x.ExpiryDate.DayNumber - today.DayNumber })
+            .Where(x => x.ClientId != null)
+            .Select(x => new ExpiringClientDto(
+                x.ClientId!.Value,
+                x.ClientName ?? "Unknown client",
+                x.AgreementId,
+                x.ProductName ?? "Unspecified",
+                x.ExpiryDate,
+                x.ExpiryDate.DayNumber - today.DayNumber))
             .OrderBy(x => x.DaysUntilExpiry)
             .ToList();
 
-        var freeClients = await _db.Tickets.AsNoTracking().Where(t => !t.Chargeable)
-            .GroupBy(t => new { t.ClientId, t.Client.Name })
-            .Select(g => new SupportClientDto(g.Key.ClientId, g.Key.Name, g.Count()))
-            .OrderByDescending(x => x.TicketCount).ToListAsync(ct);
-        var chargeableClients = await _db.Tickets.AsNoTracking().Where(t => t.Chargeable)
-            .GroupBy(t => new { t.ClientId, t.Client.Name })
-            .Select(g => new SupportClientDto(g.Key.ClientId, g.Key.Name, g.Count()))
-            .OrderByDescending(x => x.TicketCount).ToListAsync(ct);
+        // Same nullable-projection reasoning as `expiring` above: a ticket
+        // pointing at a client row that no longer exists must not 500 the
+        // whole overview.
+        var freeGroups = await _db.Tickets.AsNoTracking().Where(t => !t.Chargeable)
+            .GroupBy(t => new { t.ClientId, Name = (string?)t.Client.Name })
+            .Select(g => new { g.Key.ClientId, g.Key.Name, Count = g.Count() })
+            .ToListAsync(ct);
+        var chargeableGroups = await _db.Tickets.AsNoTracking().Where(t => t.Chargeable)
+            .GroupBy(t => new { t.ClientId, Name = (string?)t.Client.Name })
+            .Select(g => new { g.Key.ClientId, g.Key.Name, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var freeClients = freeGroups
+            .Select(g => new SupportClientDto(g.ClientId, g.Name ?? "Unknown client", g.Count))
+            .OrderByDescending(x => x.TicketCount).ToList();
+        var chargeableClients = chargeableGroups
+            .Select(g => new SupportClientDto(g.ClientId, g.Name ?? "Unknown client", g.Count))
+            .OrderByDescending(x => x.TicketCount).ToList();
 
         var result = new SupportOverviewDto(
             expiringWithDays.Count,
@@ -271,7 +295,7 @@ public class ReportService : IReportService
 
         // --- Bar: tickets by region ---
         var byRegion = tickets
-            .GroupBy(t => t.Client.Region ?? "Unspecified")
+            .GroupBy(t => t.Client?.Region ?? "Unspecified")
             .Select(g => new RegionTicketCountDto(g.Key, g.Count()))
             .OrderByDescending(r => r.TicketCount)
             .ToList();
@@ -286,7 +310,7 @@ public class ReportService : IReportService
         // --- Bar: employee performance (resolved-ticket counts) ---
         var byEmployee = tickets
             .Where(t => t.AssignedEmployee != null && t.ResolvedAt != null)
-            .GroupBy(t => t.AssignedEmployee!.FullName)
+            .GroupBy(t => t.AssignedEmployee?.FullName ?? "Unknown employee")
             .Select(g => new EmployeeTicketCountDto(g.Key, g.Count()))
             .OrderByDescending(e => e.ResolvedCount)
             .ToList();
