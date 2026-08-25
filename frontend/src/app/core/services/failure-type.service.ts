@@ -43,14 +43,14 @@ export class FailureTypeService {
     }
   }
 
-  async create(category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { category, name, description, durationValue, durationUnit }));
+  async create(category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { category, name, description, basePrice, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }
 
-  async update(id: string, category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { category, name, description, durationValue, durationUnit }));
+  async update(id: string, category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { category, name, description, basePrice, durationValue, durationUnit }));
     await this.refresh();
     return entry;
   }

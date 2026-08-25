@@ -12,6 +12,8 @@ public record TicketDto(
     TicketCategory Category,
     Guid? FailureTypeId,
     string? FailureTypeName,
+    Guid? SupportTypeId,
+    string? SupportTypeName,
     DateTimeOffset DateSubmitted,
     Guid? ForwardedByEmployeeId,
     Guid? AssignedEmployeeId,
@@ -20,6 +22,9 @@ public record TicketDto(
     /// <summary>AssignedAt + the ticket's FailureType duration, or null if no FailureType was chosen (falls back to the global on-time target in reporting — see ReportService).</summary>
     DateTimeOffset? ExpectedResolutionBy,
     bool Chargeable,
+    /// <summary>Price quoted at submission (failure type base price + support type fee), or null when the ticket was covered by free support.</summary>
+    decimal? ChargeAmount,
+    bool ChargeAcknowledged,
     TicketStatus Status,
     TicketPriority Priority,
     DateTimeOffset? ResolvedAt,
@@ -46,7 +51,26 @@ public record VoiceNoteUploadResult(string StorageKey, string FileName);
 /// ticket exists yet at that point), then passes the returned storage key
 /// here so it's attached to the ticket atomically on creation.
 /// </summary>
-public record SubmitTicketRequest(Guid ClientId, Guid AgreementId, string Description, TicketCategory Category, Guid? FailureTypeId, string? VoiceNoteStorageKey = null, string? VoiceNoteFileName = null);
+public record SubmitTicketRequest(
+    Guid ClientId,
+    Guid AgreementId,
+    string Description,
+    TicketCategory Category,
+    Guid? FailureTypeId,
+    string? VoiceNoteStorageKey = null,
+    string? VoiceNoteFileName = null,
+    Guid? SupportTypeId = null,
+    /// <summary>Must be true when the client's free support window has run out — the server recomputes the price and refuses the ticket without this.</summary>
+    bool AcknowledgeChargeable = false);
+
+/// <summary>
+/// What a ticket would cost before it's submitted, so the portal can show
+/// "Free support" or the exact figure the client is about to agree to.
+/// Priced by the server rather than the browser — the same numbers are
+/// recalculated on submit, so a tampered client can't talk its way into a
+/// cheaper ticket.
+/// </summary>
+public record TicketQuoteDto(bool Chargeable, decimal BasePrice, decimal SupportFee, decimal Total, DateOnly? FreeSupportEndsOn);
 
 public record UpdateTicketStatusRequest(TicketStatus Status, string ActorName);
 

@@ -29,6 +29,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<PasswordResetRequest> PasswordResetRequestsSet => Set<PasswordResetRequest>();
     public DbSet<LocationEntry> LocationEntriesSet => Set<LocationEntry>();
     public DbSet<FailureType> FailureTypesSet => Set<FailureType>();
+    public DbSet<SupportType> SupportTypesSet => Set<SupportType>();
     public DbSet<StoredFile> StoredFilesSet => Set<StoredFile>();
 
     // IAppDbContext — exposed as IQueryable so Application services never depend on DbSet<T> directly.
@@ -53,6 +54,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public IQueryable<PasswordResetRequest> PasswordResetRequests => PasswordResetRequestsSet;
     public IQueryable<LocationEntry> LocationEntries => LocationEntriesSet;
     public IQueryable<FailureType> FailureTypes => FailureTypesSet;
+    public IQueryable<SupportType> SupportTypes => SupportTypesSet;
     public IQueryable<StoredFile> StoredFiles => StoredFilesSet;
 
     public new void Add<TEntity>(TEntity entity) where TEntity : class => Set<TEntity>().Add(entity);

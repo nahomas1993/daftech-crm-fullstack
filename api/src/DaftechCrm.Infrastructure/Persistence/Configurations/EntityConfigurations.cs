@@ -187,6 +187,8 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.HasOne(x => x.AssignedEmployee).WithMany(e => e.AssignedTickets).HasForeignKey(x => x.AssignedEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.ForwardedByEmployee).WithMany().HasForeignKey(x => x.ForwardedByEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.FailureType).WithMany().HasForeignKey(x => x.FailureTypeId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(x => x.SupportType).WithMany().HasForeignKey(x => x.SupportTypeId).OnDelete(DeleteBehavior.SetNull);
+        b.Property(x => x.ChargeAmount).HasPrecision(12, 2);
         b.HasMany(x => x.AuditTrail).WithOne(a => a.Ticket).HasForeignKey(a => a.TicketId);
         b.HasIndex(x => x.Status);
         b.HasIndex(x => x.Priority);
@@ -427,6 +429,21 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.Property(x => x.Description).HasMaxLength(500);
         b.HasIndex(x => x.Name).IsUnique();
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
+        b.Property(x => x.BasePrice).HasPrecision(12, 2);
+    }
+}
+
+/// <summary>Admin-managed support types and the extra fee each adds on top of a failure type's base price.</summary>
+public class SupportTypeConfiguration : IEntityTypeConfiguration<SupportType>
+{
+    public void Configure(EntityTypeBuilder<SupportType> b)
+    {
+        b.ToTable("support_types");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+        b.Property(x => x.Description).HasMaxLength(500);
+        b.Property(x => x.AdditionalFee).HasPrecision(12, 2);
+        b.HasIndex(x => x.Name).IsUnique();
     }
 }
 

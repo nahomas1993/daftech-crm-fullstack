@@ -159,6 +159,7 @@ public static class DependencyInjection
 
         services.AddScoped<ILocationService, LocationService>();
         services.AddScoped<IFailureTypeService, FailureTypeService>();
+        services.AddScoped<ISupportTypeService, SupportTypeService>();
 
         return services;
     }

@@ -13,6 +13,9 @@ public record TrainingAssignmentDto(Guid Id, Guid TrainerEmployeeId, string Trai
 /// <summary>Manual Assignment request body — Admin's pick from the dropdown (itself capped client-side, re-checked server-side against Training.MaxTrainersPerSystemProduct). See SystemProductsController.AddTrainingAssignment.</summary>
 public record AddTrainingAssignmentRequest(Guid TrainerEmployeeId);
 
+/// <summary>One system/product the Admin has put this Trainer on the roster for — the only things a Trainer may log training against. See TrainingController.GetMyAssignments.</summary>
+public record MyTrainingAssignmentDto(Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName);
+
 /// <summary>One training session actually conducted and logged — see TrainingRecord.</summary>
 public record TrainingRecordDto(
     Guid Id, Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName,

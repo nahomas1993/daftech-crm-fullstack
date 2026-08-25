@@ -38,6 +38,28 @@ public class Ticket
     public Guid? FailureTypeId { get; set; }
     public FailureType? FailureType { get; set; }
 
+    /// <summary>
+    /// Support type the client picked on submission (e.g. "On-site"). Its
+    /// AdditionalFee is added to the failure type's base price when the
+    /// ticket falls outside the client's free support window. Null on
+    /// tickets submitted before support types existed, or when none was
+    /// picked.
+    /// </summary>
+    public Guid? SupportTypeId { get; set; }
+    public SupportType? SupportType { get; set; }
+
+    /// <summary>
+    /// What the client was quoted in ETB when this ticket was submitted:
+    /// FailureType.BasePrice + SupportType.AdditionalFee. Frozen at
+    /// submission on purpose — later price changes in Settings must not
+    /// rewrite what someone already agreed to pay. Null on free-support
+    /// tickets and on tickets created before pricing existed.
+    /// </summary>
+    public decimal? ChargeAmount { get; set; }
+
+    /// <summary>True when the client ticked the "I understand this request is chargeable" box. Always false on free tickets, and a chargeable ticket can't be saved without it.</summary>
+    public bool ChargeAcknowledged { get; set; }
+
     public DateTimeOffset DateSubmitted { get; set; } = DateTimeOffset.UtcNow;
 
     public Guid? ForwardedByEmployeeId { get; set; }

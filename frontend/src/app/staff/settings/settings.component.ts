@@ -5,6 +5,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { SystemConfigurationService } from '../../core/services/system-configuration.service';
 import { LocationService } from '../../core/services/location.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
+import { SupportTypeService } from '../../core/services/support-type.service';
 import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
@@ -24,7 +25,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
       @if (isAdmin()) {
         <button class="tab" [class.active]="tab() === 'configuration'" (click)="tab.set('configuration')">Configuration</button>
         <button class="tab" [class.active]="tab() === 'locations'" (click)="tab.set('locations')">Locations</button>
-        <button class="tab" [class.active]="tab() === 'failureTypes'" (click)="tab.set('failureTypes')">Failure Types &amp; SLA</button>
+        <button class="tab" [class.active]="tab() === 'failureTypes'" (click)="tab.set('failureTypes')">Failure Types &amp; Pricing</button>
       }
     </div>
 
@@ -167,6 +168,8 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             Define the kinds of failures clients can report, and how long each should take to resolve.
             Clients pick one when submitting a ticket; the on-time/late report uses that ticket's own target
             instead of the general Ticket Workflow target above once it's assigned to a technician.
+            The base price is what a client pays for that failure once their free support period has ended —
+            the support type fee below is added on top.
           </p>
 
           <div class="ft-add-row">
@@ -175,6 +178,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             </select>
             <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
+            <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="newFtBasePrice.set($event)" />
             <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
             <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
               <option value="Hours">Hours</option>
@@ -194,6 +198,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                     </select>
                     <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
+                    <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="editingFtBasePrice.set($event)" />
                     <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
                     <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
                       <option value="Hours">Hours</option>
@@ -207,7 +212,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   </div>
                 } @else {
                   <span class="entry-name">
-                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ ft.durationUnit.toLowerCase() }}
+                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ ft.durationUnit.toLowerCase() }} · {{ ft.basePrice }} ETB base
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
                   </span>
                   <div class="entry-actions">
@@ -222,6 +227,53 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             }
           </ul>
           @if (failureTypesError()) { <div class="err" style="margin-top:0.5rem;">{{ failureTypesError() }}</div> }
+        </div>
+
+        <div class="panel panel-pad" style="margin-top:1.1rem;">
+          <h3>Support Types &amp; Additional Fees</h3>
+          <p class="text-muted hint">
+            The ways you deliver support — remote, on-site, after hours — and what each one adds to the bill.
+            On a chargeable ticket the client pays the failure type's base price plus the fee of the support
+            type they chose. A zero fee is fine if a support type costs nothing extra.
+          </p>
+
+          <div class="ft-add-row">
+            <input type="text" placeholder="Support type name…" [ngModel]="newStName()" (ngModelChange)="newStName.set($event)" />
+            <input type="text" placeholder="Description (optional)…" [ngModel]="newStDescription()" (ngModelChange)="newStDescription.set($event)" />
+            <input type="number" min="0" step="0.01" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="newStFee.set($event)" />
+            <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="addSupportType()">Add</button>
+          </div>
+
+          <ul class="entry-list">
+            @for (st of supportTypes.types(); track st.id) {
+              <li class="entry-row">
+                @if (editingStId() === st.id) {
+                  <div class="ft-edit-row">
+                    <input type="text" [ngModel]="editingStName()" (ngModelChange)="editingStName.set($event)" />
+                    <input type="text" placeholder="Description (optional)…" [ngModel]="editingStDescription()" (ngModelChange)="editingStDescription.set($event)" />
+                    <input type="number" min="0" step="0.01" [ngModel]="editingStFee()" (ngModelChange)="editingStFee.set($event)" />
+                  </div>
+                  <div class="entry-actions">
+                    <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="saveStEdit(st.id)">Save</button>
+                    <button class="btn btn-outline btn-sm" (click)="cancelStEdit()">Cancel</button>
+                  </div>
+                } @else {
+                  <span class="entry-name">
+                    {{ st.name }} — +{{ st.additionalFee }} ETB
+                    @if (st.description) { <span class="text-muted"> · {{ st.description }}</span> }
+                  </span>
+                  <div class="entry-actions">
+                    <button class="btn btn-outline btn-sm" (click)="startStEdit(st)">Edit</button>
+                    <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingSupportTypes()" (click)="deleteSupportType(st.id)">Delete</button>
+                  </div>
+                }
+              </li>
+            }
+            @empty {
+              <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">No support types yet — add some so clients can say how they'd like to be helped.</li>
+            }
+          </ul>
+          @if (supportTypesError()) { <div class="err" style="margin-top:0.5rem;">{{ supportTypesError() }}</div> }
         </div>
       </div>
     }
@@ -306,7 +358,7 @@ export class SettingsComponent implements OnInit {
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
-  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService) {}
+  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService) {}
 
   async ngOnInit() {
     if (this.isAdmin()) {
@@ -507,6 +559,7 @@ export class SettingsComponent implements OnInit {
   newFtCategory = signal<TicketCategory>('Frontend');
   newFtName = signal('');
   newFtDescription = signal('');
+  newFtBasePrice = signal<number>(0);
   newFtValue = signal<number>(1);
   newFtUnit = signal<DurationUnit>('Days');
   savingFailureTypes = signal(false);
@@ -515,6 +568,7 @@ export class SettingsComponent implements OnInit {
   editingFtCategory = signal<TicketCategory>('Frontend');
   editingFtName = signal('');
   editingFtDescription = signal('');
+  editingFtBasePrice = signal<number>(0);
   editingFtValue = signal<number>(1);
   editingFtUnit = signal<DurationUnit>('Days');
 
@@ -527,11 +581,12 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined);
+      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, Number(this.newFtBasePrice()) || 0);
       this.newFtName.set('');
       this.newFtDescription.set('');
       this.newFtValue.set(1);
       this.newFtUnit.set('Days');
+      this.newFtBasePrice.set(0);
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not add this failure type — the name may already exist.');
     } finally {
@@ -539,11 +594,12 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; durationValue: number; durationUnit: DurationUnit }) {
+  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; basePrice: number; durationValue: number; durationUnit: DurationUnit }) {
     this.editingFtId.set(ft.id);
     this.editingFtCategory.set(ft.category);
     this.editingFtName.set(ft.name);
     this.editingFtDescription.set(ft.description ?? '');
+    this.editingFtBasePrice.set(ft.basePrice ?? 0);
     this.editingFtValue.set(ft.durationValue);
     this.editingFtUnit.set(ft.durationUnit);
     this.failureTypesError.set(null);
@@ -560,7 +616,7 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined);
+      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, Number(this.editingFtBasePrice()) || 0);
       this.cancelFtEdit();
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');
@@ -578,6 +634,76 @@ export class SettingsComponent implements OnInit {
       this.failureTypesError.set(e?.error ?? 'Could not delete this failure type.');
     } finally {
       this.savingFailureTypes.set(false);
+    }
+  }
+
+  // --- Support Types (same tab as failure types) ---
+
+  newStName = signal('');
+  newStDescription = signal('');
+  newStFee = signal<number>(0);
+  savingSupportTypes = signal(false);
+  supportTypesError = signal<string | null>(null);
+  editingStId = signal<string | null>(null);
+  editingStName = signal('');
+  editingStDescription = signal('');
+  editingStFee = signal<number>(0);
+
+  async addSupportType() {
+    const name = this.newStName().trim();
+    if (!name) return;
+
+    this.supportTypesError.set(null);
+    this.savingSupportTypes.set(true);
+    try {
+      await this.supportTypes.create(name, Number(this.newStFee()) || 0, this.newStDescription().trim() || undefined);
+      this.newStName.set('');
+      this.newStDescription.set('');
+      this.newStFee.set(0);
+    } catch (e: any) {
+      this.supportTypesError.set(e?.error ?? 'Could not add this support type — the name may already exist.');
+    } finally {
+      this.savingSupportTypes.set(false);
+    }
+  }
+
+  startStEdit(st: { id: string; name: string; description?: string; additionalFee: number }) {
+    this.editingStId.set(st.id);
+    this.editingStName.set(st.name);
+    this.editingStDescription.set(st.description ?? '');
+    this.editingStFee.set(st.additionalFee ?? 0);
+    this.supportTypesError.set(null);
+  }
+
+  cancelStEdit() {
+    this.editingStId.set(null);
+  }
+
+  async saveStEdit(id: string) {
+    const name = this.editingStName().trim();
+    if (!name) return;
+
+    this.supportTypesError.set(null);
+    this.savingSupportTypes.set(true);
+    try {
+      await this.supportTypes.update(id, name, Number(this.editingStFee()) || 0, this.editingStDescription().trim() || undefined);
+      this.cancelStEdit();
+    } catch (e: any) {
+      this.supportTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');
+    } finally {
+      this.savingSupportTypes.set(false);
+    }
+  }
+
+  async deleteSupportType(id: string) {
+    this.supportTypesError.set(null);
+    this.savingSupportTypes.set(true);
+    try {
+      await this.supportTypes.remove(id);
+    } catch (e: any) {
+      this.supportTypesError.set(e?.error ?? 'Could not delete this support type — it may be in use by a ticket.');
+    } finally {
+      this.savingSupportTypes.set(false);
     }
   }
 }

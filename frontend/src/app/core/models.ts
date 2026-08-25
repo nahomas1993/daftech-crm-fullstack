@@ -206,6 +206,13 @@ export interface Ticket {
   /** assignedAt + the ticket's failure type duration. Undefined until assigned, or if no failure type was chosen. */
   expectedResolutionBy?: string; // ISO datetime
   chargeable: boolean;
+  /** Which support type the client chose (remote, on-site...), if any. */
+  supportTypeId?: string;
+  supportTypeName?: string;
+  /** Failure type base price + support type fee, in ETB. Only set on chargeable tickets. */
+  chargeAmount?: number;
+  /** True when the client ticked the acknowledgement box for a chargeable request. */
+  chargeAcknowledged: boolean;
   status: TicketStatus;
   priority: TicketPriority;
   resolvedAt?: string;
@@ -481,8 +488,27 @@ export interface FailureType {
   category: TicketCategory;
   name: string;
   description?: string;
+  /** Charge in ETB for this failure type once the client's free support period has ended. */
+  basePrice: number;
   durationValue: number;
   durationUnit: DurationUnit;
+}
+
+/** Admin-defined way support is delivered (remote, on-site, after hours...). Its fee is added to the failure type's base price on chargeable tickets. */
+export interface SupportType {
+  id: string;
+  name: string;
+  description?: string;
+  additionalFee: number;
+}
+
+/** What a ticket would cost, worked out by the server before the client submits it. */
+export interface TicketQuote {
+  chargeable: boolean;
+  basePrice: number;
+  supportFee: number;
+  total: number;
+  freeSupportEndsOn?: string | null;
 }
 
 export interface ExpiringClient {
@@ -620,4 +646,12 @@ export interface DashboardData {
   supportOverview: SupportOverview;
   /** Sections the API could not build on this request — the Dashboard shows a per-widget notice instead of blanking the page. */
   failedSections?: string[];
+}
+
+/** One system/product an Admin put the logged-in Trainer on the roster for — see TrainingService.getMyAssignments. */
+export interface MyTrainingAssignment {
+  systemProductId: string;
+  systemProductName: string;
+  clientId: string;
+  clientName: string;
 }

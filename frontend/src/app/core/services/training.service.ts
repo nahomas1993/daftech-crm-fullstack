@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { TrainingRecord } from '../models';
+import { MyTrainingAssignment, TrainingRecord } from '../models';
 import { API_BASE_URL } from './api-base';
 
 /**
@@ -30,6 +30,11 @@ export class TrainingService {
    */
   async create(data: { systemProductId: string; trainingDate: string; description: string }): Promise<TrainingRecord> {
     return firstValueFrom(this.http.post<TrainingRecord>(`${API_BASE_URL}/training`, data));
+  }
+
+  /** The system/products Admin has assigned the logged-in Trainer to train on — the only valid targets for create(). Trainers never pick a client themselves. */
+  async getMyAssignments(): Promise<MyTrainingAssignment[]> {
+    return firstValueFrom(this.http.get<MyTrainingAssignment[]>(`${API_BASE_URL}/training/my-assignments`));
   }
 
   /** The logged-in Trainer's own training records across every system/product — the "My Trainings" list. */

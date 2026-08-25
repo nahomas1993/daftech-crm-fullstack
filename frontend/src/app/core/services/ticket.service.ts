@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { Ticket, TicketCategory, TicketStatus, TicketPriority, PagedResult } from '../models';
+import { Ticket, TicketCategory, TicketStatus, TicketPriority, PagedResult, TicketQuote } from '../models';
 import { API_BASE_URL } from './api-base';
 import { AuthService } from './auth.service';
 
@@ -151,7 +151,9 @@ export class TicketService {
     voiceNote?: {
       storageKey: string;
       fileName: string;
-    }
+    },
+    supportTypeId?: string,
+    acknowledgeChargeable = false
   ): Promise<Ticket> {
     const ticket = await firstValueFrom(
       this.http.post<Ticket>(
@@ -162,6 +164,8 @@ export class TicketService {
           description,
           category,
           failureTypeId,
+          supportTypeId,
+          acknowledgeChargeable,
           voiceNoteStorageKey: voiceNote?.storageKey,
           voiceNoteFileName: voiceNote?.fileName,
         }
@@ -178,6 +182,25 @@ export class TicketService {
     await this.refreshMyTickets(clientId);
 
     return ticket;
+  }
+
+  /**
+   * Asks the server what this issue would cost before it is submitted. The
+   * price is always the server's — we only display what it returns, so a
+   * client can't talk the figure down from the browser.
+   */
+  async quote(
+    agreementId: string,
+    failureTypeId?: string,
+    supportTypeId?: string
+  ): Promise<TicketQuote> {
+    let params = new HttpParams().set('agreementId', agreementId);
+    if (failureTypeId) params = params.set('failureTypeId', failureTypeId);
+    if (supportTypeId) params = params.set('supportTypeId', supportTypeId);
+
+    return firstValueFrom(
+      this.http.get<TicketQuote>(`${API_BASE_URL}/tickets/quote`, { params })
+    );
   }
 
   async uploadVoiceNote(

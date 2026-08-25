@@ -13,7 +13,7 @@ public class FailureTypeService : IFailureTypeService
     private const string CacheKey = "failure-types:all";
     public FailureTypeService(IAppDbContext db, IMemoryCache cache) { _db = db; _cache = cache; }
 
-    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Category, f.Name, f.Description, f.DurationValue, f.DurationUnit);
+    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit);
 
     public async Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default)
     {
@@ -21,7 +21,7 @@ public class FailureTypeService : IFailureTypeService
             return cached;
 
         var result = await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Name)
-            .Select(f => new FailureTypeDto(f.Id, f.Category, f.Name, f.Description, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
+            .Select(f => new FailureTypeDto(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit)).ToListAsync(ct);
         _cache.Set(CacheKey, result, TimeSpan.FromMinutes(10));
         return result;
     }
@@ -33,6 +33,8 @@ public class FailureTypeService : IFailureTypeService
             throw new InvalidOperationException("Name is required.");
         if (request.DurationValue <= 0)
             throw new InvalidOperationException("Expected duration must be greater than zero.");
+        if (request.BasePrice < 0)
+            throw new InvalidOperationException("The base price can't be negative.");
 
         var exists = await _db.FailureTypes.AnyAsync(x => x.Name.ToLower() == name.ToLower(), ct);
         if (exists)
@@ -40,7 +42,7 @@ public class FailureTypeService : IFailureTypeService
 
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
-        var entry = new FailureType { Category = request.Category, Name = name, Description = description, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
+        var entry = new FailureType { Category = request.Category, Name = name, Description = description, BasePrice = request.BasePrice, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit };
         _db.Add(entry);
         await _db.SaveChangesAsync(ct);
         _cache.Remove(CacheKey);
@@ -57,6 +59,8 @@ public class FailureTypeService : IFailureTypeService
             throw new InvalidOperationException("Name is required.");
         if (request.DurationValue <= 0)
             throw new InvalidOperationException("Expected duration must be greater than zero.");
+        if (request.BasePrice < 0)
+            throw new InvalidOperationException("The base price can't be negative.");
 
         var exists = await _db.FailureTypes.AnyAsync(x => x.Id != id && x.Name.ToLower() == name.ToLower(), ct);
         if (exists)
@@ -65,6 +69,7 @@ public class FailureTypeService : IFailureTypeService
         entry.Category = request.Category;
         entry.Name = name;
         entry.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        entry.BasePrice = request.BasePrice;
         entry.DurationValue = request.DurationValue;
         entry.DurationUnit = request.DurationUnit;
         _db.Update(entry);

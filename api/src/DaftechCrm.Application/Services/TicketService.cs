@@ -64,6 +64,7 @@ public class TicketService : ITicketService
             Description = request.Description,
             Category = request.Category,
             FailureTypeId = request.FailureTypeId,
+            SupportTypeId = request.SupportTypeId,
             Chargeable = chargeable,
             Status = TicketStatus.Submitted,
             VoiceNoteStorageKey = request.VoiceNoteStorageKey,
@@ -110,6 +111,43 @@ public class TicketService : ITicketService
                 throw new ValidationException("Selected failure type was not found.");
             if (failureType.Category != request.Category)
                 throw new ValidationException("Selected failure type does not belong to the selected category.");
+        }
+
+        SupportType? supportType = null;
+        if (request.SupportTypeId is Guid requestedSupportTypeId)
+        {
+            supportType = await _db.SupportTypes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == requestedSupportTypeId, ct);
+            if (supportType is null)
+                throw new ValidationException("We couldn't find the support type you picked.");
+        }
+
+        // Price the ticket here, on the server, from the same numbers the
+        // quote endpoint used — never from anything the browser sent. A
+        // client whose free support window has run out has to tick the
+        // acknowledgement box, so nobody ends up billed for something they
+        // didn't agree to.
+        if (chargeable)
+        {
+            if (!request.AcknowledgeChargeable)
+                throw new ValidationException(
+                    "This request falls outside your free support period, so please confirm you accept the charge before submitting.");
+
+            ticket.ChargeAmount = (failureType?.BasePrice ?? 0m) + (supportType?.AdditionalFee ?? 0m);
+            ticket.ChargeAcknowledged = true;
+            ticket.AuditTrail.Add(
+                new TicketAuditEntry
+                {
+                    TicketId = ticket.Id,
+                    Actor = "Client",
+                    Action = $"Accepted a charge of {ticket.ChargeAmount:0.##} ETB for this request"
+                });
+        }
+        else
+        {
+            ticket.ChargeAmount = null;
+            ticket.ChargeAcknowledged = false;
         }
 
         var canAssignNow = _officeTime.IsWorkingMoment(now) && FitsBeforeCloseIfSaturday(now, failureType);
@@ -790,6 +828,7 @@ public class TicketService : ITicketService
             .Include(t => t.AssignedEmployee)
             .Include(t => t.AuditTrail)
             .Include(t => t.FailureType)
+            .Include(t => t.SupportType)
             .OrderByDescending(t => t.DateSubmitted)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -806,6 +845,8 @@ public class TicketService : ITicketService
                     t.Category,
                     t.FailureTypeId,
                     t.FailureType?.Name,
+                    t.SupportTypeId,
+                    t.SupportType?.Name,
                     t.DateSubmitted,
                     t.ForwardedByEmployeeId,
                     t.AssignedEmployeeId,
@@ -813,6 +854,8 @@ public class TicketService : ITicketService
                     t.AssignedAt,
                     ExpectedResolutionBy(t),
                     t.Chargeable,
+                    t.ChargeAmount,
+                    t.ChargeAcknowledged,
                     t.Status,
                     t.Priority,
                     t.ResolvedAt,
@@ -903,6 +946,7 @@ public class TicketService : ITicketService
             .Include(t => t.AssignedEmployee)
             .Include(t => t.AuditTrail)
             .Include(t => t.FailureType)
+            .Include(t => t.SupportType)
             .OrderByDescending(t => t.DateSubmitted)
             .ToListAsync(ct);
 
@@ -917,6 +961,8 @@ public class TicketService : ITicketService
                     t.Category,
                     t.FailureTypeId,
                     t.FailureType?.Name,
+                    t.SupportTypeId,
+                    t.SupportType?.Name,
                     t.DateSubmitted,
                     t.ForwardedByEmployeeId,
                     t.AssignedEmployeeId,
@@ -924,6 +970,8 @@ public class TicketService : ITicketService
                     t.AssignedAt,
                     ExpectedResolutionBy(t),
                     t.Chargeable,
+                    t.ChargeAmount,
+                    t.ChargeAcknowledged,
                     t.Status,
                     t.Priority,
                     t.ResolvedAt,
@@ -1092,5 +1140,43 @@ public class TicketService : ITicketService
         return await _storage.GetAsync(
             ticket.VoiceNoteStorageKey,
             ct);
+    }
+
+    /// <summary>
+    /// Works out what a ticket would cost before the client commits to it.
+    /// Free while the agreement's support window is still open; after that
+    /// it's the failure type's base price plus the support type's fee.
+    /// </summary>
+    public async Task<TicketQuoteDto> QuoteAsync(
+        Guid agreementId,
+        Guid? failureTypeId,
+        Guid? supportTypeId,
+        CancellationToken ct = default)
+    {
+        var agreement = await _db.Agreements
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == agreementId, ct)
+            ?? throw new InvalidOperationException("Agreement not found.");
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var chargeable = !agreement.IsWithinSupportWindow(today);
+        var freeSupportEndsOn = agreement.SignDate.AddMonths(agreement.SupportWindowMonths);
+
+        var basePrice = 0m;
+        if (failureTypeId is Guid ftId)
+            basePrice = await _db.FailureTypes.AsNoTracking()
+                .Where(f => f.Id == ftId).Select(f => f.BasePrice).FirstOrDefaultAsync(ct);
+
+        var supportFee = 0m;
+        if (supportTypeId is Guid stId)
+            supportFee = await _db.SupportTypes.AsNoTracking()
+                .Where(s => s.Id == stId).Select(s => s.AdditionalFee).FirstOrDefaultAsync(ct);
+
+        return new TicketQuoteDto(
+            chargeable,
+            chargeable ? basePrice : 0m,
+            chargeable ? supportFee : 0m,
+            chargeable ? basePrice + supportFee : 0m,
+            freeSupportEndsOn);
     }
 }

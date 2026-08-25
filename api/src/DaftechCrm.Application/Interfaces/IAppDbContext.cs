@@ -30,6 +30,7 @@ public interface IAppDbContext
     IQueryable<PasswordResetRequest> PasswordResetRequests { get; }
     IQueryable<LocationEntry> LocationEntries { get; }
     IQueryable<FailureType> FailureTypes { get; }
+    IQueryable<SupportType> SupportTypes { get; }
     IQueryable<StoredFile> StoredFiles { get; }
 
     void Add<TEntity>(TEntity entity) where TEntity : class;

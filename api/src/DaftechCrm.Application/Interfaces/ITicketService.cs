@@ -13,6 +13,9 @@ public interface ITicketService
     /// </summary>
     Task<TicketDto> SubmitFromClientAsync(SubmitTicketRequest request, CancellationToken ct = default);
 
+    /// <summary>Prices a not-yet-submitted ticket so the portal can show free vs chargeable support and the exact figure.</summary>
+    Task<TicketQuoteDto> QuoteAsync(Guid agreementId, Guid? failureTypeId, Guid? supportTypeId, CancellationToken ct = default);
+
     /// <summary>
     /// Employee updates ticket status. Setting Resolved starts the client
     /// confirmation window instead of closing the ticket outright.

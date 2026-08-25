@@ -252,6 +252,16 @@ public class TrainingController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
+    /// <summary>The system/products Admin has assigned the calling Trainer to train on — "My Trainings" offers only these, the Trainer never chooses a client themselves.</summary>
+    [HttpGet("my-assignments")]
+    public async Task<ActionResult<IReadOnlyList<MyTrainingAssignmentDto>>> GetMyAssignments(CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        return Ok(await _training.GetAssignmentsForTrainerAsync(callerId, ct));
+    }
+
     /// <summary>The calling Trainer's own logged training records across every system/product — the "My Trainings" list.</summary>
     [HttpGet("my-records")]
     public async Task<ActionResult<IReadOnlyList<TrainingRecordDto>>> GetMyRecords(CancellationToken ct)
@@ -928,6 +938,43 @@ public class FailureTypesController : ControllerBase
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         try { await _failureTypes.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+}
+
+[ApiController]
+[Route("api/support-types")]
+public class SupportTypesController : ControllerBase
+{
+    private readonly ISupportTypeService _supportTypes;
+    public SupportTypesController(ISupportTypeService supportTypes) => _supportTypes = supportTypes;
+
+    /// <summary>Public, like failure types — the client portal's submit form needs it to build the dropdown.</summary>
+    [HttpGet]
+    [AllowAnonymous]
+    public async Task<ActionResult<IReadOnlyList<SupportTypeDto>>> GetAll(CancellationToken ct) => Ok(await _supportTypes.GetAllAsync(ct));
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<SupportTypeDto>> Create([FromBody] CreateSupportTypeRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _supportTypes.CreateAsync(request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<SupportTypeDto>> Update(Guid id, [FromBody] UpdateSupportTypeRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _supportTypes.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _supportTypes.DeleteAsync(id, ct); return NoContent(); }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 }

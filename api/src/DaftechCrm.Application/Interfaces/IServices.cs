@@ -270,6 +270,9 @@ public interface ITrainingRecordService
     /// </summary>
     Task<TrainingRecordDto> CreateAsync(Guid callerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default);
 
+    /// <summary>Every system/product the given Trainer is on the training roster for (Admin decides this) — the only valid targets for CreateAsync.</summary>
+    Task<IReadOnlyList<MyTrainingAssignmentDto>> GetAssignmentsForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default);
+
     /// <summary>Every TrainingRecord logged by the given Trainer, across every system/product — the "My Trainings" list for that employee. Newest first.</summary>
     Task<IReadOnlyList<TrainingRecordDto>> GetForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default);
 
@@ -492,6 +495,14 @@ public interface ILocationService
 /// ticket submission; the on-time/late report uses that ticket's duration
 /// instead of the global OnTimeResolutionTargetDays when set.
 /// </summary>
+public interface ISupportTypeService
+{
+    Task<IReadOnlyList<SupportTypeDto>> GetAllAsync(CancellationToken ct = default);
+    Task<SupportTypeDto> CreateAsync(CreateSupportTypeRequest request, CancellationToken ct = default);
+    Task<SupportTypeDto> UpdateAsync(Guid id, UpdateSupportTypeRequest request, CancellationToken ct = default);
+    Task DeleteAsync(Guid id, CancellationToken ct = default);
+}
+
 public interface IFailureTypeService
 {
     Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default);

@@ -6,9 +6,10 @@ import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
+import { SupportTypeService } from '../../core/services/support-type.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { TICKET_CATEGORY_LABELS, TicketCategory, TicketStatus } from '../../core/models';
+import { TICKET_CATEGORY_LABELS, TicketCategory, TicketStatus, TicketQuote } from '../../core/models';
 
 type FilterKey = 'all' | 'pending' | 'accomplished' | 'escalated';
 
@@ -41,7 +42,7 @@ const REFRESH_INTERVAL_MS = 20_000;
         } @else {
           <div class="field">
             <label>Category</label>
-            <select [ngModel]="category()" (ngModelChange)="category.set($event); failureTypeId.set('')">
+            <select [ngModel]="category()" (ngModelChange)="onCategoryChange($event)">
               <option value="Frontend">Frontend</option>
               <option value="Backend">Backend</option>
               <option value="Database">Database</option>
@@ -50,7 +51,7 @@ const REFRESH_INTERVAL_MS = 20_000;
           <div class="field" style="margin-top:0.8rem;">
             <label>Failure Type</label>
             @if (failureTypes.types().length > 0) {
-              <select [ngModel]="failureTypeId()" (ngModelChange)="failureTypeId.set($event)">
+              <select [ngModel]="failureTypeId()" (ngModelChange)="onFailureTypeChange($event)">
                 <option value="">Not sure / other…</option>
                 @for (f of failureTypes.types(); track f.id) {
                   @if (f.category === category()) { <option [value]="f.id">{{ f.name }}</option> }
@@ -70,6 +71,46 @@ const REFRESH_INTERVAL_MS = 20_000;
               <button type="button" class="btn btn-outline btn-sm" style="margin-top:0.4rem; align-self:flex-start;" (click)="reloadFailureTypes()">Retry</button>
             }
           </div>
+          @if (supportTypes.types().length > 0) {
+            <div class="field" style="margin-top:0.8rem;">
+              <label>Support Type</label>
+              <select [ngModel]="supportTypeId()" (ngModelChange)="onSupportTypeChange($event)">
+                <option value="">No preference</option>
+                @for (s of supportTypes.types(); track s.id) {
+                  <option [value]="s.id">{{ s.name }}</option>
+                }
+              </select>
+              @if (selectedSupportType(); as st) {
+                @if (st.description) {
+                  <span class="text-muted" style="font-size:0.75rem;">{{ st.description }}</span>
+                }
+              }
+            </div>
+          }
+
+          @if (quote(); as q) {
+            <div class="quote-box" [class.chargeable]="q.chargeable" style="margin-top:0.9rem;">
+              @if (!q.chargeable) {
+                <strong>Free Support — 0 ETB</strong>
+                <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
+                  Your free support period is still running@if (q.freeSupportEndsOn) { <span> until {{ q.freeSupportEndsOn }}</span> }, so there's nothing to pay for this issue.
+                </p>
+              } @else {
+                <strong>Chargeable Support — {{ q.total }} ETB</strong>
+                <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
+                  Your free support period ended@if (q.freeSupportEndsOn) { <span> on {{ q.freeSupportEndsOn }}</span> }.
+                  Failure type {{ q.basePrice }} ETB + support type {{ q.supportFee }} ETB.
+                </p>
+                <label class="ack">
+                  <input type="checkbox" [ngModel]="acknowledged()" (ngModelChange)="acknowledged.set($event)" />
+                  <span>I acknowledge that this request is chargeable.</span>
+                </label>
+              }
+            </div>
+          } @else if (quoteLoading()) {
+            <p class="text-muted" style="font-size:0.78rem; margin-top:0.9rem;">Checking whether this issue is covered by your free support…</p>
+          }
+
           <div class="field" style="margin-top:0.8rem;">
             <label>Description</label>
             <textarea rows="4" [ngModel]="description()" (ngModelChange)="description.set($event)" placeholder="Describe what happened, when, and any error messages…"></textarea>
@@ -107,7 +148,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               <div class="error" style="margin-top:0.5rem;">{{ recordingError() }}</div>
             }
           </div>
-          <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="!description().trim() || submitting()" (click)="submit()">
+          <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="!description().trim() || submitting() || !acknowledgementSatisfied()" (click)="submit()">
             {{ submitting() ? 'Submitting…' : 'Submit Issue' }}
           </button>
           @if (submittedId(); as id) {
@@ -186,6 +227,10 @@ const REFRESH_INTERVAL_MS = 20_000;
       font-size: 0.8rem; font-weight: 600; color: var(--slate-500);
     }
     .chip.active { background: var(--portal-accent); border-color: var(--portal-accent); color: #fff; }
+    .quote-box { border: 1px solid var(--slate-200); border-radius: 10px; padding: 0.75rem 0.9rem; background: #f7fbf8; }
+    .quote-box.chargeable { background: #fff8ef; border-color: #f0d3a8; }
+    .quote-box .ack { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; font-size: 0.8rem; font-weight: 600; }
+    .quote-box .ack input { width: 16px; height: 16px; }
     .btn.recording { background: var(--red-bg, #fdecea); border-color: var(--red, #b3261e); color: var(--red, #b3261e); animation: pulse 1.4s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   `],
@@ -194,7 +239,12 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
   category = signal<TicketCategory>('Frontend');
   failureTypeId = signal<string>('');
+  supportTypeId = signal<string>('');
   description = signal('');
+  /** Server-priced quote for the issue being written up; null until one has been fetched. */
+  quote = signal<TicketQuote | null>(null);
+  quoteLoading = signal(false);
+  acknowledged = signal(false);
   selectedFile = signal<File | null>(null);
   submittedId = signal<string | null>(null);
   submitting = signal(false);
@@ -224,12 +274,70 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     private ticketsSvc: TicketService,
     private agreementsSvc: AgreementService,
     private route: ActivatedRoute,
-    public failureTypes: FailureTypeService
+    public failureTypes: FailureTypeService,
+    public supportTypes: SupportTypeService
   ) {}
 
   selectedFailureType = computed(() =>
     this.failureTypes.types().find(f => f.id === this.failureTypeId())
   );
+
+  selectedSupportType = computed(() =>
+    this.supportTypes.types().find(s => s.id === this.supportTypeId())
+  );
+
+  /**
+   * A chargeable issue can't be sent until the client ticks the box. When the
+   * quote hasn't arrived yet we also hold the button, so nobody can submit
+   * before finding out whether they're about to be billed.
+   */
+  acknowledgementSatisfied = computed(() => {
+    const q = this.quote();
+    if (!q) return !this.quoteLoading();
+    return !q.chargeable || this.acknowledged();
+  });
+
+  onCategoryChange(value: TicketCategory) {
+    this.category.set(value);
+    this.failureTypeId.set('');
+    void this.refreshQuote();
+  }
+
+  onFailureTypeChange(value: string) {
+    this.failureTypeId.set(value);
+    void this.refreshQuote();
+  }
+
+  onSupportTypeChange(value: string) {
+    this.supportTypeId.set(value);
+    void this.refreshQuote();
+  }
+
+  /**
+   * Re-prices the issue whenever the client changes something that affects
+   * the total. Any change clears a previous acknowledgement — you can only
+   * accept the figure you were actually shown.
+   */
+  async refreshQuote(): Promise<void> {
+    const agreement = this.agreement();
+    if (!agreement) { this.quote.set(null); return; }
+
+    this.acknowledged.set(false);
+    this.quoteLoading.set(true);
+    try {
+      const q = await this.ticketsSvc.quote(
+        agreement.id,
+        this.failureTypeId() || undefined,
+        this.supportTypeId() || undefined
+      );
+      this.quote.set(q);
+    } catch {
+      this.quote.set(null);
+      this.uploadError.set('We couldn\'t work out the cost of this request just now. Please try again in a moment.');
+    } finally {
+      this.quoteLoading.set(false);
+    }
+  }
 
   durationLabel(value: number, unit: string): string {
     const noun = unit === 'Hours' ? 'hour' : unit === 'Days' ? 'day' : 'month';
@@ -261,6 +369,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     this.refreshTickets();
     this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
     void this.failureTypes.refresh();
+    void this.supportTypes.refresh();
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
   }
 
@@ -280,7 +389,12 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
 
   toggleSubmitPanel() {
     this.showSubmitPanel.update(v => !v);
-    if (!this.showSubmitPanel()) { /* closing — nothing to refresh */ } else { void this.failureTypes.refresh(); }
+    if (!this.showSubmitPanel()) { /* closing — nothing to refresh */ } else {
+      void this.failureTypes.refresh();
+      void this.supportTypes.refresh();
+      void this.refreshQuote();
+    }
+    this.acknowledged.set(false);
     this.submittedId.set(null);
     this.selectedFile.set(null);
     this.uploadError.set(null);
@@ -423,6 +537,9 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     const client = this.auth.currentClient();
     const agreement = this.agreement();
     if (!client || !agreement || !this.description().trim()) return;
+    // Belt and braces alongside the disabled button: never post a chargeable
+    // issue that hasn't been acknowledged (the server rejects it too).
+    if (!this.acknowledgementSatisfied()) return;
 
     this.submitting.set(true);
     this.uploadError.set(null);
@@ -443,7 +560,8 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
       }
 
       const ticket = await this.ticketsSvc.submitFromClient(
-        client.id, agreement.id, this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote
+        client.id, agreement.id, this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote,
+        this.supportTypeId() || undefined, this.acknowledged()
       );
 
       const file = this.selectedFile();
@@ -458,6 +576,8 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
       this.submittedId.set(ticket.id);
       this.description.set('');
       this.failureTypeId.set('');
+      this.supportTypeId.set('');
+      this.acknowledged.set(false);
       this.selectedFile.set(null);
       this.discardRecording();
     } finally {

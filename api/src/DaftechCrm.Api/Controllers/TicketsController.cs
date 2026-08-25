@@ -164,6 +164,30 @@ public class TicketsController : ControllerBase
     /// submit a ticket under a different client's identity by editing the
     /// request body.
     /// </summary>
+    /// <summary>
+    /// What this issue would cost if it were submitted right now. The
+    /// portal calls this as the client picks a failure type and support
+    /// type so it can show either "Free support" or the exact amount,
+    /// priced by the server rather than the browser.
+    /// </summary>
+    [HttpGet("quote")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClient)]
+    public async Task<ActionResult<TicketQuoteDto>> GetQuote(
+        [FromQuery] Guid agreementId,
+        [FromQuery] Guid? failureTypeId,
+        [FromQuery] Guid? supportTypeId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await _tickets.QuoteAsync(agreementId, failureTypeId, supportTypeId, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.AnyClient)]
     public async Task<ActionResult<TicketDto>> Submit(

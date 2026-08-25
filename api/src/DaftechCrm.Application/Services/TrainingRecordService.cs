@@ -55,6 +55,17 @@ public class TrainingRecordService : ITrainingRecordService
         return ToDto(record, systemProduct, trainer);
     }
 
+    /// <summary>The system/products Admin assigned this Trainer to train on — the Trainer never picks a client themselves.</summary>
+    public async Task<IReadOnlyList<MyTrainingAssignmentDto>> GetAssignmentsForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default)
+    {
+        return await _db.TrainingAssignments
+            .Where(a => a.TrainerEmployeeId == trainerEmployeeId && !a.SystemProduct.IsDeleted && !a.SystemProduct.Client.IsDeleted)
+            .OrderBy(a => a.SystemProduct.Client.Name).ThenBy(a => a.SystemProduct.Name)
+            .Select(a => new MyTrainingAssignmentDto(
+                a.SystemProductId, a.SystemProduct.Name, a.SystemProduct.ClientId, a.SystemProduct.Client.Name))
+            .ToListAsync(ct);
+    }
+
     public async Task<IReadOnlyList<TrainingRecordDto>> GetForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default)
     {
         var records = await Query().Where(r => r.TrainerEmployeeId == trainerEmployeeId)

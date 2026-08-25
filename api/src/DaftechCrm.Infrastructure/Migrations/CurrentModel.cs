@@ -279,6 +279,9 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("Description").IsRequired().HasColumnType("text");
                 b.Property<Guid?>("ForwardedByEmployeeId").HasColumnType("uuid");
                 b.Property<Guid?>("FailureTypeId").HasColumnType("uuid");
+                b.Property<Guid?>("SupportTypeId").HasColumnType("uuid");
+                b.Property<decimal?>("ChargeAmount").HasColumnType("numeric(12,2)").HasPrecision(12, 2);
+                b.Property<bool>("ChargeAcknowledged").HasColumnType("boolean");
                 b.Property<DateTimeOffset?>("ResolvedAt").HasColumnType("timestamp with time zone");
                 b.Property<int?>("SatisfactionScore").HasColumnType("integer");
                 b.Property<decimal?>("SatisfactionStars").HasColumnType("numeric(2,1)");
@@ -293,6 +296,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.HasIndex("ClientId");
                 b.HasIndex("ForwardedByEmployeeId");
                 b.HasIndex("FailureTypeId");
+                b.HasIndex("SupportTypeId");
                 b.HasIndex("Status");
                 b.HasIndex("Priority");
                 b.ToTable("tickets");
@@ -371,11 +375,23 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("Category").HasColumnType("integer");
                 b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
                 b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<decimal>("BasePrice").HasColumnType("numeric(12,2)").HasPrecision(12, 2);
                 b.Property<int>("DurationValue").HasColumnType("integer");
                 b.Property<string>("DurationUnit").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
                 b.ToTable("failure_types");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SupportType", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
+                b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<decimal>("AdditionalFee").HasColumnType("numeric(12,2)").HasPrecision(12, 2);
+                b.HasKey("Id");
+                b.HasIndex("Name").IsUnique();
+                b.ToTable("support_types");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.StoredFile", b =>
@@ -557,11 +573,16 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .WithMany()
                     .HasForeignKey("FailureTypeId")
                     .OnDelete(DeleteBehavior.SetNull);
+                b.HasOne("DaftechCrm.Domain.Entities.SupportType", "SupportType")
+                    .WithMany()
+                    .HasForeignKey("SupportTypeId")
+                    .OnDelete(DeleteBehavior.SetNull);
                 b.Navigation("Agreement");
                 b.Navigation("AssignedEmployee");
                 b.Navigation("Client");
                 b.Navigation("ForwardedByEmployee");
                 b.Navigation("FailureType");
+                b.Navigation("SupportType");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TicketAuditEntry", b =>
