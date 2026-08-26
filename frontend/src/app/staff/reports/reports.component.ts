@@ -391,7 +391,8 @@ const MONTHS = [
         } @else if (clientReportError()) {
           <p class="upload-error">{{ clientReportError() }}</p>
           <button class="btn btn-outline btn-sm" style="margin-top:0.75rem;" (click)="loadClientReport()">Retry</button>
-        } @else if (clientReport(); as r) {
+        } @else if (clientReport()) {
+          @if (clientReport(); as r) {
           <div class="client-report-header">
             <div>
               <h2 style="margin:0;">{{ r.clientName }}</h2>
@@ -525,6 +526,7 @@ const MONTHS = [
               <p class="text-muted">No satisfaction surveys submitted by this client.</p>
             }
           </div>
+          }
         }
       </div>
     }
