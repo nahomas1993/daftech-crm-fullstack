@@ -6,10 +6,11 @@ import { SystemConfigurationService } from '../../core/services/system-configura
 import { LocationService } from '../../core/services/location.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
 import { SupportTypeService } from '../../core/services/support-type.service';
+import { SurveyQuestionService } from '../../core/services/survey-question.service';
 import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
-type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes';
+type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'satisfactionSurvey';
 
 @Component({
   selector: 'app-staff-settings',
@@ -26,6 +27,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
         <button class="tab" [class.active]="tab() === 'configuration'" (click)="tab.set('configuration')">Configuration</button>
         <button class="tab" [class.active]="tab() === 'locations'" (click)="tab.set('locations')">Locations</button>
         <button class="tab" [class.active]="tab() === 'failureTypes'" (click)="tab.set('failureTypes')">Failure Types &amp; Pricing</button>
+        <button class="tab" [class.active]="tab() === 'satisfactionSurvey'" (click)="tab.set('satisfactionSurvey')">Satisfaction Survey</button>
       }
     </div>
 
@@ -181,9 +183,9 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="newFtBasePrice.set($event)" />
             <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
             <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
-              <option value="Hours">Hours</option>
-              <option value="Days">Days</option>
-              <option value="Months">Months</option>
+              <option value="Hours">Hour(s)</option>
+              <option value="Days">Day(s)</option>
+              <option value="Months">Month(s)</option>
             </select>
             <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="addFailureType()">Add</button>
           </div>
@@ -201,9 +203,9 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                     <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="editingFtBasePrice.set($event)" />
                     <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
                     <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
-                      <option value="Hours">Hours</option>
-                      <option value="Days">Days</option>
-                      <option value="Months">Months</option>
+                      <option value="Hours">Hour(s)</option>
+                      <option value="Days">Day(s)</option>
+                      <option value="Months">Month(s)</option>
                     </select>
                   </div>
                   <div class="entry-actions">
@@ -212,7 +214,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   </div>
                 } @else {
                   <span class="entry-name">
-                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ ft.durationUnit.toLowerCase() }} · {{ ft.basePrice }} ETB base
+                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ durationUnitLabel(ft.durationValue, ft.durationUnit) }} · {{ ft.basePrice }} ETB base
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
                   </span>
                   <div class="entry-actions">
@@ -274,6 +276,68 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             }
           </ul>
           @if (supportTypesError()) { <div class="err" style="margin-top:0.5rem;">{{ supportTypesError() }}</div> }
+        </div>
+      </div>
+    }
+
+    @if (tab() === 'satisfactionSurvey' && isAdmin()) {
+      <div class="section" style="max-width: 640px;">
+        <div class="panel panel-pad">
+          <h3>Satisfaction Survey Questions</h3>
+          <p class="text-muted hint">
+            Write the questions clients answer after a ticket is resolved. Each is rated on a 1-5 scale
+            (1-Poor, 2-Satisfactory, 3-Good, 4-Very good, 5-Excellent). Clients also get a free-text box
+            to describe their experience in their own words — that part isn't configurable here.
+            Drag using the arrows to reorder; inactive questions stop appearing on new surveys but stay
+            on past ones already submitted.
+          </p>
+
+          <div class="ft-add-row" style="grid-template-columns: 1fr auto;">
+            <input
+              type="text"
+              placeholder="New survey question…"
+              [ngModel]="newQuestionText()"
+              (ngModelChange)="newQuestionText.set($event)"
+              (keydown.enter)="addQuestion()"
+            />
+            <button class="btn btn-primary btn-sm" [disabled]="savingQuestions()" (click)="addQuestion()">Add</button>
+          </div>
+
+          <ul class="entry-list" style="max-height: none;">
+            @for (q of surveyQuestions.questions(); track q.id; let i = $index; let first = $first; let last = $last) {
+              <li class="entry-row">
+                @if (editingQuestionId() === q.id) {
+                  <input
+                    type="text"
+                    class="edit-input"
+                    [ngModel]="editingQuestionText()"
+                    (ngModelChange)="editingQuestionText.set($event)"
+                    (keydown.enter)="saveQuestionEdit(q.id)"
+                  />
+                  <div class="entry-actions">
+                    <button class="btn btn-primary btn-sm" [disabled]="savingQuestions()" (click)="saveQuestionEdit(q.id)">Save</button>
+                    <button class="btn btn-outline btn-sm" (click)="cancelQuestionEdit()">Cancel</button>
+                  </div>
+                } @else {
+                  <span class="entry-name">
+                    {{ q.text }}
+                    @if (!q.isActive) { <span class="text-muted"> · inactive</span> }
+                  </span>
+                  <div class="entry-actions">
+                    <button class="btn btn-outline btn-sm" [disabled]="savingQuestions() || first" (click)="moveQuestion(i, -1)">↑</button>
+                    <button class="btn btn-outline btn-sm" [disabled]="savingQuestions() || last" (click)="moveQuestion(i, 1)">↓</button>
+                    <button class="btn btn-outline btn-sm" (click)="startQuestionEdit(q.id, q.text)">Edit</button>
+                    <button class="btn btn-outline btn-sm" [disabled]="savingQuestions()" (click)="toggleQuestionActive(q)">{{ q.isActive ? 'Deactivate' : 'Activate' }}</button>
+                    <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingQuestions()" (click)="deleteQuestion(q.id)">Delete</button>
+                  </div>
+                }
+              </li>
+            }
+            @empty {
+              <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">No survey questions yet — clients won't see a survey until you add at least one.</li>
+            }
+          </ul>
+          @if (questionsError()) { <div class="err" style="margin-top:0.5rem;">{{ questionsError() }}</div> }
         </div>
       </div>
     }
@@ -343,10 +407,10 @@ export class SettingsComponent implements OnInit {
 
   // --- Locations tab ---
   readonly locationGroups: { type: LocationType; label: string; context: string }[] = [
-    { type: 'Region', label: 'Regions', context: 'client registration and signup' },
-    { type: 'Zone', label: 'Zones', context: 'client registration and signup' },
-    { type: 'City', label: 'Cities', context: 'client registration and signup' },
-    { type: 'Woreda', label: 'Woredas', context: 'client registration and signup' },
+    { type: 'Region', label: 'Regions', context: 'client registration' },
+    { type: 'Zone', label: 'Zones', context: 'client registration' },
+    { type: 'City', label: 'Cities', context: 'client registration' },
+    { type: 'Woreda', label: 'Woredas', context: 'client registration' },
     { type: 'Specialization', label: 'Specializations', context: 'the employee form' },
     { type: 'CustomRole', label: 'Additional Roles', context: 'the employee form' },
   ];
@@ -358,13 +422,14 @@ export class SettingsComponent implements OnInit {
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
-  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService) {}
+  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService, public surveyQuestions: SurveyQuestionService) {}
 
   async ngOnInit() {
     if (this.isAdmin()) {
       try {
         await this.config.refresh();
         this.resetDrafts();
+        await this.surveyQuestions.refresh();
       } finally {
         this.loadingConfig.set(false);
       }
@@ -574,6 +639,12 @@ export class SettingsComponent implements OnInit {
 
   categoryLabel(category: TicketCategory): string { return TICKET_CATEGORY_LABELS[category]; }
 
+  /** Singular/plural unit word matching the actual duration value — "1 hour" vs "2 hours". */
+  durationUnitLabel(value: number, unit: DurationUnit): string {
+    const singular = unit.toLowerCase().replace(/s$/, '');
+    return value === 1 ? singular : `${singular}s`;
+  }
+
   async addFailureType() {
     const name = this.newFtName().trim();
     if (!name || !this.newFtValue() || this.newFtValue() <= 0) return;
@@ -704,6 +775,101 @@ export class SettingsComponent implements OnInit {
       this.supportTypesError.set(e?.error ?? 'Could not delete this support type — it may be in use by a ticket.');
     } finally {
       this.savingSupportTypes.set(false);
+    }
+  }
+
+  // --- Satisfaction Survey tab ---
+
+  newQuestionText = signal('');
+  savingQuestions = signal(false);
+  questionsError = signal<string | null>(null);
+  editingQuestionId = signal<string | null>(null);
+  editingQuestionText = signal('');
+
+  async addQuestion() {
+    const text = this.newQuestionText().trim();
+    if (!text) return;
+
+    this.questionsError.set(null);
+    this.savingQuestions.set(true);
+    try {
+      await this.surveyQuestions.create(text);
+      this.newQuestionText.set('');
+    } catch (e: any) {
+      this.questionsError.set(this.extractErrorMessage(e, 'Could not add this question.'));
+    } finally {
+      this.savingQuestions.set(false);
+    }
+  }
+
+  startQuestionEdit(id: string, text: string) {
+    this.editingQuestionId.set(id);
+    this.editingQuestionText.set(text);
+    this.questionsError.set(null);
+  }
+
+  cancelQuestionEdit() {
+    this.editingQuestionId.set(null);
+  }
+
+  async saveQuestionEdit(id: string) {
+    const text = this.editingQuestionText().trim();
+    if (!text) return;
+
+    const current = this.surveyQuestions.questions().find(q => q.id === id);
+    if (!current) return;
+
+    this.questionsError.set(null);
+    this.savingQuestions.set(true);
+    try {
+      await this.surveyQuestions.update(id, text, current.isActive);
+      this.cancelQuestionEdit();
+    } catch (e: any) {
+      this.questionsError.set(this.extractErrorMessage(e, 'Could not save this change.'));
+    } finally {
+      this.savingQuestions.set(false);
+    }
+  }
+
+  async toggleQuestionActive(q: { id: string; text: string; isActive: boolean }) {
+    this.questionsError.set(null);
+    this.savingQuestions.set(true);
+    try {
+      await this.surveyQuestions.update(q.id, q.text, !q.isActive);
+    } catch (e: any) {
+      this.questionsError.set(this.extractErrorMessage(e, 'Could not update this question.'));
+    } finally {
+      this.savingQuestions.set(false);
+    }
+  }
+
+  async deleteQuestion(id: string) {
+    this.questionsError.set(null);
+    this.savingQuestions.set(true);
+    try {
+      await this.surveyQuestions.remove(id);
+    } catch (e: any) {
+      this.questionsError.set(this.extractErrorMessage(e, 'Could not delete this question.'));
+    } finally {
+      this.savingQuestions.set(false);
+    }
+  }
+
+  async moveQuestion(index: number, direction: -1 | 1) {
+    const list = [...this.surveyQuestions.questions()];
+    const target = index + direction;
+    if (target < 0 || target >= list.length) return;
+
+    [list[index], list[target]] = [list[target], list[index]];
+
+    this.questionsError.set(null);
+    this.savingQuestions.set(true);
+    try {
+      await this.surveyQuestions.reorder(list.map(q => q.id));
+    } catch (e: any) {
+      this.questionsError.set(this.extractErrorMessage(e, 'Could not reorder questions.'));
+    } finally {
+      this.savingQuestions.set(false);
     }
   }
 }

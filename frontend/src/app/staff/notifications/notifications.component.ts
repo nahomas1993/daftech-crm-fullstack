@@ -12,7 +12,7 @@ import { NotificationRecipientType } from '../../core/models';
     <div class="header-row">
       <div>
         <h1>Notifications</h1>
-        <p class="text-muted" style="margin-top:0.3rem;">Signup requests, ticket events, and agreement expiry alerts.</p>
+        <p class="text-muted" style="margin-top:0.3rem;">Ticket events, password reset requests, and agreement expiry alerts.</p>
       </div>
       <button class="btn btn-outline" (click)="markAllRead()">Mark all as read</button>
     </div>

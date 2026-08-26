@@ -84,10 +84,6 @@ function describeDashboardError(err: unknown): string {
           <div class="card-label">Active Clients</div>
           <div class="card-value">{{ activeClients() }}</div>
         </a>
-        <a routerLink="/admin/signup-requests" class="panel panel-pad card">
-          <div class="card-label">Pending Signup Requests</div>
-          <div class="card-value" [class.warn]="pendingSignups() > 0">{{ pendingSignups() }}</div>
-        </a>
         <a routerLink="/admin/agreements" class="panel panel-pad card">
           <div class="card-label">Agreements Near/Over Expiry</div>
           <div class="card-value" [class.warn]="expiringAgreements() > 0">{{ expiringAgreements() }}</div>
@@ -332,7 +328,6 @@ export class DashboardComponent {
   });
 
   activeClients = computed(() => this.clientsSvc.approvedClients().length);
-  pendingSignups = computed(() => this.clientsSvc.pendingRequests().length);
   expiringAgreements = computed(() => this.agreementsSvc.expiringSoon().length);
 
   private static readonly OPEN_STATUSES = ['Assigned', 'InProgress'];

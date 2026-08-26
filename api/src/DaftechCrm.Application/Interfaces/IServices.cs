@@ -5,25 +5,20 @@ namespace DaftechCrm.Application.Interfaces;
 
 public interface IClientService
 {
-    Task<ClientDto> SubmitSignupAsync(CreateClientSignupRequest request, CancellationToken ct = default);
-
     /// <summary>Admin registers a client directly — Approved immediately, credentials issued and emailed in the same call.</summary>
     Task<ClientRegisteredResult> RegisterAsync(RegisterClientRequest request, CancellationToken ct = default);
 
     /// <summary>Retries sending the credential email with a freshly regenerated one-time password (SRS v2.0 §4.3.1).</summary>
     Task<ResendClientCredentialEmailResult> ResendCredentialEmailAsync(Guid clientId, CancellationToken ct = default);
 
-    Task<ClientDto> ApproveAsync(Guid clientId, CancellationToken ct = default);
-    Task<ClientDto> RejectAsync(Guid clientId, RejectClientRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<ClientDto>> GetAllAsync(CancellationToken ct = default);
 
     /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Clients table UI.</summary>
     Task<PagedResult<ClientDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
 
     Task<ClientDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
-    Task<IReadOnlyList<ClientDto>> GetPendingAsync(CancellationToken ct = default);
 
-    /// <summary>Updates the plain profile fields. AccountStatus/credentials have their own dedicated endpoints (approve/reject/resend).</summary>
+    /// <summary>Updates the plain profile fields. AccountStatus/credentials have their own dedicated endpoints (resend).</summary>
     Task<ClientDto> UpdateAsync(Guid clientId, UpdateClientRequest request, CancellationToken ct = default);
 
     /// <summary>Soft-deletes the account (removes it from active lists/login) — agreements/tickets/trainings it's referenced by are left intact.</summary>
@@ -390,18 +385,9 @@ public interface IReportService
     Task<OnTimeReportDto> GetOnTimeResolutionReportAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Written/graphical performance metrics for one employee, with an
-    /// optional AI-generated narrative summary attached (SRS v2.0 §4.10).
-    /// The narrative is always best-effort — see IAiNarrativeReportService.
+    /// Written/graphical performance metrics for one employee.
     /// </summary>
-    Task<EmployeePerformanceReportDto> GetEmployeePerformanceReportAsync(Guid employeeId, bool includeAiNarrative, CancellationToken ct = default);
-
-    /// <summary>
-    /// AI narrative summary for any report table already built and shown
-    /// on the Reports page. Always best-effort — see
-    /// IAiNarrativeReportService for the degrade-gracefully contract.
-    /// </summary>
-    Task<AiPerformanceSummaryResult> SummarizeTabularReportAsync(TabularReportData data, CancellationToken ct = default);
+    Task<EmployeePerformanceReportDto> GetEmployeePerformanceReportAsync(Guid employeeId, CancellationToken ct = default);
 
     /// <summary>System-wide snapshot for the admin Reports page's "Overall Operations" pie chart — every ticket by current status, plus headline counts.</summary>
     Task<OperationsOverviewDto> GetOperationsOverviewAsync(CancellationToken ct = default);
@@ -417,17 +403,48 @@ public interface IReportService
     /// table-only reports) per the product's Reports-vs-Dashboard split.
     /// </summary>
     Task<DashboardDataDto> GetDashboardDataAsync(DashboardFilter filter, CancellationToken ct = default);
+
+    /// <summary>
+    /// Everything about one client in a single call — profile,
+    /// systems/products with their agreements and training history,
+    /// every ticket (with attachment/voice-note filenames), every
+    /// satisfaction survey, and a summary block. Powers the admin
+    /// Reports page's "Overall Client Report" tab. Returns null if the
+    /// client doesn't exist.
+    /// </summary>
+    Task<OverallClientReportDto?> GetOverallClientReportAsync(Guid clientId, CancellationToken ct = default);
 }
 
 public interface ISatisfactionSurveyService
 {
-    /// <summary>Submits the optional 5-question survey. One per ticket — resubmitting overwrites the previous answers.</summary>
+    /// <summary>Submits the optional survey (admin-defined questions). One per ticket — resubmitting overwrites the previous answers.</summary>
     Task<SatisfactionSurveyDto> SubmitAsync(SubmitSatisfactionSurveyRequest request, CancellationToken ct = default);
     Task<SatisfactionSurveyDto?> GetForTicketAsync(Guid ticketId, CancellationToken ct = default);
     Task<IReadOnlyList<SatisfactionSurveyDto>> GetAllAsync(CancellationToken ct = default);
 
     /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Satisfaction Surveys table UI.</summary>
     Task<PagedResult<SatisfactionSurveyDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Admin-managed catalog of satisfaction survey questions, edited from
+/// Settings → Configuration → Satisfaction Survey. Fully dynamic — admins
+/// add, edit, reorder, retire, and delete questions; there is no fixed
+/// question set baked into the app. The client portal's survey form
+/// renders whatever GetActiveAsync returns, in DisplayOrder.
+/// </summary>
+public interface ISurveyQuestionService
+{
+    /// <summary>Every question, including inactive ones, for the admin management screen.</summary>
+    Task<IReadOnlyList<SurveyQuestionDto>> GetAllAsync(CancellationToken ct = default);
+
+    /// <summary>Only active questions, in display order — what the client-facing survey form shows.</summary>
+    Task<IReadOnlyList<SurveyQuestionDto>> GetActiveAsync(CancellationToken ct = default);
+
+    Task<SurveyQuestionDto> CreateAsync(CreateSurveyQuestionRequest request, CancellationToken ct = default);
+    Task<SurveyQuestionDto> UpdateAsync(Guid id, UpdateSurveyQuestionRequest request, CancellationToken ct = default);
+    Task ReorderAsync(ReorderSurveyQuestionsRequest request, CancellationToken ct = default);
+    Task DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -481,7 +498,7 @@ public interface ISystemConfigurationService
 /// </summary>
 public interface ILocationService
 {
-    /// <summary>All five lists at once, alphabetized. Public — the self-signup portal is unauthenticated.</summary>
+    /// <summary>All five lists at once, alphabetized. Requires an authenticated staff session.</summary>
     Task<LocationOptionsDto> GetAllAsync(CancellationToken ct = default);
 
     Task<LocationEntryDto> CreateAsync(CreateLocationEntryRequest request, CancellationToken ct = default);

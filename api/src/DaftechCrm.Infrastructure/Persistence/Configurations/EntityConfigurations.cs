@@ -337,11 +337,39 @@ public class SatisfactionSurveyConfiguration : IEntityTypeConfiguration<Satisfac
     {
         b.ToTable("satisfaction_surveys");
         b.HasKey(x => x.Id);
-        b.Property(x => x.ImprovementFeedback).HasColumnType("text");
+        b.Property(x => x.SatisfactionComment).HasColumnType("text");
         b.HasOne(x => x.Ticket).WithMany().HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne(x => x.Client).WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
         // One survey per ticket — the portal only offers the form once per resolved ticket.
         b.HasIndex(x => x.TicketId).IsUnique();
+        b.HasMany(x => x.Answers).WithOne(a => a.SatisfactionSurvey).HasForeignKey(a => a.SatisfactionSurveyId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>One 1-5 rating a client gave to one question within a SatisfactionSurvey.</summary>
+public class SurveyAnswerConfiguration : IEntityTypeConfiguration<SurveyAnswer>
+{
+    public void Configure(EntityTypeBuilder<SurveyAnswer> b)
+    {
+        b.ToTable("survey_answers");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.QuestionText).IsRequired().HasColumnType("text");
+        // SetNull, not Cascade — deleting a SurveyQuestion later must not delete
+        // historical answers; QuestionText already snapshots what was asked.
+        b.HasOne(x => x.SurveyQuestion).WithMany().HasForeignKey(x => x.SurveyQuestionId).OnDelete(DeleteBehavior.SetNull);
+        b.HasIndex(x => x.SatisfactionSurveyId);
+    }
+}
+
+/// <summary>Admin-authored satisfaction survey question — see SurveyQuestion for the full picture.</summary>
+public class SurveyQuestionConfiguration : IEntityTypeConfiguration<SurveyQuestion>
+{
+    public void Configure(EntityTypeBuilder<SurveyQuestion> b)
+    {
+        b.ToTable("survey_questions");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Text).IsRequired().HasColumnType("text");
+        b.HasIndex(x => x.DisplayOrder);
     }
 }
 

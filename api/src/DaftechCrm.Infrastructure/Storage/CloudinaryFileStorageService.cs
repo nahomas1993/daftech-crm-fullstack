@@ -57,6 +57,19 @@ public class CloudinaryFileStorageService : IFileStorageService
             throw new FileValidationException($"File exceeds the maximum allowed size of {maxMb:0.#} MB.");
         }
 
+        // An empty stream would otherwise upload successfully as a
+        // 0-byte asset and only surface as broken later, on download —
+        // fail here instead, at the point where the cause is known.
+        if (content.Length == 0)
+        {
+            throw new FileValidationException(
+                "The uploaded file was empty or could not be read. Please try uploading it again.");
+        }
+
+        var effectiveContentType = string.IsNullOrWhiteSpace(contentType)
+            ? "application/octet-stream"
+            : contentType;
+
         var now = DateTimeOffset.UtcNow;
         var folder = $"{_options.Folder}/{now:yyyy/MM}";
         var publicIdOnly = Guid.NewGuid().ToString("N");
@@ -76,7 +89,7 @@ public class CloudinaryFileStorageService : IFileStorageService
         using var form = new MultipartFormDataContent();
         content.Position = 0;
         var fileContent = new StreamContent(content);
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(effectiveContentType);
         form.Add(fileContent, "file", originalFileName);
         form.Add(new StringContent(folder), "folder");
         form.Add(new StringContent(publicIdOnly), "public_id");
@@ -99,7 +112,7 @@ public class CloudinaryFileStorageService : IFileStorageService
 
         _logger.LogInformation("Uploaded file to Cloudinary {PublicId} ({SizeBytes} bytes)", result.PublicId, content.Length);
 
-        return new StoredFileResult(result.PublicId, result.SecureUrl, originalFileName, content.Length, contentType);
+        return new StoredFileResult(result.PublicId, result.SecureUrl, originalFileName, content.Length, effectiveContentType);
     }
 
     public async Task<RetrievedFile?> GetAsync(string storageKey, CancellationToken ct = default)

@@ -1018,19 +1018,19 @@ public class TicketService : ITicketService
             ?? throw new InvalidOperationException(
                 "Ticket not found.");
 
-        if (!string.IsNullOrEmpty(
-            ticket.AttachmentStorageKey))
-        {
-            await _storage.DeleteAsync(
-                ticket.AttachmentStorageKey,
-                ct);
-        }
-
+        // Save the new file BEFORE touching the old one. Deleting first
+        // (the previous order) meant a failed SaveAsync — validation
+        // error, storage outage, whatever — left the ticket with its old
+        // attachment gone and nothing to replace it, i.e. silent data
+        // loss. Saving first means a failed upload leaves the existing
+        // attachment untouched; only a successful save can displace it.
         var result = await _storage.SaveAsync(
             content,
             fileName,
             contentType,
             ct);
+
+        var previousStorageKey = ticket.AttachmentStorageKey;
 
         ticket.AttachmentStorageKey =
             result.StorageKey;
@@ -1042,10 +1042,32 @@ public class TicketService : ITicketService
 
         await _db.SaveChangesAsync(ct);
 
+        // Only remove the old file once the new one is safely referenced
+        // by the ticket. Best-effort: if the old file is already gone or
+        // the delete fails, the ticket has already moved on to the new
+        // attachment, so this must never fail the whole upload.
+        if (!string.IsNullOrEmpty(previousStorageKey))
+        {
+            try
+            {
+                await _storage.DeleteAsync(
+                    previousStorageKey,
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to delete superseded attachment {StorageKey} for ticket {TicketId} — the ticket now points at its new attachment regardless.",
+                    previousStorageKey,
+                    ticketId);
+            }
+        }
+
         return await LoadDtoAsync(ticketId, ct);
     }
 
-    public async Task<RetrievedFile?> DownloadAttachmentAsync(
+    public async Task<FileRetrievalResult> DownloadAttachmentAsync(
         Guid ticketId,
         CancellationToken ct = default)
     {
@@ -1060,12 +1082,23 @@ public class TicketService : ITicketService
             string.IsNullOrEmpty(
                 ticket.AttachmentStorageKey))
         {
-            return null;
+            return FileRetrievalResult.NoFile();
         }
 
-        return await _storage.GetAsync(
+        var file = await _storage.GetAsync(
             ticket.AttachmentStorageKey,
             ct);
+
+        if (file is null)
+        {
+            _logger.LogWarning(
+                "Ticket {TicketId} has AttachmentStorageKey {StorageKey} on record, but the storage backend could not find it.",
+                ticketId,
+                ticket.AttachmentStorageKey);
+            return FileRetrievalResult.Lost();
+        }
+
+        return FileRetrievalResult.Found(file);
     }
 
     public async Task<bool> CanAccessAttachmentAsync(
@@ -1119,7 +1152,7 @@ public class TicketService : ITicketService
             result.OriginalFileName);
     }
 
-    public async Task<RetrievedFile?> DownloadVoiceNoteAsync(
+    public async Task<FileRetrievalResult> DownloadVoiceNoteAsync(
         Guid ticketId,
         CancellationToken ct = default)
     {
@@ -1134,12 +1167,23 @@ public class TicketService : ITicketService
             string.IsNullOrEmpty(
                 ticket.VoiceNoteStorageKey))
         {
-            return null;
+            return FileRetrievalResult.NoFile();
         }
 
-        return await _storage.GetAsync(
+        var file = await _storage.GetAsync(
             ticket.VoiceNoteStorageKey,
             ct);
+
+        if (file is null)
+        {
+            _logger.LogWarning(
+                "Ticket {TicketId} has VoiceNoteStorageKey {StorageKey} on record, but the storage backend could not find it.",
+                ticketId,
+                ticket.VoiceNoteStorageKey);
+            return FileRetrievalResult.Lost();
+        }
+
+        return FileRetrievalResult.Found(file);
     }
 
     /// <summary>

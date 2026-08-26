@@ -381,17 +381,21 @@ public class TicketsController : ControllerBase
             return NotFound();
         }
 
-        var file =
+        var result =
             await _tickets.DownloadAttachmentAsync(
                 id,
                 ct);
 
-        return file is null
-            ? NotFound()
-            : File(
-                file.Content,
-                file.ContentType,
-                file.OriginalFileName);
+        return result.Status switch
+        {
+            FileRetrievalStatus.Found => File(
+                result.File!.Content,
+                result.File.ContentType,
+                result.File.OriginalFileName),
+            FileRetrievalStatus.FileLost => NotFound(
+                "This attachment was recorded on the ticket but could not be found in storage."),
+            _ => NotFound("This ticket has no attachment."),
+        };
     }
 
     /// <summary>
@@ -453,16 +457,20 @@ public class TicketsController : ControllerBase
             return NotFound();
         }
 
-        var file =
+        var result =
             await _tickets.DownloadVoiceNoteAsync(
                 id,
                 ct);
 
-        return file is null
-            ? NotFound()
-            : File(
-                file.Content,
-                file.ContentType,
-                file.OriginalFileName);
+        return result.Status switch
+        {
+            FileRetrievalStatus.Found => File(
+                result.File!.Content,
+                result.File.ContentType,
+                result.File.OriginalFileName),
+            FileRetrievalStatus.FileLost => NotFound(
+                "This voice note was recorded on the ticket but could not be found in storage."),
+            _ => NotFound("This ticket has no voice note."),
+        };
     }
 }

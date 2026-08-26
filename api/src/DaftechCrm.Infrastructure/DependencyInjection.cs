@@ -2,7 +2,6 @@ using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Application.Options;
 using DaftechCrm.Application.Services;
 using DaftechCrm.Domain.Enums;
-using DaftechCrm.Infrastructure.Ai;
 using DaftechCrm.Infrastructure.Auth;
 using DaftechCrm.Infrastructure.Email;
 using DaftechCrm.Infrastructure.Persistence;
@@ -118,13 +117,42 @@ public static class DependencyInjection
             configuration.GetSection(CloudinaryOptions.SectionName));
 
         var storageOptions = configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions();
+        var cloudinaryOptions = configuration.GetSection(CloudinaryOptions.SectionName).Get<CloudinaryOptions>() ?? new CloudinaryOptions();
+        var cloudinaryConfigured = !string.IsNullOrWhiteSpace(cloudinaryOptions.CloudName) && !string.IsNullOrWhiteSpace(cloudinaryOptions.ApiKey);
 
-        if (storageOptions.Provider == StorageProvider.Cloudinary)
-            services.AddHttpClient<IFileStorageService, CloudinaryFileStorageService>();
-        else if (storageOptions.Provider == StorageProvider.Postgres)
-            services.AddSingleton<IFileStorageService, PostgresFileStorageService>();
-        else
-            services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+        // Every concrete provider is registered under its own concrete
+        // type (never directly as IFileStorageService) so
+        // FallbackFileStorageService below can resolve whichever ones
+        // apply as recovery targets for files saved under a provider
+        // that isn't the current Storage:Provider setting — see
+        // FallbackFileStorageService for why that recovery path exists.
+        services.AddSingleton<LocalFileStorageService>();
+        services.AddSingleton<PostgresFileStorageService>();
+        if (cloudinaryConfigured)
+            services.AddHttpClient<CloudinaryFileStorageService>();
+
+        services.AddSingleton<IFileStorageService>(sp =>
+        {
+            IFileStorageService Resolve(StorageProvider p) => p switch
+            {
+                StorageProvider.Cloudinary => sp.GetRequiredService<CloudinaryFileStorageService>(),
+                StorageProvider.Postgres => sp.GetRequiredService<PostgresFileStorageService>(),
+                _ => sp.GetRequiredService<LocalFileStorageService>(),
+            };
+
+            var primary = Resolve(storageOptions.Provider);
+
+            var fallbackProviders = new List<StorageProvider> { StorageProvider.LocalFileSystem, StorageProvider.Postgres };
+            if (cloudinaryConfigured)
+                fallbackProviders.Add(StorageProvider.Cloudinary);
+
+            var fallbacks = fallbackProviders
+                .Where(p => p != storageOptions.Provider)
+                .Select(p => (Provider: p, Service: Resolve(p)))
+                .ToList();
+
+            return new FallbackFileStorageService(primary, fallbacks, sp.GetRequiredService<ILogger<FallbackFileStorageService>>());
+        });
 
         services.AddScoped<AccountCredentialService>();
         services.AddScoped<ReferenceNumberService>();
@@ -148,12 +176,8 @@ public static class DependencyInjection
         services.AddScoped<ITrainerWorkloadService, TrainerWorkloadService>();
         services.AddScoped<ISessionService, SessionService>();
 
-        services.Configure<AiReportingOptions>(
-            configuration.GetSection(AiReportingOptions.SectionName));
-
-        services.AddHttpClient<IAiNarrativeReportService, AnthropicNarrativeReportService>();
-
         services.AddScoped<ISatisfactionSurveyService, SatisfactionSurveyService>();
+        services.AddScoped<ISurveyQuestionService, SurveyQuestionService>();
 
         services.AddScoped<ISystemConfigurationService, SystemConfigurationService>();
 

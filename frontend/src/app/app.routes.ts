@@ -41,11 +41,6 @@ export const routes: Routes = [
         loadComponent: () => import('./staff/clients/client-detail.component').then(m => m.ClientDetailComponent),
       },
       {
-        path: 'signup-requests',
-        canActivate: [adminRoleGuard],
-        loadComponent: () => import('./staff/signup-requests/signup-requests.component').then(m => m.SignupRequestsComponent),
-      },
-      {
         path: 'password-reset-requests',
         canActivate: [adminRoleGuard],
         loadComponent: () => import('./staff/password-reset-requests/password-reset-requests.component').then(m => m.PasswordResetRequestsComponent),
@@ -96,10 +91,6 @@ export const routes: Routes = [
     path: 'portal/change-password',
     canActivate: [clientMustChangePasswordGuard],
     loadComponent: () => import('./portal/change-password/portal-change-password.component').then(m => m.PortalChangePasswordComponent),
-  },
-  {
-    path: 'portal/signup',
-    loadComponent: () => import('./portal/signup/portal-signup.component').then(m => m.PortalSignupComponent),
   },
   {
     path: 'portal',

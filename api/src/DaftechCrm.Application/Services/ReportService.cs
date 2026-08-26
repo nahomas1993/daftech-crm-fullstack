@@ -13,15 +13,13 @@ public class ReportService : IReportService
 {
     private readonly IAppDbContext _db;
     private readonly TicketWorkflowOptions _options;
-    private readonly IAiNarrativeReportService _aiNarrative;
     private readonly IEthiopianTimeService _officeTime;
     private readonly IMemoryCache _cache;
 
-    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IAiNarrativeReportService aiNarrative, IEthiopianTimeService officeTime, IMemoryCache cache)
+    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IEthiopianTimeService officeTime, IMemoryCache cache)
     {
         _db = db;
         _options = options.Value;
-        _aiNarrative = aiNarrative;
         _officeTime = officeTime;
         _cache = cache;
     }
@@ -91,7 +89,7 @@ public class ReportService : IReportService
         return new OnTimeReportDto(summary, byEmployee);
     }
 
-    public async Task<EmployeePerformanceReportDto> GetEmployeePerformanceReportAsync(Guid employeeId, bool includeAiNarrative, CancellationToken ct = default)
+    public async Task<EmployeePerformanceReportDto> GetEmployeePerformanceReportAsync(Guid employeeId, CancellationToken ct = default)
     {
         var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == employeeId, ct)
             ?? throw new InvalidOperationException("Employee not found.");
@@ -121,35 +119,10 @@ public class ReportService : IReportService
             .Where(l => l.EmployeeId == employeeId && l.TotalHours != null)
             .SumAsync(l => l.TotalHours!.Value, ct);
 
-        bool aiAvailable = false;
-        string? narrative = null;
-        string? unavailableReason = includeAiNarrative ? null : "AI narrative not requested.";
-
-        if (includeAiNarrative)
-        {
-            var metrics = new EmployeePerformanceMetrics(
-                employee.FullName, assignedTickets.Count, resolvedOrClosed.Count,
-                avgResolutionHours, onTimeRate, avgSatisfaction, totalHours
-            );
-            var aiResult = await _aiNarrative.SummarizeEmployeePerformanceAsync(metrics, ct);
-            aiAvailable = aiResult.Available;
-            narrative = aiResult.Narrative;
-            unavailableReason = aiResult.UnavailableReason;
-        }
-
         return new EmployeePerformanceReportDto(
             employee.Id, employee.FullName, assignedTickets.Count, resolvedOrClosed.Count,
-            avgResolutionHours, onTimeRate, avgSatisfaction, totalHours,
-            aiAvailable, narrative, unavailableReason
+            avgResolutionHours, onTimeRate, avgSatisfaction, totalHours
         );
-    }
-
-    public async Task<AiPerformanceSummaryResult> SummarizeTabularReportAsync(TabularReportData data, CancellationToken ct = default)
-    {
-        if (data.Rows.Count == 0)
-            return new AiPerformanceSummaryResult(false, null, "No data to summarize yet.");
-
-        return await _aiNarrative.SummarizeTabularReportAsync(data, ct);
     }
 
     /// <summary>
@@ -390,5 +363,95 @@ public class ReportService : IReportService
 
             return new MonthlyPointDto(monthLabel, inMonth.Count, resolvedInMonth.Count, onTimeRate);
         }).ToList();
+    }
+
+    /// <summary>
+    /// Loads the client with every navigation the report needs in one
+    /// pass (Include chain below) rather than N+1 queries per
+    /// system/product — a client with several systems/products, each
+    /// with several agreements and training records, would otherwise
+    /// trigger a query per collection per item.
+    /// </summary>
+    public async Task<OverallClientReportDto?> GetOverallClientReportAsync(Guid clientId, CancellationToken ct = default)
+    {
+        var client = await _db.Clients.AsNoTracking()
+            .Include(c => c.SystemProducts.Where(sp => !sp.IsDeleted))
+                .ThenInclude(sp => sp.Agreements)
+                    .ThenInclude(a => a.AgreementType)
+            .Include(c => c.SystemProducts.Where(sp => !sp.IsDeleted))
+                .ThenInclude(sp => sp.TrainingRecords)
+                    .ThenInclude(tr => tr.TrainerEmployee)
+            .FirstOrDefaultAsync(c => c.Id == clientId, ct);
+
+        if (client is null)
+            return null;
+
+        var tickets = await _db.Tickets.AsNoTracking()
+            .Where(t => t.ClientId == clientId)
+            .Include(t => t.FailureType)
+            .Include(t => t.AssignedEmployee)
+            .OrderByDescending(t => t.DateSubmitted)
+            .ToListAsync(ct);
+
+        var surveys = await _db.SatisfactionSurveys.AsNoTracking()
+            .Where(s => s.ClientId == clientId)
+            .Include(s => s.Answers)
+            .OrderByDescending(s => s.SubmittedAt)
+            .ToListAsync(ct);
+
+        var systemProducts = client.SystemProducts
+            .OrderBy(sp => sp.Name)
+            .Select(sp => new ClientReportSystemProductDto(
+                sp.Id,
+                sp.ReferenceNumber,
+                sp.Name,
+                sp.Description,
+                sp.DeploymentDate,
+                sp.TrainingCompletionStatus,
+                sp.Agreements
+                    .OrderByDescending(a => a.SignDate)
+                    .Select(a => new ClientReportAgreementDto(
+                        a.Id, a.AgreementType.Name, a.DocumentNumber,
+                        a.SignDate, a.ExpiryDate, a.SupportWindowMonths, a.Status, a.BillingTier))
+                    .ToList(),
+                sp.TrainingRecords
+                    .OrderByDescending(tr => tr.TrainingDate)
+                    .Select(tr => new ClientReportTrainingRecordDto(
+                        tr.Id, tr.TrainerEmployee.FullName, tr.TrainingDate, tr.Description, tr.FileName))
+                    .ToList()))
+            .ToList();
+
+        var ticketDtos = tickets
+            .Select(t => new ClientReportTicketDto(
+                t.Id, t.Description, t.Category, t.FailureType?.Name, t.DateSubmitted,
+                t.AssignedEmployee?.FullName, t.Status, t.SupportPhase, t.Chargeable, t.ChargeAmount,
+                t.ResolvedAt, t.SatisfactionStars, t.SatisfactionScore, t.ClosureReason,
+                t.AttachmentFileName, t.VoiceNoteFileName))
+            .ToList();
+
+        var surveyDtos = surveys
+            .Select(s => new ClientReportSurveyDto(
+                s.Id, s.TicketId, s.SubmittedAt,
+                s.Answers.OrderBy(a => a.DisplayOrder)
+                    .Select(a => new ClientReportSurveyAnswerDto(a.QuestionText, a.Rating))
+                    .ToList(),
+                s.SatisfactionComment))
+            .ToList();
+
+        var ratedTickets = tickets.Where(t => t.SatisfactionScore != null).ToList();
+        var summary = new ClientReportSummaryDto(
+            systemProducts.Count,
+            systemProducts.Sum(sp => sp.Agreements.Count(a => a.Status == AgreementStatus.Active)),
+            tickets.Count,
+            tickets.Count(t => t.Status is not (TicketStatus.Resolved or TicketStatus.Closed or TicketStatus.AwaitingClientConfirmation)),
+            tickets.Count(t => t.Status is TicketStatus.Resolved or TicketStatus.Closed or TicketStatus.AwaitingClientConfirmation),
+            ratedTickets.Count > 0 ? Math.Round(ratedTickets.Average(t => t.SatisfactionScore!.Value), 1) : (double?)null,
+            surveyDtos.Count);
+
+        return new OverallClientReportDto(
+            client.Id, client.Name, client.AccountRefId, client.PhoneNumber, client.Email,
+            client.Office, client.Location, client.Region, client.Zone, client.City, client.Woreda,
+            client.AccountStatus, client.OnboardingDate,
+            systemProducts, ticketDtos, surveyDtos, summary);
     }
 }

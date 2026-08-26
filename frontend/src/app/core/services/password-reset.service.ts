@@ -8,9 +8,8 @@ import { API_BASE_URL } from './api-base';
  * Admin's "Password Reset Requests" queue. Unlike ClientService this does
  * NOT auto-fetch in the constructor — every endpoint here is Admin-only, so
  * eagerly calling it for every instantiation (e.g. from a client/employee
- * session) would just produce noisy 403s. The signup-requests page pattern
- * (pendingRequests() filtering a full list) is intentionally not reused
- * here for the same reason — callers ask for exactly the list they need.
+ * session) would just produce noisy 403s. Callers ask for exactly the list
+ * they need instead of filtering a full eagerly-loaded list.
  */
 @Injectable({ providedIn: 'root' })
 export class PasswordResetService {

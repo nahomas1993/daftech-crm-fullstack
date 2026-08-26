@@ -246,17 +246,39 @@ namespace DaftechCrm.Infrastructure.Migrations
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<Guid>("ClientId").HasColumnType("uuid");
-                b.Property<int>("CommunicationClarityRating").HasColumnType("integer");
-                b.Property<string>("ImprovementFeedback").HasColumnType("text");
-                b.Property<int>("LikelihoodToRecommend").HasColumnType("integer");
-                b.Property<int>("ProfessionalismRating").HasColumnType("integer");
-                b.Property<int>("ResponseSpeedRating").HasColumnType("integer");
+                b.Property<string>("SatisfactionComment").HasColumnType("text");
                 b.Property<DateTimeOffset>("SubmittedAt").HasColumnType("timestamp with time zone");
                 b.Property<Guid>("TicketId").HasColumnType("uuid");
                 b.HasKey("Id");
                 b.HasIndex("ClientId");
                 b.HasIndex("TicketId").IsUnique();
                 b.ToTable("satisfaction_surveys");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SurveyAnswer", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<Guid>("SatisfactionSurveyId").HasColumnType("uuid");
+                b.Property<Guid?>("SurveyQuestionId").HasColumnType("uuid");
+                b.Property<string>("QuestionText").IsRequired().HasColumnType("text");
+                b.Property<int>("DisplayOrder").HasColumnType("integer");
+                b.Property<int>("Rating").HasColumnType("integer");
+                b.HasKey("Id");
+                b.HasIndex("SatisfactionSurveyId");
+                b.HasIndex("SurveyQuestionId");
+                b.ToTable("survey_answers");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SurveyQuestion", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<string>("Text").IsRequired().HasColumnType("text");
+                b.Property<int>("DisplayOrder").HasColumnType("integer");
+                b.Property<bool>("IsActive").HasColumnType("boolean");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+                b.HasKey("Id");
+                b.HasIndex("DisplayOrder");
+                b.ToTable("survey_questions");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Ticket", b =>
@@ -543,6 +565,24 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Navigation("Ticket");
             });
 
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SurveyAnswer", b =>
+            {
+                // SetNull, not Cascade — deleting an admin-authored
+                // SurveyQuestion later must not delete historical answers;
+                // QuestionText already snapshots what was asked.
+                b.HasOne("DaftechCrm.Domain.Entities.SatisfactionSurvey", "SatisfactionSurvey")
+                    .WithMany("Answers")
+                    .HasForeignKey("SatisfactionSurveyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+                b.HasOne("DaftechCrm.Domain.Entities.SurveyQuestion", "SurveyQuestion")
+                    .WithMany()
+                    .HasForeignKey("SurveyQuestionId")
+                    .OnDelete(DeleteBehavior.SetNull);
+                b.Navigation("SatisfactionSurvey");
+                b.Navigation("SurveyQuestion");
+            });
+
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Ticket", b =>
             {
                 // Agreement is never hard-deleted by any application code path
@@ -647,6 +687,11 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Ticket", b =>
             {
                 b.Navigation("AuditTrail");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.SatisfactionSurvey", b =>
+            {
+                b.Navigation("Answers");
             });
         }
     }

@@ -24,6 +24,8 @@ public interface IAppDbContext
     IQueryable<MaintenanceRecord> MaintenanceRecords { get; }
     IQueryable<AppNotification> Notifications { get; }
     IQueryable<SatisfactionSurvey> SatisfactionSurveys { get; }
+    IQueryable<SurveyAnswer> SurveyAnswers { get; }
+    IQueryable<SurveyQuestion> SurveyQuestions { get; }
     IQueryable<LoginSession> LoginSessions { get; }
     IQueryable<RefreshToken> RefreshTokens { get; }
     IQueryable<SystemSetting> SystemSettings { get; }

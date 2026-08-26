@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { OnTimeReport, EmployeePerformanceReport, AiSummaryResult, OperationsOverview, SupportOverview } from '../models';
+import { OnTimeReport, EmployeePerformanceReport, OperationsOverview, SupportOverview, OverallClientReport } from '../models';
 import { API_BASE_URL } from './api-base';
 
 @Injectable({ providedIn: 'root' })
@@ -21,30 +21,14 @@ export class ReportService {
     return firstValueFrom(this.http.get<OperationsOverview>(`${API_BASE_URL}/reports/operations-overview`));
   }
 
-  /**
-   * includeAiNarrative defaults to false so the numbers-only view loads
-   * fast; pass true to also request the optional AI summary (SRS v2.0
-   * §4.10) — it may come back unavailable, which is expected and handled
-   * by the caller, not an error.
-   */
-  async getEmployeePerformanceReport(employeeId: string, includeAiNarrative = false): Promise<EmployeePerformanceReport> {
-    return firstValueFrom(
-      this.http.get<EmployeePerformanceReport>(`${API_BASE_URL}/reports/employee-performance/${employeeId}`, {
-        params: { includeAiNarrative },
-      })
-    );
+  /** Everything about one client in one call — profile, systems/products with agreements and training history, every ticket, every satisfaction survey, and a summary block. Admin-only. Powers the Reports page's "Overall Client Report" tab. */
+  async getOverallClientReport(clientId: string): Promise<OverallClientReport> {
+    return firstValueFrom(this.http.get<OverallClientReport>(`${API_BASE_URL}/reports/client-report/${clientId}`));
   }
 
-  /**
-   * AI narrative summary for any report table on the Reports page. Sends
-   * the same columns/rows already rendered on screen — this is
-   * best-effort and may return available:false, which callers should
-   * treat as "no summary shown", never as an error blocking the table.
-   */
-  async summarizeTabularReport(title: string, columns: string[], rows: (string | number)[][]): Promise<AiSummaryResult> {
-    const stringRows = rows.map(row => row.map(cell => String(cell)));
+  async getEmployeePerformanceReport(employeeId: string): Promise<EmployeePerformanceReport> {
     return firstValueFrom(
-      this.http.post<AiSummaryResult>(`${API_BASE_URL}/reports/summarize`, { title, columns, rows: stringRows })
+      this.http.get<EmployeePerformanceReport>(`${API_BASE_URL}/reports/employee-performance/${employeeId}`)
     );
   }
 }

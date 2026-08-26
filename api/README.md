@@ -88,8 +88,8 @@ issue a random one-time password instead.
 
 ## Authentication & authorization
 
-Every endpoint except login, refresh, client signup, and the change-password
-flow requires a valid JWT. There is no anonymous access to business data.
+Every endpoint except login, refresh, and the change-password flow requires
+a valid JWT. There is no anonymous access to business data.
 
 - **Access tokens**: short-lived (15 min default), HMAC-SHA256 signed,
   carry the account's type (Employee/Client) and roles as claims.
@@ -110,11 +110,9 @@ The app refuses to start if `Jwt:SigningKey` is missing or shorter than
 
 ## Account provisioning
 
-There is no self-service staff signup. Every staff account is created by
-an Admin (`POST /api/employees`); clients either self-signup
-(`POST /api/clients/signup`, lands `Pending` for approval) or are
-registered directly by an Admin (`POST /api/clients/register`, `Approved`
-immediately).
+There is no self-service signup for staff or clients. Every account is
+created by an Admin — staff via `POST /api/employees`, clients via
+`POST /api/clients/register` — and is `Approved`/active immediately.
 
 Either path:
 
@@ -193,19 +191,6 @@ offline. `GET /api/sessions/activity` is the Admin's live presence view.
   dependency).
 
 All three return structured JSON with per-check status and timing.
-
-## AI-assisted performance narratives (optional)
-
-`GET /api/reports/employee-performance/{id}?includeAiNarrative=true`
-always returns the underlying metrics; the AI narrative is additive. Off
-by default (`AiReporting:Enabled=false`). Any failure — disabled, missing
-key, timeout, bad response — degrades to `Available: false` with a
-human-readable reason rather than throwing.
-
-```bash
-dotnet user-secrets set "AiReporting:Enabled" "true"
-dotnet user-secrets set "AiReporting:ApiKey" "sk-ant-..."
-```
 
 ---
 

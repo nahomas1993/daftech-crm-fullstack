@@ -356,20 +356,49 @@ export interface OperationsOverview {
 }
 
 /**
- * The optional 5-question client satisfaction survey — separate from the
- * 1-5 star Confirm Resolution rating that gates ticket closure.
+ * One 1-5 rating a client gave to one admin-authored survey question.
+ * QuestionText is snapshotted at submission time, so it still displays
+ * correctly even if an admin later edits or deletes the question.
+ */
+export interface SurveyAnswer {
+  questionId?: string | null;
+  questionText: string;
+  displayOrder: number;
+  rating: number; // 1-5
+}
+
+/**
+ * The optional, admin-configurable client satisfaction survey — separate
+ * from the 1-5 star Confirm Resolution rating that gates ticket closure.
+ * The question set itself lives in SurveyQuestion, managed from
+ * Settings → Configuration → Satisfaction Survey.
  */
 export interface SatisfactionSurvey {
   id: string;
   ticketId: string;
   clientId: string;
   submittedAt: string;
-  responseSpeedRating: number; // 1-5
-  professionalismRating: number; // 1-5
-  communicationClarityRating: number; // 1-5
-  likelihoodToRecommend: number; // 1-5
-  improvementFeedback?: string;
+  answers: SurveyAnswer[];
+  /** The client's own words describing their experience — a short free-text paragraph, optional. */
+  satisfactionComment?: string;
 }
+
+/** An admin-authored satisfaction survey question. Fully dynamic — admins add/edit/reorder/delete these; there is no fixed question set. */
+export interface SurveyQuestion {
+  id: string;
+  text: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+/** Label shown alongside each 1-5 rating value on the satisfaction survey. */
+export const SATISFACTION_RATING_LABELS: Record<number, string> = {
+  1: 'Poor',
+  2: 'Satisfactory',
+  3: 'Good',
+  4: 'Very good',
+  5: 'Excellent',
+};
 
 export type SessionAccountType = 'Employee' | 'Client';
 
@@ -400,15 +429,6 @@ export interface EmployeePerformanceReport {
   onTimeRate: number;
   averageSatisfactionScore?: number;
   totalHoursWorked: number;
-  aiNarrativeAvailable: boolean;
-  aiNarrative?: string;
-  aiUnavailableReason?: string;
-}
-
-export interface AiSummaryResult {
-  available: boolean;
-  narrative?: string;
-  unavailableReason?: string;
 }
 
 /** Mirrors the API's PagedResult<T> — one page of items plus metadata for rendering pager controls. */
@@ -584,7 +604,9 @@ export interface CustomerRatingReportRow {
   satisfactionStars: number; satisfactionScore: number; closureReason?: ClosureReason;
 }
 
-export type ReportType = 'customer-support' | 'employee-performance' | 'regional' | 'failure-type' | 'resolution-time' | 'customer-rating';
+export type ReportType =
+  | 'customer-support' | 'employee-performance' | 'regional' | 'failure-type' | 'resolution-time' | 'customer-rating'
+  | 'support-expiration' | 'client-report';
 
 export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   'customer-support': 'Customer / Support',
@@ -593,6 +615,8 @@ export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   'failure-type': 'Failure Type',
   'resolution-time': 'Resolution Time',
   'customer-rating': 'Customer Rating',
+  'support-expiration': 'Support & Expiration',
+  'client-report': 'Overall Client Report',
 };
 
 // --- Workload-aware Trainer assignment (Phase 5) ---
@@ -654,4 +678,99 @@ export interface MyTrainingAssignment {
   systemProductName: string;
   clientId: string;
   clientName: string;
+}
+
+// --- Overall Client Report (admin Reports page — one client's full history) ---
+
+export interface ClientReportTicket {
+  id: string;
+  description: string;
+  category: TicketCategory;
+  failureTypeName?: string;
+  dateSubmitted: string;
+  assignedEmployeeName?: string;
+  status: TicketStatus;
+  supportPhase: SupportPhase;
+  chargeable: boolean;
+  chargeAmount?: number;
+  resolvedAt?: string;
+  satisfactionStars?: number;
+  satisfactionScore?: number;
+  closureReason?: ClosureReason;
+  attachmentFileName?: string;
+  voiceNoteFileName?: string;
+}
+
+export interface ClientReportAgreement {
+  id: string;
+  agreementTypeName: string;
+  documentNumber: string;
+  signDate: string;
+  expiryDate: string;
+  supportWindowMonths: number;
+  status: AgreementStatus;
+  billingTier: BillingTier;
+}
+
+export interface ClientReportTrainingRecord {
+  id: string;
+  trainerEmployeeName: string;
+  trainingDate: string;
+  description: string;
+  fileName?: string;
+}
+
+export interface ClientReportSystemProduct {
+  id: string;
+  referenceNumber: string;
+  name: string;
+  description?: string;
+  deploymentDate?: string;
+  trainingCompletionStatus: TrainingCompletionStatus;
+  agreements: ClientReportAgreement[];
+  trainingRecords: ClientReportTrainingRecord[];
+}
+
+export interface ClientReportSurveyAnswer {
+  questionText: string;
+  rating: number;
+}
+
+export interface ClientReportSurvey {
+  id: string;
+  ticketId: string;
+  submittedAt: string;
+  answers: ClientReportSurveyAnswer[];
+  satisfactionComment?: string;
+}
+
+export interface ClientReportSummary {
+  systemProductCount: number;
+  activeAgreementCount: number;
+  totalTicketCount: number;
+  openTicketCount: number;
+  resolvedTicketCount: number;
+  averageSatisfactionScore?: number;
+  surveyCount: number;
+}
+
+/** Everything about one client in a single call — profile, systems/products with agreements and training history, every ticket, every satisfaction survey, and a summary block. See ReportService.getOverallClientReport. */
+export interface OverallClientReport {
+  clientId: string;
+  clientName: string;
+  accountRefId: string;
+  phoneNumber: string;
+  email: string;
+  office: string;
+  location: string;
+  region?: string;
+  zone?: string;
+  city?: string;
+  woreda?: string;
+  accountStatus: AccountStatus;
+  onboardingDate: string;
+  systemProducts: ClientReportSystemProduct[];
+  tickets: ClientReportTicket[];
+  satisfactionSurveys: ClientReportSurvey[];
+  summary: ClientReportSummary;
 }

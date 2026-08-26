@@ -8,8 +8,8 @@ public class Client
 
     /// <summary>
     /// Human-readable, permanent account identifier — "DAF-CLI-####" where
-    /// #### is 4 random digits. Generated once at registration/signup
-    /// approval (see AccountReferenceIdService) and never changes afterward,
+    /// #### is 4 random digits. Generated once at registration
+    /// (see AccountReferenceIdService) and never changes afterward,
     /// including across profile edits. Distinct from IdNumber below (a
     /// separate KYC/business reference the client already has) — this is
     /// specifically the CRM login-account identifier. Purely a display/
@@ -36,8 +36,7 @@ public class Client
 
     /// <summary>
     /// System-generated login username (initials + random digits) — null
-    /// until credentials are issued (at registration for Admin-created
-    /// clients, or at approval time for self-signup clients).
+    /// until credentials are issued at registration.
     /// </summary>
     public string? Username { get; set; }
 

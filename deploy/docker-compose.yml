@@ -43,8 +43,6 @@ services:
       Smtp__Username: ${SMTP_USERNAME}
       Smtp__Password: ${SMTP_PASSWORD}
       Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-no-reply@daftech.et}
-      AiReporting__Enabled: ${AI_REPORTING_ENABLED:-false}
-      AiReporting__ApiKey: ${AI_REPORTING_API_KEY:-}
     volumes:
       # Uploaded agreement scans live here — a named volume so they survive
       # container recreation/redeploys, not just restarts.

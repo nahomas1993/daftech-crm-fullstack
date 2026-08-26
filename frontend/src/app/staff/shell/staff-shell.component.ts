@@ -16,7 +16,6 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: '📊' },
   { label: 'Clients', path: '/admin/clients', icon: '🏢', rolesAllowed: ['Admin'] },
-  { label: 'Signup Requests', path: '/admin/signup-requests', icon: '📥', rolesAllowed: ['Admin'] },
   { label: 'Password Reset Requests', path: '/admin/password-reset-requests', icon: '🔑', rolesAllowed: ['Admin'] },
   { label: 'Agreements', path: '/admin/agreements', icon: '📄', rolesAllowed: ['Admin'] },
   { label: 'Tickets', path: '/admin/tickets', icon: '🎫' },
@@ -171,9 +170,10 @@ export class StaffShellComponent implements OnDestroy {
   // staff always have a shared reference clock regardless of their own
   // device's timezone. Intl.DateTimeFormat with an explicit timeZone
   // handles this correctly (unlike a hardcoded +3 offset, which would
-  // silently drift if that zone's rules ever changed).
-  private static readonly ET_FORMATTER = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Africa/Addis_Ababa', hour: '2-digit', minute: '2-digit',
+  // silently drift if that zone's rules ever changed). en-US + hour12
+  // gives a 12-hour clock with an AM/PM suffix.
+  private static readonly ET_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Addis_Ababa', hour: 'numeric', minute: '2-digit', hour12: true,
   });
   ethiopiaTime = signal(StaffShellComponent.ET_FORMATTER.format(new Date()));
   private clockIntervalId = setInterval(

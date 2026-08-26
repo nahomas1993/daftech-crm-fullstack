@@ -11,8 +11,8 @@ export class ClientService {
   readonly clients = this._clients.asReadonly();
 
   // Paged state for the main Clients table. Separate from the full-list
-  // cache above, which pendingRequests()/approvedClients()/reports still
-  // rely on for filtering across the whole dataset.
+  // cache above, which approvedClients()/reports still rely on for
+  // filtering across the whole dataset.
   private readonly _page = signal(1);
   private readonly _pageSize = signal(20);
   private readonly _totalCount = signal(0);
@@ -51,25 +51,12 @@ export class ClientService {
     await this.refreshPaged(page);
   }
 
-  pendingRequests(): Client[] {
-    return this._clients().filter(c => c.accountStatus === 'Pending');
-  }
-
   approvedClients(): Client[] {
     return this._clients().filter(c => c.accountStatus === 'Approved');
   }
 
   getById(id: string): Client | undefined {
     return this._clients().find(c => c.id === id);
-  }
-
-  async submitSignup(data: {
-    name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; zone?: string; city?: string; woreda?: string;
-  }): Promise<Client> {
-    const client = await firstValueFrom(this.http.post<Client>(`${API_BASE_URL}/clients/signup`, data));
-    await Promise.all([this.refresh(), this.refreshPaged()]);
-    return client;
   }
 
   /**
@@ -91,17 +78,7 @@ export class ClientService {
     return firstValueFrom(this.http.post<{ emailSent: boolean; emailError?: string }>(`${API_BASE_URL}/clients/${clientId}/resend-credential-email`, {}));
   }
 
-  async approve(clientId: string): Promise<void> {
-    await firstValueFrom(this.http.post<Client>(`${API_BASE_URL}/clients/${clientId}/approve`, {}));
-    await Promise.all([this.refresh(), this.refreshPaged()]);
-  }
-
-  async reject(clientId: string, reason: string): Promise<void> {
-    await firstValueFrom(this.http.post<Client>(`${API_BASE_URL}/clients/${clientId}/reject`, { reason }));
-    await Promise.all([this.refresh(), this.refreshPaged()]);
-  }
-
-  /** Edits the plain profile fields. Account status/credentials go through approve/reject/resendCredentialEmail instead. */
+  /** Edits the plain profile fields. Account status/credentials go through resendCredentialEmail instead. */
   async updateClient(id: string, data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
     region?: string; zone?: string; city?: string; woreda?: string;

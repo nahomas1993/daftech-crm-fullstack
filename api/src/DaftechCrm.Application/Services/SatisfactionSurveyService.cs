@@ -12,28 +12,41 @@ public class SatisfactionSurveyService : ISatisfactionSurveyService
 
     public async Task<SatisfactionSurveyDto> SubmitAsync(SubmitSatisfactionSurveyRequest request, CancellationToken ct = default)
     {
-        foreach (var (value, name) in new[]
+        if (request.Answers is null || request.Answers.Count == 0)
+            throw new InvalidOperationException("At least one question must be answered.");
+
+        foreach (var a in request.Answers)
         {
-            (request.ResponseSpeedRating, nameof(request.ResponseSpeedRating)),
-            (request.ProfessionalismRating, nameof(request.ProfessionalismRating)),
-            (request.CommunicationClarityRating, nameof(request.CommunicationClarityRating)),
-            (request.LikelihoodToRecommend, nameof(request.LikelihoodToRecommend)),
-        })
-        {
-            if (value is < 1 or > 5)
-                throw new ArgumentOutOfRangeException(name, $"{name} must be between 1 and 5.");
+            if (a.Rating is < 1 or > 5)
+                throw new InvalidOperationException("Each rating must be between 1 and 5.");
         }
 
-        var existing = await _db.SatisfactionSurveys.FirstOrDefaultAsync(s => s.TicketId == request.TicketId, ct);
+        // Snapshot the current question text/order so historical answers
+        // stay accurate even if an admin later edits or deletes a question.
+        var questionIds = request.Answers.Select(a => a.QuestionId).ToList();
+        var questions = await _db.SurveyQuestions
+            .Where(q => questionIds.Contains(q.Id))
+            .ToDictionaryAsync(q => q.Id, ct);
+
+        var existing = await _db.SatisfactionSurveys
+            .Include(s => s.Answers)
+            .FirstOrDefaultAsync(s => s.TicketId == request.TicketId, ct);
+
+        var comment = string.IsNullOrWhiteSpace(request.SatisfactionComment) ? null : request.SatisfactionComment.Trim();
 
         if (existing is not null)
         {
-            existing.ResponseSpeedRating = request.ResponseSpeedRating;
-            existing.ProfessionalismRating = request.ProfessionalismRating;
-            existing.CommunicationClarityRating = request.CommunicationClarityRating;
-            existing.LikelihoodToRecommend = request.LikelihoodToRecommend;
-            existing.ImprovementFeedback = request.ImprovementFeedback;
+            foreach (var old in existing.Answers.ToList())
+                _db.Remove(old);
+
+            existing.SatisfactionComment = comment;
             existing.SubmittedAt = DateTimeOffset.UtcNow;
+            existing.Answers = BuildAnswers(request.Answers, questions);
+            foreach (var a in existing.Answers)
+                a.SatisfactionSurveyId = existing.Id;
+            foreach (var a in existing.Answers)
+                _db.Add(a);
+
             _db.Update(existing);
             await _db.SaveChangesAsync(ct);
             return ToDto(existing);
@@ -43,25 +56,45 @@ public class SatisfactionSurveyService : ISatisfactionSurveyService
         {
             TicketId = request.TicketId,
             ClientId = request.ClientId,
-            ResponseSpeedRating = request.ResponseSpeedRating,
-            ProfessionalismRating = request.ProfessionalismRating,
-            CommunicationClarityRating = request.CommunicationClarityRating,
-            LikelihoodToRecommend = request.LikelihoodToRecommend,
-            ImprovementFeedback = request.ImprovementFeedback,
+            SatisfactionComment = comment,
         };
+        survey.Answers = BuildAnswers(request.Answers, questions);
+        foreach (var a in survey.Answers)
+            a.SatisfactionSurveyId = survey.Id;
+
         _db.Add(survey);
+        foreach (var a in survey.Answers)
+            _db.Add(a);
+
         await _db.SaveChangesAsync(ct);
         return ToDto(survey);
     }
 
+    private static List<SurveyAnswer> BuildAnswers(IReadOnlyList<SubmitSurveyAnswerRequest> answers, Dictionary<Guid, SurveyQuestion> questions)
+    {
+        return answers.Select((a, i) =>
+        {
+            questions.TryGetValue(a.QuestionId, out var q);
+            return new SurveyAnswer
+            {
+                SurveyQuestionId = a.QuestionId,
+                QuestionText = q?.Text ?? "(question no longer available)",
+                DisplayOrder = q?.DisplayOrder ?? i,
+                Rating = a.Rating,
+            };
+        }).ToList();
+    }
+
     public async Task<SatisfactionSurveyDto?> GetForTicketAsync(Guid ticketId, CancellationToken ct = default)
     {
-        var survey = await _db.SatisfactionSurveys.AsNoTracking().FirstOrDefaultAsync(s => s.TicketId == ticketId, ct);
+        var survey = await _db.SatisfactionSurveys.AsNoTracking()
+            .Include(s => s.Answers)
+            .FirstOrDefaultAsync(s => s.TicketId == ticketId, ct);
         return survey is null ? null : ToDto(survey);
     }
 
     public async Task<IReadOnlyList<SatisfactionSurveyDto>> GetAllAsync(CancellationToken ct = default) =>
-        (await _db.SatisfactionSurveys.AsNoTracking().OrderByDescending(s => s.SubmittedAt).ToListAsync(ct)).Select(ToDto).ToList();
+        (await _db.SatisfactionSurveys.AsNoTracking().Include(s => s.Answers).OrderByDescending(s => s.SubmittedAt).ToListAsync(ct)).Select(ToDto).ToList();
 
     public async Task<PagedResult<SatisfactionSurveyDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
@@ -69,6 +102,7 @@ public class SatisfactionSurveyService : ISatisfactionSurveyService
 
         var items = await _db.SatisfactionSurveys
             .AsNoTracking()
+            .Include(s => s.Answers)
             .OrderByDescending(s => s.SubmittedAt)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -79,7 +113,9 @@ public class SatisfactionSurveyService : ISatisfactionSurveyService
 
     private static SatisfactionSurveyDto ToDto(SatisfactionSurvey s) => new(
         s.Id, s.TicketId, s.ClientId, s.SubmittedAt,
-        s.ResponseSpeedRating, s.ProfessionalismRating, s.CommunicationClarityRating,
-        s.LikelihoodToRecommend, s.ImprovementFeedback
+        s.Answers.OrderBy(a => a.DisplayOrder)
+            .Select(a => new SurveyAnswerDto(a.SurveyQuestionId, a.QuestionText, a.DisplayOrder, a.Rating))
+            .ToList(),
+        s.SatisfactionComment
     );
 }

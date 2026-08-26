@@ -53,15 +53,42 @@ public class LocalFileStorageService : IFileStorageService
         var storageKey = Path.Combine(relativeFolder, storedFileName).Replace('\\', '/');
         var absolutePath = Path.Combine(absoluteFolder, storedFileName);
 
-        await using (var fileStream = new FileStream(absolutePath, FileMode.CreateNew, FileAccess.Write))
+        long bytesWritten;
+        try
         {
-            content.Position = 0;
-            await content.CopyToAsync(fileStream, ct);
+            await using (var fileStream = new FileStream(absolutePath, FileMode.CreateNew, FileAccess.Write))
+            {
+                content.Position = 0;
+                await content.CopyToAsync(fileStream, ct);
+                bytesWritten = fileStream.Length;
+            }
+        }
+        catch
+        {
+            // Don't leave a partially-written file behind on a failed/aborted copy.
+            if (File.Exists(absolutePath))
+                File.Delete(absolutePath);
+            throw;
         }
 
-        _logger.LogInformation("Stored uploaded file {StorageKey} ({SizeBytes} bytes)", storageKey, content.Length);
+        // A truncated write (client disconnected mid-upload, disk full,
+        // etc.) leaves a 0-byte file on disk that would otherwise be
+        // reported back as a "successful" save — clean it up and fail
+        // loudly instead, same as the Postgres provider.
+        if (bytesWritten == 0)
+        {
+            File.Delete(absolutePath);
+            throw new FileValidationException(
+                "The uploaded file was empty or could not be read. Please try uploading it again.");
+        }
 
-        return new StoredFileResult(storageKey, BuildFileUrl(storageKey), originalFileName, content.Length, contentType);
+        var effectiveContentType = string.IsNullOrWhiteSpace(contentType)
+            ? "application/octet-stream"
+            : contentType;
+
+        _logger.LogInformation("Stored uploaded file {StorageKey} ({SizeBytes} bytes)", storageKey, bytesWritten);
+
+        return new StoredFileResult(storageKey, BuildFileUrl(storageKey), originalFileName, bytesWritten, effectiveContentType);
     }
 
     public Task<RetrievedFile?> GetAsync(string storageKey, CancellationToken ct = default)
@@ -70,6 +97,16 @@ public class LocalFileStorageService : IFileStorageService
 
         if (!File.Exists(absolutePath))
             return Task.FromResult<RetrievedFile?>(null);
+
+        // A 0-byte file on disk (e.g. from a truncated write before the
+        // guard in SaveAsync existed) is corrupt, not a real download —
+        // treat it the same as "file lost" rather than streaming back
+        // nothing with a 200.
+        if (new FileInfo(absolutePath).Length == 0)
+        {
+            _logger.LogWarning("Stored file {StorageKey} exists but is empty on disk — treating as lost.", storageKey);
+            return Task.FromResult<RetrievedFile?>(null);
+        }
 
         var stream = new FileStream(absolutePath, FileMode.Open, FileAccess.Read);
         var contentType = ContentTypeFor(Path.GetExtension(absolutePath));

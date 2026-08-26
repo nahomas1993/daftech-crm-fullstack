@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, signal } from '@angular/core';
 import { SlicePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 
@@ -8,7 +9,7 @@ type Answer = 'fixed' | 'not-fixed' | null;
 @Component({
   selector: 'app-confirm-resolution',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [SlicePipe, RouterLink],
   template: `
     <h1>Confirm Resolution</h1>
     <p class="text-muted" style="margin-top:0.3rem;">
@@ -31,7 +32,8 @@ type Answer = 'fixed' | 'not-fixed' | null;
               @if (lastOutcome() === 'reopened') {
                 Thanks for letting us know — this ticket has been reopened and sent back to the technician.
               } @else {
-                Thanks for confirming — your feedback has been recorded.
+                <p style="margin:0 0 0.6rem;">Thanks for confirming — your feedback has been recorded.</p>
+                <a [routerLink]="['/portal/survey', t.id]" class="btn btn-outline btn-sm">Take a Quick Survey</a>
               }
             </div>
           } @else if (answers()[t.id] !== 'fixed') {

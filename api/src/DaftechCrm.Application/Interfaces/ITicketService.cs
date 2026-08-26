@@ -83,8 +83,17 @@ public interface ITicketService
     /// </summary>
     Task<TicketDto> UploadAttachmentAsync(Guid ticketId, Stream content, string fileName, string contentType, CancellationToken ct = default);
 
-    /// <summary>Streams the ticket's attachment back, or null if the ticket has none or doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadAttachmentAsync(Guid ticketId, CancellationToken ct = default);
+    /// <summary>
+    /// Streams the ticket's attachment back. Result.Status distinguishes a
+    /// ticket that never had an attachment (NoFileAttached) from one whose
+    /// stored file is missing from the storage backend (FileLost) — the
+    /// controller maps these to different messages so a genuinely lost
+    /// file isn't reported the same way as "there's nothing to download."
+    /// A ticket that doesn't exist at all also comes back as
+    /// NoFileAttached; callers must check CanAccessAttachmentAsync first
+    /// to distinguish "doesn't exist" from "exists, has no attachment".
+    /// </summary>
+    Task<FileRetrievalResult> DownloadAttachmentAsync(Guid ticketId, CancellationToken ct = default);
 
     /// <summary>
     /// True if the given caller may view/upload this ticket's attachment:
@@ -105,6 +114,6 @@ public interface ITicketService
     /// </summary>
     Task<(string StorageKey, string FileName)> UploadVoiceNoteAsync(Stream content, string fileName, string contentType, CancellationToken ct = default);
 
-    /// <summary>Streams the ticket's voice-note recording back, or null if the ticket has none or doesn't exist. Same access rule as CanAccessAttachmentAsync.</summary>
-    Task<RetrievedFile?> DownloadVoiceNoteAsync(Guid ticketId, CancellationToken ct = default);
+    /// <summary>Streams the ticket's voice-note recording back. Same NoFileAttached/FileLost distinction as DownloadAttachmentAsync, same access rule as CanAccessAttachmentAsync.</summary>
+    Task<FileRetrievalResult> DownloadVoiceNoteAsync(Guid ticketId, CancellationToken ct = default);
 }

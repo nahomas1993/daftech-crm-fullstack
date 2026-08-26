@@ -103,12 +103,38 @@ export class FilePreviewModalComponent implements OnChanges {
       if (err?.status === 401 || err?.status === 403) {
         this.error.set('Your session has expired — please refresh the page and sign in again to view this file.');
       } else if (err?.status === 404) {
-        this.error.set('This file could not be found — it may have been removed.');
+        // The backend now distinguishes "nothing was ever attached" from
+        // "a file was recorded but storage lost it" in the response body
+        // — since requests here use responseType 'blob', that body comes
+        // back as a Blob rather than plain text, so it needs reading
+        // before it can inform which message to show.
+        const detail = await this.readErrorDetail(err);
+        this.error.set(
+          detail && detail.toLowerCase().includes('could not be found in storage')
+            ? 'This file was recorded on the record but is missing from storage — it may need to be re-uploaded.'
+            : 'This file could not be found — it may have been removed.'
+        );
       } else {
         this.error.set('Could not load this file — please try again.');
       }
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Reads the text body out of an HttpErrorResponse whose request used responseType 'blob' — the error body arrives as a Blob rather than parsed JSON/text in that case. Returns null if it can't be read. */
+  private async readErrorDetail(err: any): Promise<string | null> {
+    try {
+      const body = err?.error;
+      if (body instanceof Blob) {
+        return await body.text();
+      }
+      if (typeof body === 'string') {
+        return body;
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 

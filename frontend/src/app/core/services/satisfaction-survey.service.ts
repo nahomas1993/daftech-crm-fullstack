@@ -4,14 +4,16 @@ import { firstValueFrom } from 'rxjs';
 import { SatisfactionSurvey } from '../models';
 import { API_BASE_URL } from './api-base';
 
+export interface SubmitSurveyAnswerPayload {
+  questionId: string;
+  rating: number;
+}
+
 export interface SubmitSurveyPayload {
   ticketId: string;
   clientId: string;
-  responseSpeedRating: number;
-  professionalismRating: number;
-  communicationClarityRating: number;
-  likelihoodToRecommend: number;
-  improvementFeedback?: string;
+  answers: SubmitSurveyAnswerPayload[];
+  satisfactionComment?: string;
 }
 
 @Injectable({ providedIn: 'root' })

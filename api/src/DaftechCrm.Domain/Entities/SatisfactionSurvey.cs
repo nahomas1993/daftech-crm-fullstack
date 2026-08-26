@@ -1,10 +1,34 @@
 namespace DaftechCrm.Domain.Entities;
 
 /// <summary>
-/// An optional, separate 5-question satisfaction survey a client can fill
-/// out after a ticket closes. This does NOT feed the 90/100 CSAT gate —
-/// that's driven solely by Ticket.SatisfactionStars/Score. This is
-/// additional qualitative/quantitative feedback for reporting.
+/// An admin-authored question shown on the client satisfaction survey.
+/// Each is answered on a 1-5 scale (1-Poor, 2-Satisfactory, 3-Good,
+/// 4-Very good, 5-Excellent). Admins can add, edit, reorder, and delete
+/// questions from Settings → Configuration → Satisfaction Survey — there
+/// is no fixed/hardcoded question set. Deleting a question does not
+/// remove it from surveys already submitted; see SurveyAnswer.QuestionText.
+/// </summary>
+public class SurveyQuestion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string Text { get; set; } = default!;
+
+    /// <summary>Controls the order questions are shown to the client, ascending.</summary>
+    public int DisplayOrder { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>
+/// An optional satisfaction survey a client can fill out after a ticket
+/// closes. This does NOT feed the 90/100 CSAT gate — that's driven solely
+/// by Ticket.SatisfactionStars/Score. This is additional qualitative/
+/// quantitative feedback for reporting. The question set is fully
+/// admin-configurable (see SurveyQuestion) rather than hardcoded; answers
+/// are stored in SurveyAnswer, one row per question the client rated.
 /// </summary>
 public class SatisfactionSurvey
 {
@@ -18,18 +42,37 @@ public class SatisfactionSurvey
 
     public DateTimeOffset SubmittedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    // Q1: How would you rate the speed of response?
-    public int ResponseSpeedRating { get; set; } // 1-5
+    public List<SurveyAnswer> Answers { get; set; } = new();
 
-    // Q2: How would you rate the technician's professionalism?
-    public int ProfessionalismRating { get; set; } // 1-5
+    /// <summary>
+    /// The client's own words describing their experience — a short
+    /// paragraph (roughly five lines), free text, optional.
+    /// </summary>
+    public string? SatisfactionComment { get; set; }
+}
 
-    // Q3: How well was the issue explained to you?
-    public int CommunicationClarityRating { get; set; } // 1-5
+/// <summary>
+/// One rating (1-5) a client gave to one SurveyQuestion as part of a
+/// SatisfactionSurvey. QuestionText is snapshotted at submission time so
+/// historical answers still display correctly even if an admin later
+/// edits or deletes the question.
+/// </summary>
+public class SurveyAnswer
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
 
-    // Q4: How likely are you to recommend DAFTECH support to a colleague?
-    public int LikelihoodToRecommend { get; set; } // 1-5
+    public Guid SatisfactionSurveyId { get; set; }
+    public SatisfactionSurvey SatisfactionSurvey { get; set; } = default!;
 
-    // Q5: Free-text — what could we have done better?
-    public string? ImprovementFeedback { get; set; }
+    /// <summary>Nullable — preserved for reporting even if the question is later deleted.</summary>
+    public Guid? SurveyQuestionId { get; set; }
+    public SurveyQuestion? SurveyQuestion { get; set; }
+
+    /// <summary>Snapshot of the question's text at the time this was answered.</summary>
+    public string QuestionText { get; set; } = default!;
+
+    public int DisplayOrder { get; set; }
+
+    /// <summary>1-Poor, 2-Satisfactory, 3-Good, 4-Very good, 5-Excellent.</summary>
+    public int Rating { get; set; }
 }

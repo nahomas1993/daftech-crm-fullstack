@@ -59,10 +59,30 @@ public class PostgresFileStorageService : IFileStorageService
         await content.CopyToAsync(buffer, ct);
         var bytes = buffer.ToArray();
 
+        // A stream that copies to zero bytes (truncated upload, client
+        // aborted mid-request, a bad multipart parse upstream) must not
+        // be saved as a "successful" upload — that produces a StoredFile
+        // row with nothing in it, which later reads back as a 0-byte
+        // file instead of failing loudly here where the cause is known.
+        if (bytes.LongLength == 0)
+        {
+            throw new FileValidationException(
+                "The uploaded file was empty or could not be read. Please try uploading it again.");
+        }
+
+        // An empty/whitespace content type is usually a sign the upload
+        // was malformed rather than a deliberate choice — better to fall
+        // back to a safe default than to persist a content type that
+        // will make DownloadAttachment/DownloadVoiceNote send back a
+        // response the browser can't make sense of.
+        var effectiveContentType = string.IsNullOrWhiteSpace(contentType)
+            ? "application/octet-stream"
+            : contentType;
+
         var row = new StoredFile
         {
             OriginalFileName = originalFileName,
-            ContentType = contentType,
+            ContentType = effectiveContentType,
             SizeBytes = bytes.LongLength,
             Content = bytes,
         };
@@ -74,7 +94,7 @@ public class PostgresFileStorageService : IFileStorageService
 
         _logger.LogInformation("Stored uploaded file {StorageKey} ({SizeBytes} bytes) in Postgres", row.Id, bytes.LongLength);
 
-        return new StoredFileResult(row.Id.ToString(), BuildFileUrl(row.Id), originalFileName, bytes.LongLength, contentType);
+        return new StoredFileResult(row.Id.ToString(), BuildFileUrl(row.Id), originalFileName, bytes.LongLength, effectiveContentType);
     }
 
     public async Task<RetrievedFile?> GetAsync(string storageKey, CancellationToken ct = default)
@@ -85,8 +105,18 @@ public class PostgresFileStorageService : IFileStorageService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var row = await db.StoredFilesSet.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
-        if (row is null)
+
+        // A row with no bytes is indistinguishable from a genuinely
+        // missing file as far as any caller is concerned — SaveAsync no
+        // longer creates rows like this, but existing corrupt rows from
+        // before that guard existed should surface the same "file lost"
+        // handling as a missing row, not a 0-byte download.
+        if (row is null || row.Content is null || row.Content.LongLength == 0)
+        {
+            if (row is not null)
+                _logger.LogWarning("StoredFile {StorageKey} exists but has no content — treating as lost.", storageKey);
             return null;
+        }
 
         return new RetrievedFile(new MemoryStream(row.Content), row.ContentType, row.OriginalFileName);
     }

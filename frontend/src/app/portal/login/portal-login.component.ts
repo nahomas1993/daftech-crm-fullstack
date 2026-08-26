@@ -47,8 +47,7 @@ import { BrandLogoComponent } from '../../shared/brand-logo.component';
 
         <button type="button" class="link-btn" (click)="showForgotPassword.set(true)">Forgot password?</button>
 
-        <p class="alt-link">Don't have an account yet? Ask DAFTECH to register you, or request access below.</p>
-        <a routerLink="/portal/signup" class="btn btn-outline btn-sm" style="width:100%;">Request Access</a>
+        <p class="alt-link">Don't have an account yet? Ask DAFTECH to register you.</p>
 
         <p class="alt-link">Admin or Staff? <a routerLink="/admin/login">Click here to sign in</a>.</p>
       </div>

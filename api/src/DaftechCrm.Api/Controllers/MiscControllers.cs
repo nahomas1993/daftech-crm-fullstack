@@ -42,19 +42,6 @@ public class ClientsController : ControllerBase
         return c is null ? NotFound() : Ok(c);
     }
 
-    [HttpGet("pending")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<IReadOnlyList<ClientDto>>> GetPending(CancellationToken ct) => Ok(await _clients.GetPendingAsync(ct));
-
-    /// <summary>Self-service signup — no account exists yet, so this is the one client-facing write endpoint that must stay anonymous.</summary>
-    [HttpPost("signup")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ClientDto>> Signup([FromBody] CreateClientSignupRequest request, CancellationToken ct)
-    {
-        var c = await _clients.SubmitSignupAsync(request, ct);
-        return CreatedAtAction(nameof(GetById), new { id = c.Id }, c);
-    }
-
     /// <summary>
     /// Admin registers a client directly — Approved and credentialed
     /// immediately, no separate approval step needed. The response's
@@ -68,15 +55,6 @@ public class ClientsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Client.Id }, result);
     }
 
-    [HttpPost("{id:guid}/approve")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<ClientDto>> Approve(Guid id, CancellationToken ct) => Ok(await _clients.ApproveAsync(id, ct));
-
-    [HttpPost("{id:guid}/reject")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<ClientDto>> Reject(Guid id, [FromBody] RejectClientRequest request, CancellationToken ct) =>
-        Ok(await _clients.RejectAsync(id, request, ct));
-
     /// <summary>Retries sending the credential email with a freshly regenerated one-time password (SRS v2.0 §4.3.1).</summary>
     [HttpPost("{id:guid}/resend-credential-email")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
@@ -86,7 +64,7 @@ public class ClientsController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
-    /// <summary>Edits an existing client's profile fields. Account status/credentials go through approve/reject/resend instead.</summary>
+    /// <summary>Edits an existing client's profile fields. Credentials go through resend-credential-email instead.</summary>
     [HttpPut("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<ClientDto>> Update(Guid id, [FromBody] UpdateClientRequest request, CancellationToken ct)
@@ -654,6 +632,22 @@ public class ReportsController : ControllerBase
         Ok(await _reports.GetSupportOverviewAsync(ct));
 
     /// <summary>
+    /// Everything about one client in a single call — profile,
+    /// systems/products with agreements and training history, every
+    /// ticket (with attachment/voice-note filenames), every satisfaction
+    /// survey, and a summary block. Admin-only, per the admin Reports
+    /// page's "Overall Client Report" tab — this is a full history dump,
+    /// not something a client or technician needs day-to-day.
+    /// </summary>
+    [HttpGet("client-report/{clientId:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<OverallClientReportDto>> GetOverallClientReport(Guid clientId, CancellationToken ct)
+    {
+        var report = await _reports.GetOverallClientReportAsync(clientId, ct);
+        return report is null ? NotFound() : Ok(report);
+    }
+
+    /// <summary>
     /// Everything the Dashboard's charts/KPI cards need in one call. All
     /// query parameters are optional; an unset filter simply doesn't
     /// narrow that dimension. This is the Dashboard's data source —
@@ -666,34 +660,14 @@ public class ReportsController : ControllerBase
         Ok(await _reports.GetDashboardDataAsync(new DashboardFilter(fromDate, toDate, region), ct));
 
     /// <summary>
-    /// Written/graphical performance metrics for one employee. Pass
-    /// includeAiNarrative=true to also request the optional AI summary —
-    /// omit or set false to skip the AI call entirely (e.g. for a fast
-    /// numbers-only view).
+    /// Written/graphical performance metrics for one employee.
     /// </summary>
     [HttpGet("employee-performance/{employeeId:guid}")]
     public async Task<ActionResult<EmployeePerformanceReportDto>> GetEmployeePerformance(
-        Guid employeeId, [FromQuery] bool includeAiNarrative, CancellationToken ct)
+        Guid employeeId, CancellationToken ct)
     {
-        try { return Ok(await _reports.GetEmployeePerformanceReportAsync(employeeId, includeAiNarrative, ct)); }
+        try { return Ok(await _reports.GetEmployeePerformanceReportAsync(employeeId, ct)); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
-    }
-
-    /// <summary>
-    /// AI narrative summary for any report table already rendered on the
-    /// Reports page (staff or client portal). The frontend sends the same
-    /// columns/rows it's already showing on screen — this never recomputes
-    /// numbers, it only narrates what's given. Always best-effort: a
-    /// non-2xx or Available=false response should never block the table
-    /// itself from displaying.
-    /// </summary>
-    [HttpPost("summarize")]
-    public async Task<ActionResult<AiPerformanceSummaryResult>> Summarize([FromBody] TabularReportData data, CancellationToken ct)
-    {
-        if (data.Rows.Count > 5000)
-            return BadRequest("Report is too large to summarize in one request.");
-
-        return Ok(await _reports.SummarizeTabularReportAsync(data, ct));
     }
 }
 
@@ -864,7 +838,62 @@ public class SatisfactionSurveysController : ControllerBase
         var effectiveRequest = request with { ClientId = callerId };
 
         try { return Ok(await _surveys.SubmitAsync(effectiveRequest, ct)); }
-        catch (ArgumentOutOfRangeException ex) { return BadRequest(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+}
+
+/// <summary>
+/// Admin-managed catalog of satisfaction survey questions (Settings →
+/// Configuration → Satisfaction Survey). GetActive is used by the client
+/// portal to render the survey form; everything else is Admin-only.
+/// </summary>
+[ApiController]
+[Route("api/survey-questions")]
+public class SurveyQuestionsController : ControllerBase
+{
+    private readonly ISurveyQuestionService _questions;
+    public SurveyQuestionsController(ISurveyQuestionService questions) => _questions = questions;
+
+    /// <summary>Every question, including retired ones — for the admin management screen.</summary>
+    [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<IReadOnlyList<SurveyQuestionDto>>> GetAll(CancellationToken ct) => Ok(await _questions.GetAllAsync(ct));
+
+    /// <summary>Active questions only, in display order — what the client's survey form renders.</summary>
+    [HttpGet("active")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClient)]
+    public async Task<ActionResult<IReadOnlyList<SurveyQuestionDto>>> GetActive(CancellationToken ct) => Ok(await _questions.GetActiveAsync(ct));
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<SurveyQuestionDto>> Create([FromBody] CreateSurveyQuestionRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _questions.CreateAsync(request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<SurveyQuestionDto>> Update(Guid id, [FromBody] UpdateSurveyQuestionRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _questions.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPut("reorder")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Reorder([FromBody] ReorderSurveyQuestionsRequest request, CancellationToken ct)
+    {
+        try { await _questions.ReorderAsync(request, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _questions.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 }
 
@@ -875,9 +904,9 @@ public class LocationsController : ControllerBase
     private readonly ILocationService _locations;
     public LocationsController(ILocationService locations) => _locations = locations;
 
-    /// <summary>All admin-managed dropdown/checklist options (Region/City/Woreda/Specialization/CustomRole). Public (no [Authorize]) — the client self-signup portal needs Region/City/Woreda while unauthenticated.</summary>
+    /// <summary>All admin-managed dropdown/checklist options (Region/City/Woreda/Specialization/CustomRole), used by staff-side registration and settings forms.</summary>
     [HttpGet]
-    [AllowAnonymous]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<LocationOptionsDto>> GetAll(CancellationToken ct) => Ok(await _locations.GetAllAsync(ct));
 
     [HttpPost]

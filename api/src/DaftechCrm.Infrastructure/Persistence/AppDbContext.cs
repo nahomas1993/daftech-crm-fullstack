@@ -23,6 +23,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<MaintenanceRecord> MaintenanceRecordsSet => Set<MaintenanceRecord>();
     public DbSet<AppNotification> NotificationsSet => Set<AppNotification>();
     public DbSet<SatisfactionSurvey> SatisfactionSurveysSet => Set<SatisfactionSurvey>();
+    public DbSet<SurveyAnswer> SurveyAnswersSet => Set<SurveyAnswer>();
+    public DbSet<SurveyQuestion> SurveyQuestionsSet => Set<SurveyQuestion>();
     public DbSet<LoginSession> LoginSessionsSet => Set<LoginSession>();
     public DbSet<RefreshToken> RefreshTokensSet => Set<RefreshToken>();
     public DbSet<SystemSetting> SystemSettingsSet => Set<SystemSetting>();
@@ -48,6 +50,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public IQueryable<MaintenanceRecord> MaintenanceRecords => MaintenanceRecordsSet;
     public IQueryable<AppNotification> Notifications => NotificationsSet;
     public IQueryable<SatisfactionSurvey> SatisfactionSurveys => SatisfactionSurveysSet;
+    public IQueryable<SurveyAnswer> SurveyAnswers => SurveyAnswersSet;
+    public IQueryable<SurveyQuestion> SurveyQuestions => SurveyQuestionsSet;
     public IQueryable<LoginSession> LoginSessions => LoginSessionsSet;
     public IQueryable<RefreshToken> RefreshTokens => RefreshTokensSet;
     public IQueryable<SystemSetting> SystemSettings => SystemSettingsSet;

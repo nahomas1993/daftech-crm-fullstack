@@ -8,10 +8,9 @@ import { API_BASE_URL } from './api-base';
  * Admin-managed dropdown/checklist options: Region / Zone / City / Woreda
  * (client forms), Specialization and CustomRole (employee form). Six
  * independent flat lists — not a hierarchy; Zone is a separate field
- * alongside City, not a replacement for it. GET is public (no auth header
- * required), matching the backend [AllowAnonymous] on
- * LocationsController.GetAll, since the self-signup portal needs
- * Region/Zone/City/Woreda before the client has any credentials.
+ * alongside City, not a replacement for it. Requires an authenticated
+ * staff session, matching the backend [Authorize] on
+ * LocationsController.GetAll.
  */
 @Injectable({ providedIn: 'root' })
 export class LocationService {

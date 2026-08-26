@@ -9,7 +9,7 @@ import { NotificationService } from '../../core/services/notification.service';
   imports: [DatePipe],
   template: `
     <h1>Notifications</h1>
-    <p class="text-muted" style="margin-top:0.3rem;">Updates on your signup and ticket status.</p>
+    <p class="text-muted" style="margin-top:0.3rem;">Updates on your ticket status.</p>
 
     <div class="panel" style="margin-top:1.25rem;">
       @for (n of items(); track n.id) {

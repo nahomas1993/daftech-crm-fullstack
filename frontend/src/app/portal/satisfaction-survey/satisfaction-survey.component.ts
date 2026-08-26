@@ -1,19 +1,9 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, OnInit, computed, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { SatisfactionSurveyService } from '../../core/services/satisfaction-survey.service';
-
-interface RatingQuestion {
-  key: 'responseSpeedRating' | 'professionalismRating' | 'communicationClarityRating' | 'likelihoodToRecommend';
-  question: string;
-}
-
-const QUESTIONS: RatingQuestion[] = [
-  { key: 'responseSpeedRating', question: '1. How would you rate the speed of our response?' },
-  { key: 'professionalismRating', question: "2. How would you rate the technician's professionalism?" },
-  { key: 'communicationClarityRating', question: '3. How clearly was the issue explained to you?' },
-  { key: 'likelihoodToRecommend', question: '4. How likely are you to recommend DAFTECH support to a colleague?' },
-];
+import { SurveyQuestionService } from '../../core/services/survey-question.service';
+import { SurveyQuestion, SATISFACTION_RATING_LABELS } from '../../core/models';
 
 @Component({
   selector: 'app-satisfaction-survey',
@@ -22,35 +12,51 @@ const QUESTIONS: RatingQuestion[] = [
   template: `
     <h1>Quick Survey</h1>
     <p class="text-muted" style="margin-top:0.3rem;">
-      Five quick questions about your experience — optional, and separate from the resolution rating you already gave.
+      A few quick questions about your experience — optional, and separate from the resolution rating you already gave.
     </p>
 
     @if (submitted()) {
       <div class="panel panel-pad thanks" style="margin-top:1.25rem;">
         Thanks for the feedback — it's been recorded.
       </div>
+    } @else if (loading()) {
+      <p class="text-muted" style="margin-top:1.25rem;">Loading survey…</p>
+    } @else if (questions().length === 0) {
+      <div class="panel panel-pad" style="margin-top:1.25rem;">
+        <p class="text-muted">No survey questions are configured right now.</p>
+      </div>
     } @else {
       <div class="panel panel-pad" style="margin-top:1.25rem;">
-        @for (q of questions; track q.key) {
+        @for (q of questions(); track q.id; let i = $index) {
           <div class="question">
-            <p class="q-text">{{ q.question }}</p>
-            <div class="stars">
-              @for (s of [1,2,3,4,5]; track s) {
-                <button
-                  class="star"
-                  [class.filled]="s <= (hover()[q.key] || answers()[q.key] || 0)"
-                  (mouseenter)="setHover(q.key, s)"
-                  (mouseleave)="setHover(q.key, 0)"
-                  (click)="setAnswer(q.key, s)"
-                >★</button>
+            <p class="q-text">{{ i + 1 }}. {{ q.text }}</p>
+            <div class="rating-options">
+              @for (r of ratingValues; track r) {
+                <label class="rating-option" [class.selected]="answers()[q.id] === r">
+                  <input
+                    type="radio"
+                    [name]="'q-' + q.id"
+                    [value]="r"
+                    [checked]="answers()[q.id] === r"
+                    (change)="setAnswer(q.id, r)"
+                  />
+                  <span class="rating-number">{{ r }}</span>
+                  <span class="rating-label">{{ ratingLabels[r] }}</span>
+                </label>
               }
             </div>
           </div>
         }
 
         <div class="question">
-          <p class="q-text">5. What could we have done better? <span class="text-muted">(optional)</span></p>
-          <textarea rows="3" [ngModel]="feedback()" (ngModelChange)="feedback.set($event)" placeholder="Your thoughts…"></textarea>
+          <p class="q-text">In your own words, how would you describe your overall experience? <span class="text-muted">(optional)</span></p>
+          <textarea
+            rows="5"
+            maxlength="1000"
+            [ngModel]="comment()"
+            (ngModelChange)="comment.set($event)"
+            placeholder="Tell us about your experience…"
+          ></textarea>
         </div>
 
         @if (error()) {
@@ -64,41 +70,65 @@ const QUESTIONS: RatingQuestion[] = [
     }
   `,
   styles: [`
-    .question { margin-bottom: 1.4rem; }
+    .question { margin-bottom: 1.6rem; }
     .question:last-of-type { margin-bottom: 1rem; }
-    .q-text { font-size: 0.9rem; margin-bottom: 0.5rem; }
-    .stars { display: flex; gap: 0.15rem; }
-    .star { background: none; border: none; font-size: 1.6rem; line-height: 1; color: var(--slate-300); padding: 0; }
-    .star.filled { color: #f5b800; }
+    .q-text { font-size: 0.9rem; margin-bottom: 0.6rem; }
+    .rating-options { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .rating-option {
+      display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+      padding: 0.5rem 0.75rem; border: 1px solid var(--slate-300); border-radius: 8px;
+      cursor: pointer; min-width: 74px; text-align: center;
+    }
+    .rating-option input { position: absolute; opacity: 0; pointer-events: none; }
+    .rating-option.selected { border-color: var(--primary, #2563eb); background: var(--primary-bg, #eff6ff); }
+    .rating-number { font-weight: 600; font-size: 1rem; }
+    .rating-label { font-size: 0.72rem; color: var(--slate-500); }
+    .rating-option.selected .rating-label { color: var(--primary, #2563eb); }
     textarea { width: 100%; resize: vertical; }
     .thanks { color: var(--green); background: var(--green-bg); text-align: center; }
     .error { color: var(--red); font-size: 0.82rem; margin-bottom: 0.75rem; }
   `],
 })
-export class SatisfactionSurveyComponent {
+export class SatisfactionSurveyComponent implements OnInit {
   ticketId = input.required<string>();
-  questions = QUESTIONS;
 
-  answers = signal<Partial<Record<RatingQuestion['key'], number>>>({});
-  hover = signal<Partial<Record<RatingQuestion['key'], number>>>({});
-  feedback = signal('');
+  ratingValues = [1, 2, 3, 4, 5];
+  ratingLabels = SATISFACTION_RATING_LABELS;
+
+  questions = signal<SurveyQuestion[]>([]);
+  loading = signal(true);
+
+  answers = signal<Record<string, number>>({});
+  comment = signal('');
   submitting = signal(false);
   submitted = signal(false);
   error = signal<string | null>(null);
 
   constructor(
     private auth: AuthService,
-    private surveys: SatisfactionSurveyService
+    private surveys: SatisfactionSurveyService,
+    private surveyQuestions: SurveyQuestionService
   ) {}
 
-  allAnswered = computed(() => this.questions.every(q => (this.answers()[q.key] ?? 0) > 0));
-
-  setAnswer(key: RatingQuestion['key'], value: number) {
-    this.answers.update(m => ({ ...m, [key]: value }));
+  async ngOnInit() {
+    try {
+      const active = await this.surveyQuestions.getActive();
+      this.questions.set(active);
+    } catch {
+      this.error.set('Could not load the survey questions — please try again later.');
+    } finally {
+      this.loading.set(false);
+    }
   }
 
-  setHover(key: RatingQuestion['key'], value: number) {
-    this.hover.update(m => ({ ...m, [key]: value }));
+  allAnswered = computed(() => {
+    const qs = this.questions();
+    const a = this.answers();
+    return qs.length > 0 && qs.every(q => (a[q.id] ?? 0) > 0);
+  });
+
+  setAnswer(questionId: string, value: number) {
+    this.answers.update(m => ({ ...m, [questionId]: value }));
   }
 
   async submit() {
@@ -112,11 +142,8 @@ export class SatisfactionSurveyComponent {
       await this.surveys.submit({
         ticketId: this.ticketId(),
         clientId: client.id,
-        responseSpeedRating: a.responseSpeedRating!,
-        professionalismRating: a.professionalismRating!,
-        communicationClarityRating: a.communicationClarityRating!,
-        likelihoodToRecommend: a.likelihoodToRecommend!,
-        improvementFeedback: this.feedback().trim() || undefined,
+        answers: this.questions().map(q => ({ questionId: q.id, rating: a[q.id] })),
+        satisfactionComment: this.comment().trim() || undefined,
       });
       this.submitted.set(true);
     } catch {

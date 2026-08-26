@@ -1,31 +1,32 @@
 namespace DaftechCrm.Application.DTOs;
 
+/// <summary>An admin-authored survey question, in display order.</summary>
+public record SurveyQuestionDto(Guid Id, string Text, int DisplayOrder, bool IsActive);
+
+public record CreateSurveyQuestionRequest(string Text);
+public record UpdateSurveyQuestionRequest(string Text, bool IsActive);
+
+/// <summary>Bulk reorder — the full list of question IDs in the new display order.</summary>
+public record ReorderSurveyQuestionsRequest(IReadOnlyList<Guid> OrderedQuestionIds);
+
+/// <summary>One 1-5 rating the client gave to one question.</summary>
+public record SurveyAnswerDto(Guid? QuestionId, string QuestionText, int DisplayOrder, int Rating);
+
 public record SatisfactionSurveyDto(
     Guid Id,
     Guid TicketId,
     Guid ClientId,
     DateTimeOffset SubmittedAt,
-    int ResponseSpeedRating,
-    int ProfessionalismRating,
-    int CommunicationClarityRating,
-    int LikelihoodToRecommend,
-    string? ImprovementFeedback
+    IReadOnlyList<SurveyAnswerDto> Answers,
+    string? SatisfactionComment
 );
 
-/// <summary>
-/// The 5 questions, in order:
-/// 1. ResponseSpeedRating        — "How would you rate the speed of our response?" (1-5)
-/// 2. ProfessionalismRating      — "How would you rate the technician's professionalism?" (1-5)
-/// 3. CommunicationClarityRating — "How clearly was the issue explained to you?" (1-5)
-/// 4. LikelihoodToRecommend      — "How likely are you to recommend DAFTECH support to a colleague?" (1-5)
-/// 5. ImprovementFeedback        — "What could we have done better?" (free text, optional)
-/// </summary>
+/// <summary>One rating the client is submitting for a given question.</summary>
+public record SubmitSurveyAnswerRequest(Guid QuestionId, int Rating);
+
 public record SubmitSatisfactionSurveyRequest(
     Guid TicketId,
     Guid ClientId,
-    int ResponseSpeedRating,
-    int ProfessionalismRating,
-    int CommunicationClarityRating,
-    int LikelihoodToRecommend,
-    string? ImprovementFeedback
+    IReadOnlyList<SubmitSurveyAnswerRequest> Answers,
+    string? SatisfactionComment
 );

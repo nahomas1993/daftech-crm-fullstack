@@ -1,6 +1,6 @@
 /**
  * Shared password-strength rule used everywhere a new password is set
- * (staff change-password, portal change-password, staff settings, signup).
+ * (staff change-password, portal change-password, staff settings).
  * Keeping this in one place means every form enforces the exact same rule
  * and shows the exact same message — if the requirement ever changes,
  * it changes once here.
