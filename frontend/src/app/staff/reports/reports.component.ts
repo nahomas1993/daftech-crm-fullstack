@@ -296,7 +296,8 @@ const MONTHS = [
         } @else if (supportOverviewError()) {
           <p class="upload-error">{{ supportOverviewError() }}</p>
           <button class="btn btn-outline btn-sm" style="margin-top:0.75rem;" (click)="loadSupportOverview()">Retry</button>
-        } @else if (supportOverview(); as s) {
+        } @else if (supportOverview()) {
+          @if (supportOverview(); as s) {
           <p class="text-muted" style="margin-top:0;">
             These are the same figures behind the Dashboard's "Support &amp; Expiration Overview" graph — shown here as
             the underlying breakdown, since that graph is derived directly from this data.
@@ -359,6 +360,7 @@ const MONTHS = [
               </tbody>
             </table>
           </div>
+          }
         }
       </div>
     }
