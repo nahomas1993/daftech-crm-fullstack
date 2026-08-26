@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SlicePipe, DecimalPipe } from '@angular/common';
 import { TicketReportService } from '../../core/services/ticket-report.service';
@@ -369,10 +369,20 @@ const MONTHS = [
       <div class="panel panel-pad filter-bar">
         <div class="filter-grid">
           <div class="field" style="grid-column: span 2;">
+            <label>Search Clients</label>
+            <input
+              type="text"
+              placeholder="Search by name or account ID…"
+              [ngModel]="clientSearchTerm()"
+              (ngModelChange)="clientSearchTerm.set($event)"
+            />
+          </div>
+          <div class="field" style="grid-column: span 2;">
             <label>Client</label>
             <select [ngModel]="selectedClientId()" (ngModelChange)="selectClient($event)">
               <option [ngValue]="undefined">Select a client…</option>
-              @for (c of clientsSvc.clients(); track c.id) { <option [value]="c.id">{{ c.name }} ({{ c.accountRefId }})</option> }
+              @for (c of filteredClients(); track c.id) { <option [value]="c.id">{{ c.name }} ({{ c.accountRefId }})</option> }
+              @empty { <option [ngValue]="undefined" disabled>No clients match your search</option> }
             </select>
           </div>
         </div>
@@ -613,6 +623,16 @@ export class ReportsComponent {
   clientReport = signal<OverallClientReport | null>(null);
   clientReportLoading = signal(false);
   clientReportError = signal<string | null>(null);
+  clientSearchTerm = signal('');
+  filteredClients = computed(() => {
+    const term = this.clientSearchTerm().trim().toLowerCase();
+    const all = this.clientsSvc.clients();
+    if (!term) return all;
+    return all.filter(c =>
+      c.name.toLowerCase().includes(term) ||
+      c.accountRefId.toLowerCase().includes(term)
+    );
+  });
 
   constructor(
     private reports: TicketReportService,
