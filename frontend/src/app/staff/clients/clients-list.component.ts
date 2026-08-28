@@ -4,9 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
 import { LocationService } from '../../core/services/location.service';
 import { SystemProductService } from '../../core/services/system-product.service';
+import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
+import { requiredFieldsError } from '../../core/required-fields';
+import { isValidRegistrationEmail } from '../../core/email-validation';
 
 @Component({
   selector: 'app-clients-list',
@@ -18,18 +21,23 @@ import { ClientRegisteredResult } from '../../core/models';
         <h1>Clients</h1>
         <p class="text-muted" style="margin-top:0.3rem;">Customer profiles and their agreement / ticket history.</p>
       </div>
-      <button class="btn btn-primary" (click)="toggleForm()">{{ showForm() ? 'Cancel' : '+ Register Client' }}</button>
+      <div style="display:flex; gap:0.5rem;">
+        <a routerLink="/admin/clients/import" class="btn btn-outline">Import Clients (CSV)</a>
+        <button class="btn btn-primary" (click)="toggleForm()">{{ showForm() ? 'Cancel' : '+ Register Client' }}</button>
+      </div>
     </div>
 
     @if (showForm()) {
       <div class="panel panel-pad" style="margin-top:1.25rem;">
         @if (!justRegistered()) {
           <div class="form-grid">
-            <div class="field"><label>Name / Organization</label><input type="text" [ngModel]="form.name" (ngModelChange)="form.name = $event" /></div>
-            <div class="field"><label>Phone Number</label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
-            <div class="field"><label>Email</label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" /></div>
-            <div class="field"><label>Office</label><input type="text" [ngModel]="form.office" (ngModelChange)="form.office = $event" /></div>
-            <div class="field"><label>Location</label><input type="text" [ngModel]="form.location" (ngModelChange)="form.location = $event" /></div>
+            <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="form.name" (ngModelChange)="form.name = $event" /></div>
+            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
+            <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
+              @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
+            </div>
+            <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="form.office" (ngModelChange)="form.office = $event" /></div>
+            <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="form.location" (ngModelChange)="form.location = $event" /></div>
             <div class="field"><label>Region</label>
               <select [ngModel]="form.region" (ngModelChange)="form.region = $event">
                 <option value="">Select region…</option>
@@ -62,8 +70,8 @@ import { ClientRegisteredResult } from '../../core/models';
                 }
               </select>
             </div>
-            <div class="field"><label>KYC Type</label><input type="text" [ngModel]="form.kycType" (ngModelChange)="form.kycType = $event" placeholder="Business License…" /></div>
-            <div class="field"><label>KYC Contact</label><input type="text" [ngModel]="form.kycContact" (ngModelChange)="form.kycContact = $event" placeholder="Name — phone/email" /></div>
+            <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="form.kycType" (ngModelChange)="form.kycType = $event" placeholder="Business License…" /></div>
+            <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="form.kycContact" (ngModelChange)="form.kycContact = $event" placeholder="Name — phone/email" /></div>
             <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" /></div>
           </div>
           @if (registerError()) {
@@ -100,8 +108,26 @@ import { ClientRegisteredResult } from '../../core/models';
               Completed by DAFTECH — you'll assign trainers to it next.
             </p>
             <div class="form-grid">
-              <div class="field"><label>System/Product Name</label><input type="text" [ngModel]="systemProductForm.name" (ngModelChange)="systemProductForm.name = $event" placeholder="e.g. Branch POS System" /></div>
+              <div class="field">
+                <label>System/Product <span class="req">*</span></label>
+                @if (catalog.items().length > 0) {
+                  <select [ngModel]="systemProductForm.catalogItemId" (ngModelChange)="onCatalogSelect($event)">
+                    <option value="">Select a system/product…</option>
+                    @for (c of catalog.items(); track c.id) {
+                      <option [value]="c.id">{{ c.name }}</option>
+                    }
+                    <option value="__other__">Other (type manually)…</option>
+                  </select>
+                  @if (systemProductForm.catalogItemId === '__other__') {
+                    <input type="text" style="margin-top:0.4rem;" [ngModel]="systemProductForm.name" (ngModelChange)="systemProductForm.name = $event" placeholder="e.g. Branch POS System" />
+                  }
+                } @else {
+                  <input type="text" [ngModel]="systemProductForm.name" (ngModelChange)="systemProductForm.name = $event" placeholder="e.g. Branch POS System" />
+                  <span class="text-muted" style="font-size:0.75rem;">No systems/products configured yet — an Admin can add some under Settings, or type a name here.</span>
+                }
+              </div>
               <div class="field"><label>Deployment Date (optional)</label><input type="date" [ngModel]="systemProductForm.deploymentDate" (ngModelChange)="systemProductForm.deploymentDate = $event" /></div>
+              <div class="field"><label>Expiry Date (optional)</label><input type="date" [ngModel]="systemProductForm.expiryDate" (ngModelChange)="systemProductForm.expiryDate = $event" /></div>
               <div class="field" style="grid-column: 1 / -1;"><label>Description (optional)</label><textarea rows="2" [ngModel]="systemProductForm.description" (ngModelChange)="systemProductForm.description = $event"></textarea></div>
             </div>
             @if (systemProductError()) { <p class="register-error" style="margin-top:0.75rem;">{{ systemProductError() }}</p> }
@@ -157,11 +183,13 @@ import { ClientRegisteredResult } from '../../core/models';
               <tr class="edit-row">
                 <td colspan="8">
                   <div class="edit-form">
-                    <div class="field"><label>Name / Organization</label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
-                    <div class="field"><label>Phone Number</label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
-                    <div class="field"><label>Email</label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" /></div>
-                    <div class="field"><label>Office</label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
-                    <div class="field"><label>Location</label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
+                    <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
+                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
+                      @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
+                    </div>
+                    <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
+                    <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
                     <div class="field"><label>Region</label>
                       <select [ngModel]="editForm.region" (ngModelChange)="editForm.region = $event">
                         <option value="">Select region…</option>
@@ -194,8 +222,8 @@ import { ClientRegisteredResult } from '../../core/models';
                         }
                       </select>
                     </div>
-                    <div class="field"><label>KYC Type</label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
-                    <div class="field"><label>KYC Contact</label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
+                    <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
+                    <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
                     <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" /></div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(c.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
@@ -237,6 +265,8 @@ import { ClientRegisteredResult } from '../../core/models';
     .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--slate-500); }
+    .field label .req { color: var(--red, #b3261e); }
+    .field-error { background: var(--red-bg, #fde8e8); color: var(--red, #b3261e); font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 5px; margin-top: 0.3rem; display: inline-block; }
     .credential-panel { background: var(--green-bg); border-radius: 10px; padding: 1.1rem; }
     .credential-panel h4 { color: var(--green); font-size: 0.92rem; }
     .cred-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-top: 1px solid rgba(0,0,0,0.06); }
@@ -263,7 +293,7 @@ export class ClientsListComponent {
   // System/Product before auto-redirecting to Training Assignment — see
   // submitSystemProduct(). systemProductCreated is only set briefly, to
   // show a short confirmation before the redirect actually happens.
-  systemProductForm = { name: '', description: '', deploymentDate: '' };
+  systemProductForm = { name: '', description: '', deploymentDate: '', catalogItemId: '', expiryDate: '' };
   savingSystemProduct = signal(false);
   systemProductError = signal('');
   systemProductCreated = signal<{ id: string; name: string } | null>(null);
@@ -280,6 +310,7 @@ export class ClientsListComponent {
     public clients: ClientService,
     public locations: LocationService,
     private systemProductsSvc: SystemProductService,
+    public catalog: ProductCatalogService,
     private router: Router,
   ) {}
 
@@ -299,16 +330,50 @@ export class ClientsListComponent {
   /** Filtered results when searching, otherwise the current server-fetched page. */
   displayedClients = computed(() => this.isFiltering() ? this.filtered() : this.clients.pagedClients());
 
+  isEmailValid(email: string | null | undefined): boolean {
+    return isValidRegistrationEmail(email);
+  }
+
   toggleForm() {
     this.justRegistered.set(null);
     this.systemProductCreated.set(null);
-    this.systemProductForm = { name: '', description: '', deploymentDate: '' };
+    this.systemProductForm = { name: '', description: '', deploymentDate: '', catalogItemId: '', expiryDate: '' };
     this.systemProductError.set('');
     this.showForm.set(!this.showForm());
   }
 
+  /** Selecting a catalog entry sets its name as the system/product's Name (source of truth for display); "Other" clears it so the free-text input takes over. */
+  onCatalogSelect(value: string) {
+    this.systemProductForm.catalogItemId = value;
+    if (value && value !== '__other__') {
+      const match = this.catalog.items().find(c => c.id === value);
+      this.systemProductForm.name = match?.name ?? '';
+    } else {
+      this.systemProductForm.name = '';
+    }
+  }
+
   async submit() {
-    if (!this.form.name) return;
+    const validationError = requiredFieldsError([
+      { label: 'Name / Organization', value: this.form.name },
+      { label: 'Phone Number', value: this.form.phoneNumber },
+      { label: 'Email', value: this.form.email },
+      { label: 'Office', value: this.form.office },
+      { label: 'Location', value: this.form.location },
+      { label: 'KYC Type', value: this.form.kycType },
+      { label: 'KYC Contact', value: this.form.kycContact },
+      // Region/Zone/City/Woreda and IT Support Contact are intentionally
+      // left out — they're marked optional on the form.
+    ]);
+    if (validationError) {
+      this.registerError.set(validationError);
+      return;
+    }
+    if (!this.isEmailValid(this.form.email)) {
+      this.registerError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+
     this.registering.set(true);
     this.registerError.set('');
     try {
@@ -319,7 +384,7 @@ export class ClientsListComponent {
       this.justRegistered.set(result);
       this.form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
     } catch (err: any) {
-      this.registerError.set(err?.error?.error ?? 'Registration failed — please check the details and try again.');
+      this.registerError.set(err?.error?.error ?? err?.error ?? 'Registration failed — please check the details and try again.');
     } finally {
       this.registering.set(false);
     }
@@ -351,18 +416,23 @@ export class ClientsListComponent {
   async submitSystemProduct() {
     const clientId = this.justRegistered()?.client.id;
     if (!clientId || !this.systemProductForm.name.trim()) {
-      this.systemProductError.set('Name is required.');
+      this.systemProductError.set('System/Product is required — select one from the list, or choose "Other" and type a name.');
       return;
     }
 
     this.savingSystemProduct.set(true);
     this.systemProductError.set('');
     try {
+      const catalogItemId = this.systemProductForm.catalogItemId && this.systemProductForm.catalogItemId !== '__other__'
+        ? this.systemProductForm.catalogItemId
+        : undefined;
       const created = await this.systemProductsSvc.create({
         clientId,
         name: this.systemProductForm.name,
         description: this.systemProductForm.description || undefined,
         deploymentDate: this.systemProductForm.deploymentDate || undefined,
+        catalogItemId,
+        expiryDate: this.systemProductForm.expiryDate || undefined,
       });
       this.systemProductCreated.set({ id: created.id, name: created.name });
 
@@ -403,6 +473,24 @@ export class ClientsListComponent {
   }
 
   async saveEdit(id: string) {
+    const validationError = requiredFieldsError([
+      { label: 'Name / Organization', value: this.editForm.name },
+      { label: 'Phone Number', value: this.editForm.phoneNumber },
+      { label: 'Email', value: this.editForm.email },
+      { label: 'Office', value: this.editForm.office },
+      { label: 'Location', value: this.editForm.location },
+      { label: 'KYC Type', value: this.editForm.kycType },
+      { label: 'KYC Contact', value: this.editForm.kycContact },
+    ]);
+    if (validationError) {
+      this.editError.set(validationError);
+      return;
+    }
+    if (!this.isEmailValid(this.editForm.email)) {
+      this.editError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+
     this.savingEdit.set(true);
     this.editError.set('');
     try {

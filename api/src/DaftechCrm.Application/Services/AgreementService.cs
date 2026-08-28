@@ -33,6 +33,12 @@ public class AgreementService : IAgreementService
     /// </summary>
     public async Task<AgreementDto> CreateAsync(CreateAgreementRequest request, CancellationToken ct = default)
     {
+        RequiredFieldValidator.EnsureAllPresent(
+            ("Agreement Place", request.AgreementPlace)
+        );
+        if (request.SupportWindowMonths <= 0)
+            throw new ValidationException("Support window (months) must be greater than zero.");
+
         var systemProduct = await _db.SystemProducts.Include(s => s.Client)
             .FirstOrDefaultAsync(s => s.Id == request.SystemProductId && !s.IsDeleted, ct)
             ?? throw new InvalidOperationException("System/Product not found.");

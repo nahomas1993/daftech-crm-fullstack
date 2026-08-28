@@ -1,5 +1,6 @@
 using DaftechCrm.Api.Auth;
 using DaftechCrm.Api.Extensions;
+using DaftechCrm.Application;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -42,8 +43,13 @@ public class EmployeesController : ControllerBase
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<EmployeeRegisteredResult>> Register([FromBody] CreateEmployeeRequest request, CancellationToken ct)
     {
-        var result = await _employees.RegisterAsync(request, ct);
-        return CreatedAtAction(nameof(GetById), new { id = result.Employee.Id }, result);
+        try
+        {
+            var result = await _employees.RegisterAsync(request, ct);
+            return CreatedAtAction(nameof(GetById), new { id = result.Employee.Id }, result);
+        }
+        catch (ValidationException ex) { return BadRequest(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     /// <summary>Disables the account (offboarding) — revokes all device sessions and blocks future logins immediately.</summary>
@@ -69,6 +75,7 @@ public class EmployeesController : ControllerBase
     public async Task<ActionResult<EmployeeDto>> Update(Guid id, [FromBody] UpdateEmployeeRequest request, CancellationToken ct)
     {
         try { return Ok(await _employees.UpdateAsync(id, request, ct)); }
+        catch (ValidationException ex) { return BadRequest(ex.Message); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
     }
 
@@ -78,6 +85,7 @@ public class EmployeesController : ControllerBase
     public async Task<ActionResult<EmployeeDto>> SetResponsibilities(Guid id, [FromBody] SetEmployeeResponsibilitiesRequest request, CancellationToken ct)
     {
         try { return Ok(await _employees.SetResponsibilitiesAsync(id, request, ct)); }
+        catch (ValidationException ex) { return BadRequest(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 

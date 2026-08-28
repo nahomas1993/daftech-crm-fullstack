@@ -50,12 +50,14 @@ public interface IEmployeeService
     /// Replaces this employee's full set of responsibilities (Admin,
     /// EmployeeTechnician, Trainer) with the given list — an Admin can add,
     /// remove, or change responsibilities at any time; an employee can
-    /// hold Technician and Trainer simultaneously (see EmployeeRole). Does
-    /// not touch profile fields, IP allowlist, or account status. Removing
-    /// Trainer from an employee currently on a system/product's training
-    /// roster does not remove them from that roster — see
-    /// ISystemProductService — an Admin who wants that must remove them
-    /// from the roster separately.
+    /// hold Technician and Trainer simultaneously (see EmployeeRole), but
+    /// Admin cannot be combined with either — see
+    /// EmployeeRoleValidator.EnsureValidCombination. Does not touch
+    /// profile fields, IP allowlist, or account status. Removing Trainer
+    /// from an employee currently on a system/product's training roster
+    /// does not remove them from that roster — see ISystemProductService
+    /// — an Admin who wants that must remove them from the roster
+    /// separately.
     /// </summary>
     Task<EmployeeDto> SetResponsibilitiesAsync(Guid employeeId, SetEmployeeResponsibilitiesRequest request, CancellationToken ct = default);
 
@@ -241,6 +243,20 @@ public interface ISystemProductService
     /// afterward without affecting this status.
     /// </summary>
     Task<SystemProductDto> MarkTrainingCompletedAsync(Guid systemProductId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The Trainer's own "I'm done" signal, separate from Admin's later
+    /// MarkTrainingCompletedAsync review. Called once the Trainer has
+    /// saved a TrainingRecord for every agreement item on their
+    /// checklist and moves on to submit the whole batch — see
+    /// TrainingRecordService.CreateAsync for saving each item one at a
+    /// time. Requires at least one TrainingRecord already logged and the
+    /// caller to currently be on this system/product's training roster.
+    /// Stamps/overwrites SystemProduct.TrainingSubmittedAt; does not by
+    /// itself change TrainingCompletionStatus — Admin still reviews and
+    /// marks it Completed separately.
+    /// </summary>
+    Task<SystemProductDto> SubmitTrainingAsync(Guid systemProductId, Guid callerEmployeeId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -517,6 +533,19 @@ public interface ISupportTypeService
     Task<IReadOnlyList<SupportTypeDto>> GetAllAsync(CancellationToken ct = default);
     Task<SupportTypeDto> CreateAsync(CreateSupportTypeRequest request, CancellationToken ct = default);
     Task<SupportTypeDto> UpdateAsync(Guid id, UpdateSupportTypeRequest request, CancellationToken ct = default);
+    Task DeleteAsync(Guid id, CancellationToken ct = default);
+}
+
+/// <summary>Admin-managed Systems/Products catalog — see ProductCatalogItem. Same shape/lifecycle as ISupportTypeService.</summary>
+public interface IProductCatalogItemService
+{
+    /// <summary>Active entries only — what clients/admins pick from when creating a system/product or submitting a ticket.</summary>
+    Task<IReadOnlyList<ProductCatalogItemDto>> GetAllAsync(CancellationToken ct = default);
+
+    /// <summary>Every entry including inactive ones — for the admin Settings management list.</summary>
+    Task<IReadOnlyList<ProductCatalogItemDto>> GetAllForAdminAsync(CancellationToken ct = default);
+    Task<ProductCatalogItemDto> CreateAsync(CreateProductCatalogItemRequest request, CancellationToken ct = default);
+    Task<ProductCatalogItemDto> UpdateAsync(Guid id, UpdateProductCatalogItemRequest request, CancellationToken ct = default);
     Task DeleteAsync(Guid id, CancellationToken ct = default);
 }
 

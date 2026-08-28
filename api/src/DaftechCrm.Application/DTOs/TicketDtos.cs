@@ -8,6 +8,9 @@ public record TicketDto(
     Guid ClientId,
     string ClientName,
     Guid AgreementId,
+    /// <summary>Which of the client's systems/products this issue is about — see Ticket.SystemProductId. Null only for tickets submitted before this field existed.</summary>
+    Guid? SystemProductId,
+    string? SystemProductName,
     string Description,
     TicketCategory Category,
     Guid? FailureTypeId,
@@ -54,6 +57,8 @@ public record VoiceNoteUploadResult(string StorageKey, string FileName);
 public record SubmitTicketRequest(
     Guid ClientId,
     Guid AgreementId,
+    /// <summary>Required — which of the client's systems/products this issue is about. The client portal always sends this; the server rejects a submission without it.</summary>
+    Guid SystemProductId,
     string Description,
     TicketCategory Category,
     Guid? FailureTypeId,

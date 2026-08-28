@@ -19,16 +19,25 @@ export class TrainingService {
 
   /**
    * "Add Training": logs one session the calling Trainer conducted
-   * against data.systemProductId — date and what was taught/conducted.
-   * Only a Trainer currently on that system/product's training roster may
-   * do this (403 otherwise — the roster is set up first, via
+   * against data.systemProductId, for a specific admin-configured
+   * checklist item (data.agreementTypeId — e.g. "Attendance"), with the
+   * date and what was taught/conducted. startDateTime/endDateTime are
+   * optional — leave both out for items with no real duration. Only a
+   * Trainer currently on that system/product's training roster may do
+   * this (403 otherwise — the roster is set up first, via
    * SystemProductService.addTrainingAssignment/autoAssignTrainers).
    * Attach a file afterward with uploadFile() if needed. Call again for
-   * each additional session — every call inserts a new record, even
-   * after the system/product's training is already marked Completed
-   * (e.g. a refresher).
+   * each additional item on the checklist (or a repeat/refresher) —
+   * every call inserts a new record.
    */
-  async create(data: { systemProductId: string; trainingDate: string; description: string }): Promise<TrainingRecord> {
+  async create(data: {
+    systemProductId: string;
+    agreementTypeId: string;
+    trainingDate: string;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
+    description: string;
+  }): Promise<TrainingRecord> {
     return firstValueFrom(this.http.post<TrainingRecord>(`${API_BASE_URL}/training`, data));
   }
 

@@ -6,11 +6,12 @@ import { SystemConfigurationService } from '../../core/services/system-configura
 import { LocationService } from '../../core/services/location.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
 import { SupportTypeService } from '../../core/services/support-type.service';
+import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { SurveyQuestionService } from '../../core/services/survey-question.service';
 import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
-type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'satisfactionSurvey';
+type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'productCatalog' | 'satisfactionSurvey';
 
 @Component({
   selector: 'app-staff-settings',
@@ -27,6 +28,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
         <button class="tab" [class.active]="tab() === 'configuration'" (click)="tab.set('configuration')">Configuration</button>
         <button class="tab" [class.active]="tab() === 'locations'" (click)="tab.set('locations')">Locations</button>
         <button class="tab" [class.active]="tab() === 'failureTypes'" (click)="tab.set('failureTypes')">Failure Types &amp; Pricing</button>
+        <button class="tab" [class.active]="tab() === 'productCatalog'" (click)="tab.set('productCatalog')">Systems/Products</button>
         <button class="tab" [class.active]="tab() === 'satisfactionSurvey'" (click)="tab.set('satisfactionSurvey')">Satisfaction Survey</button>
       }
     </div>
@@ -280,6 +282,64 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
       </div>
     }
 
+    @if (tab() === 'productCatalog' && isAdmin()) {
+      <div class="section" style="max-width: 640px;">
+        <div class="panel panel-pad">
+          <h3>Systems/Products</h3>
+          <p class="text-muted hint">
+            The systems/products DAFTECH deploys for clients (e.g. "Branch POS System", "HR Portal"). Add, rename,
+            or retire entries here — no code change needed. Clients pick one when submitting an issue, and
+            Admins pick one when adding a system/product to a client's account.
+            Removing an entry doesn't delete it outright — it's hidden from new selections but stays intact for
+            anything already using it.
+          </p>
+
+          <div class="ft-add-row">
+            <input type="text" placeholder="System/product name…" [ngModel]="newPcName()" (ngModelChange)="newPcName.set($event)" />
+            <input type="text" placeholder="Description (optional)…" [ngModel]="newPcDescription()" (ngModelChange)="newPcDescription.set($event)" />
+            <button class="btn btn-primary btn-sm" [disabled]="savingProductCatalog()" (click)="addProductCatalogItem()">Add</button>
+          </div>
+
+          <ul class="entry-list">
+            @for (p of catalog.adminItems(); track p.id) {
+              <li class="entry-row">
+                @if (editingPcId() === p.id) {
+                  <div class="ft-edit-row">
+                    <input type="text" [ngModel]="editingPcName()" (ngModelChange)="editingPcName.set($event)" />
+                    <input type="text" placeholder="Description (optional)…" [ngModel]="editingPcDescription()" (ngModelChange)="editingPcDescription.set($event)" />
+                    <label style="display:flex; align-items:center; gap:0.4rem; font-weight:600; font-size:0.8rem; color: var(--slate-500);">
+                      <input type="checkbox" [ngModel]="editingPcActive()" (ngModelChange)="editingPcActive.set($event)" />
+                      <span>Active</span>
+                    </label>
+                  </div>
+                  <div class="entry-actions">
+                    <button class="btn btn-primary btn-sm" [disabled]="savingProductCatalog()" (click)="savePcEdit(p.id)">Save</button>
+                    <button class="btn btn-outline btn-sm" (click)="cancelPcEdit()">Cancel</button>
+                  </div>
+                } @else {
+                  <span class="entry-name">
+                    {{ p.name }}
+                    @if (!p.isActive) { <span class="text-muted"> · retired</span> }
+                    @if (p.description) { <span class="text-muted"> · {{ p.description }}</span> }
+                  </span>
+                  <div class="entry-actions">
+                    <button class="btn btn-outline btn-sm" (click)="startPcEdit(p)">Edit</button>
+                    @if (p.isActive) {
+                      <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingProductCatalog()" (click)="deleteProductCatalogItem(p.id)">Remove</button>
+                    }
+                  </div>
+                }
+              </li>
+            }
+            @empty {
+              <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">No systems/products added yet — clients won't be able to select one until you add some.</li>
+            }
+          </ul>
+          @if (productCatalogError()) { <div class="err" style="margin-top:0.5rem;">{{ productCatalogError() }}</div> }
+        </div>
+      </div>
+    }
+
     @if (tab() === 'satisfactionSurvey' && isAdmin()) {
       <div class="section" style="max-width: 640px;">
         <div class="panel panel-pad">
@@ -422,7 +482,7 @@ export class SettingsComponent implements OnInit {
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
-  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService, public surveyQuestions: SurveyQuestionService) {}
+  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService, public catalog: ProductCatalogService, public surveyQuestions: SurveyQuestionService) {}
 
   async ngOnInit() {
     if (this.isAdmin()) {
@@ -430,6 +490,7 @@ export class SettingsComponent implements OnInit {
         await this.config.refresh();
         this.resetDrafts();
         await this.surveyQuestions.refresh();
+        await this.catalog.refreshForAdmin();
       } finally {
         this.loadingConfig.set(false);
       }
@@ -775,6 +836,74 @@ export class SettingsComponent implements OnInit {
       this.supportTypesError.set(e?.error ?? 'Could not delete this support type — it may be in use by a ticket.');
     } finally {
       this.savingSupportTypes.set(false);
+    }
+  }
+
+  // --- Systems/Products catalog ---
+
+  newPcName = signal('');
+  newPcDescription = signal('');
+  savingProductCatalog = signal(false);
+  productCatalogError = signal<string | null>(null);
+  editingPcId = signal<string | null>(null);
+  editingPcName = signal('');
+  editingPcDescription = signal('');
+  editingPcActive = signal(true);
+
+  async addProductCatalogItem() {
+    const name = this.newPcName().trim();
+    if (!name) return;
+
+    this.productCatalogError.set(null);
+    this.savingProductCatalog.set(true);
+    try {
+      await this.catalog.create(name, this.newPcDescription().trim() || undefined);
+      this.newPcName.set('');
+      this.newPcDescription.set('');
+    } catch (e: any) {
+      this.productCatalogError.set(e?.error ?? 'Could not add this system/product — the name may already exist.');
+    } finally {
+      this.savingProductCatalog.set(false);
+    }
+  }
+
+  startPcEdit(p: { id: string; name: string; description?: string; isActive: boolean }) {
+    this.editingPcId.set(p.id);
+    this.editingPcName.set(p.name);
+    this.editingPcDescription.set(p.description ?? '');
+    this.editingPcActive.set(p.isActive);
+    this.productCatalogError.set(null);
+  }
+
+  cancelPcEdit() {
+    this.editingPcId.set(null);
+  }
+
+  async savePcEdit(id: string) {
+    const name = this.editingPcName().trim();
+    if (!name) return;
+
+    this.productCatalogError.set(null);
+    this.savingProductCatalog.set(true);
+    try {
+      await this.catalog.update(id, name, this.editingPcDescription().trim() || undefined, this.editingPcActive());
+      this.cancelPcEdit();
+    } catch (e: any) {
+      this.productCatalogError.set(e?.error ?? 'Could not save this change — the name may already exist.');
+    } finally {
+      this.savingProductCatalog.set(false);
+    }
+  }
+
+  async deleteProductCatalogItem(id: string) {
+    this.productCatalogError.set(null);
+    this.savingProductCatalog.set(true);
+    try {
+      await this.catalog.remove(id);
+    } catch (e: any) {
+      this.productCatalogError.set(e?.error ?? 'Could not remove this system/product — please try again.');
+    } finally {
+      this.savingProductCatalog.set(false);
     }
   }
 

@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, Injector, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom, Observable, catchError, map, of, tap, throwError, timeout } from 'rxjs';
 import { Router } from '@angular/router';
@@ -8,6 +8,7 @@ import { SessionService } from './session.service';
 import { TokenStorageService, StoredTokens } from './token-storage.service';
 import { decodeAccessToken } from './jwt.util';
 import { IdleTimeoutService } from './idle-timeout.service';
+import { TicketService } from './ticket.service';
 
 export interface LoginResult {
   success: boolean;
@@ -52,8 +53,27 @@ export class AuthService {
     private sessions: SessionService,
     private tokenStorage: TokenStorageService,
     private idleTimeout: IdleTimeoutService,
-    private router: Router
+    private router: Router,
+    // Injector, not a direct TicketService constructor param — TicketService
+    // itself injects AuthService, and a direct param here would be a
+    // circular dependency (NG0200). Resolved lazily in clearCachedData()
+    // instead, only at logout time, once both services already exist.
+    private injector: Injector
   ) {}
+
+  /**
+   * Wipes every cross-session cached data store back to empty. Called
+   * from every logout path below (and forceLogoutAfterRefreshFailure)
+   * so that if a second staff member signs in on the same browser
+   * afterward, they can never briefly see a previous technician's
+   * cached ticket list — TicketService is providedIn: 'root' and is
+   * never destroyed between logins, so without this its signals would
+   * otherwise keep whatever the last session left in them until that
+   * session's own first fetch happens to complete.
+   */
+  private clearCachedData(): void {
+    this.injector.get(TicketService).clear();
+  }
 
   /**
    * Starts (or restarts) the 15-minute idle-logout watch for whichever
@@ -143,6 +163,7 @@ export class AuthService {
     );
 
     if (result.success && result.accountType === 'Employee' && result.employee) {
+      this.clearCachedData();
       this._currentEmployee.set(result.employee);
       // Heartbeat/idle-watch need a real access token to authenticate their
       // calls — starting them while tokens is null (the must-change-password
@@ -158,6 +179,7 @@ export class AuthService {
         this.startIdleWatch();
       }
     } else if (result.success && result.accountType === 'Client' && result.client) {
+      this.clearCachedData();
       this._currentClient.set(result.client);
       if (result.tokens) {
         this.tokenStorage.setTokens(result.tokens);
@@ -183,6 +205,7 @@ export class AuthService {
     );
 
     if (result.success && result.employee) {
+      this.clearCachedData();
       this._currentEmployee.set(result.employee);
       // See the identical comment in login() above — don't start
       // heartbeat/idle-watch without a real token, or the resulting 401
@@ -305,6 +328,7 @@ export class AuthService {
     this.idleTimeout.stop();
     this._currentEmployee.set(null);
     this._currentClient.set(null);
+    this.clearCachedData();
   }
 
   async logoutStaff(): Promise<void> {
@@ -313,6 +337,7 @@ export class AuthService {
     this.tokenStorage.clear();
     this.idleTimeout.stop();
     this._currentEmployee.set(null);
+    this.clearCachedData();
     if (employee) await this.sessions.closeSession('Employee', employee.id);
   }
 
@@ -322,6 +347,7 @@ export class AuthService {
     this.tokenStorage.clear();
     this.idleTimeout.stop();
     this._currentClient.set(null);
+    this.clearCachedData();
     if (client) await this.sessions.closeSession('Client', client.id);
   }
 

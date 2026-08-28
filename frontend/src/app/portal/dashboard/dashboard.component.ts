@@ -1,9 +1,10 @@
 import { Component, OnDestroy, OnInit, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { SlicePipe } from '@angular/common';
+import { SlicePipe, DatePipe } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
+import { SystemProductService } from '../../core/services/system-product.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { TICKET_CATEGORY_LABELS } from '../../core/models';
 import { DonutChartComponent, DonutSlice } from '../../shared/donut-chart.component';
@@ -23,7 +24,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 @Component({
   selector: 'app-portal-dashboard',
   standalone: true,
-  imports: [RouterLink, SlicePipe, BadgeComponent, DonutChartComponent, CountBarChartComponent, LineChartComponent],
+  imports: [RouterLink, SlicePipe, DatePipe, BadgeComponent, DonutChartComponent, CountBarChartComponent, LineChartComponent],
   template: `
     <h1>Dashboard</h1>
     <p class="text-muted" style="margin-top:0.3rem;">{{ client()?.name }} — a quick look at your support activity.</p>
@@ -53,6 +54,35 @@ const REFRESH_INTERVAL_MS = 20_000;
         <div class="card-label">Expired Agreements</div>
         <div class="card-value" [class.warn]="expiredAgreements() > 0">{{ expiredAgreements() }}</div>
       </a>
+    </div>
+
+    <div class="panel panel-pad" style="margin-top: 1.5rem;">
+      <h3>My Systems/Products</h3>
+      @if (myProducts().length > 0) {
+        <div class="products-grid">
+          @for (p of myProducts(); track p.id) {
+            <div class="product-card">
+              <div class="product-name">{{ p.name }}</div>
+              @if (p.description) { <div class="text-muted" style="font-size:0.8rem;">{{ p.description }}</div> }
+              <div class="product-expiry">
+                @if (p.expiryDate) {
+                  <span [class.warn]="isExpiringSoon(p.expiryDate)" [class.expired]="isExpired(p.expiryDate)">
+                    @if (isExpired(p.expiryDate)) {
+                      Expired {{ p.expiryDate | date:'mediumDate' }}
+                    } @else {
+                      Expires {{ p.expiryDate | date:'mediumDate' }}
+                    }
+                  </span>
+                } @else {
+                  <span class="text-muted">No expiry date set</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="text-muted" style="font-size:0.85rem;">No systems/products are on your account yet.</p>
+      }
     </div>
 
     <div class="chart-grid">
@@ -102,10 +132,16 @@ const REFRESH_INTERVAL_MS = 20_000;
     .see-all { font-size: 0.8rem; font-weight: 600; }
     .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
     .chart-title { margin-bottom: 0.9rem; font-size: 0.98rem; }
+    .products-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem; margin-top: 0.8rem; }
+    .product-card { border: 1px solid var(--slate-200); border-radius: 10px; padding: 0.85rem 1rem; }
+    .product-name { font-weight: 700; color: var(--navy-900); margin-bottom: 0.2rem; }
+    .product-expiry { margin-top: 0.5rem; font-size: 0.82rem; }
+    .product-expiry .warn { color: var(--amber); font-weight: 600; }
+    .product-expiry .expired { color: var(--red, #b3261e); font-weight: 600; }
   `],
 })
 export class PortalDashboardComponent implements OnInit, OnDestroy {
-  constructor(private auth: AuthService, private ticketsSvc: TicketService, private agreementsSvc: AgreementService) {}
+  constructor(private auth: AuthService, private ticketsSvc: TicketService, private agreementsSvc: AgreementService, public systemProductsSvc: SystemProductService) {}
 
   private pollHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -120,10 +156,35 @@ export class PortalDashboardComponent implements OnInit, OnDestroy {
 
   private refresh(): void {
     const client = this.auth.currentClient();
-    if (client) void this.ticketsSvc.refreshMyTickets(client.id);
+    if (client) {
+      void this.ticketsSvc.refreshMyTickets(client.id);
+      void this.systemProductsSvc.refreshForClient(client.id);
+    }
   }
 
   client = computed(() => this.auth.currentClient());
+
+  /** All of this client's systems/products, so multiple assigned products (and each one's own expiry) are all visible at once — not just the first/active one. */
+  myProducts = computed(() => {
+    const client = this.client();
+    if (!client) return [];
+    // Depend on byClient() so this recomputes once refreshForClient() populates the cache.
+    this.systemProductsSvc.byClient();
+    return this.systemProductsSvc.systemProductsFor(client.id);
+  });
+
+  /** True once a product's expiry date has passed — flagged distinctly on the dashboard so it doesn't read the same as a healthy one. */
+  isExpired(expiryDate?: string): boolean {
+    if (!expiryDate) return false;
+    return new Date(expiryDate) < new Date(new Date().toDateString());
+  }
+
+  /** True when a product expires within 30 days — an early warning, distinct from already-expired. */
+  isExpiringSoon(expiryDate?: string): boolean {
+    if (!expiryDate) return false;
+    const days = (new Date(expiryDate).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000;
+    return days >= 0 && days <= 30;
+  }
 
   private myTickets = computed(() => {
     const client = this.client();

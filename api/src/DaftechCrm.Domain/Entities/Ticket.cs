@@ -23,6 +23,19 @@ public class Ticket
     public Guid AgreementId { get; set; }
     public Agreement Agreement { get; set; } = default!;
 
+    /// <summary>
+    /// Which of the client's systems/products this issue is about —
+    /// required on submission (see TicketService.SubmitFromClientAsync)
+    /// so Admin can always tell which product a ticket belongs to.
+    /// Normally the same SystemProduct that AgreementId's Agreement hangs
+    /// off of; kept as its own column (rather than derived through
+    /// Agreement) so it's directly queryable/displayable and survives
+    /// even if the ticket's agreement situation is ever restructured.
+    /// Nullable only for tickets submitted before this field existed.
+    /// </summary>
+    public Guid? SystemProductId { get; set; }
+    public SystemProduct? SystemProduct { get; set; }
+
     public string Description { get; set; } = default!;
     public TicketCategory Category { get; set; }
 

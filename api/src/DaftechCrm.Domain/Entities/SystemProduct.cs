@@ -34,8 +34,30 @@ public class SystemProduct
     public string Name { get; set; } = default!;
     public string? Description { get; set; }
 
+    /// <summary>
+    /// Optional reference back to the admin-managed Systems/Products
+    /// catalog (see <see cref="ProductCatalogItem"/>) this entry was
+    /// created from. Null for SystemProducts created before the catalog
+    /// existed, or when an Admin typed a free-text Name instead of
+    /// picking a catalog entry — Name always stays the source of truth
+    /// for display, this is purely for traceability/reporting.
+    /// </summary>
+    public Guid? CatalogItemId { get; set; }
+    public ProductCatalogItem? CatalogItem { get; set; }
+
     /// <summary>When this system/product was deployed/onboarded for the client. Purely informational — does not gate anything.</summary>
     public DateOnly? DeploymentDate { get; set; }
+
+    /// <summary>
+    /// When this specific client's system/product is due to expire (e.g.
+    /// license/subscription/support end date) — shown on the client
+    /// dashboard so a client can see, per product, when it runs out.
+    /// Distinct from Agreement.ExpiryDate (which tracks a signed support
+    /// agreement's own expiry) — a system/product can have an expiry even
+    /// before any agreement exists for it. Optional: not every
+    /// system/product has one.
+    /// </summary>
+    public DateOnly? ExpiryDate { get; set; }
 
     /// <summary>
     /// Soft-delete flag. Agreements reference SystemProductId, so a real
@@ -63,4 +85,14 @@ public class SystemProduct
     /// being logged afterward (e.g. a refresher) — see MarkTrainingCompletedAsync.
     /// </summary>
     public TrainingCompletionStatus TrainingCompletionStatus { get; set; } = TrainingCompletionStatus.NotStarted;
+
+    /// <summary>
+    /// Stamped by SystemProductService.SubmitTrainingAsync — a Trainer's
+    /// own signal that they've saved a TrainingRecord for every
+    /// agreement item on their checklist and are done, distinct from
+    /// Admin's separate MarkTrainingCompletedAsync review/sign-off. Null
+    /// until a Trainer submits; a later submit (e.g. after a refresher)
+    /// simply overwrites this timestamp.
+    /// </summary>
+    public DateTimeOffset? TrainingSubmittedAt { get; set; }
 }

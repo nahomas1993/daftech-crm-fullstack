@@ -37,13 +37,13 @@ export class SystemProductService {
   }
 
   /** Creates a new system/product for a client. Never overwrites or replaces one the client already has. Starts with an empty training roster — see addTrainingAssignment/autoAssignTrainers. */
-  async create(data: { clientId: string; name: string; description?: string; deploymentDate?: string }): Promise<SystemProduct> {
+  async create(data: { clientId: string; name: string; description?: string; deploymentDate?: string; catalogItemId?: string; expiryDate?: string }): Promise<SystemProduct> {
     const created = await firstValueFrom(this.http.post<SystemProduct>(`${API_BASE_URL}/system-products`, data));
     await this.refreshForClient(data.clientId);
     return created;
   }
 
-  async update(id: string, clientId: string, data: { name: string; description?: string; deploymentDate?: string }): Promise<SystemProduct> {
+  async update(id: string, clientId: string, data: { name: string; description?: string; deploymentDate?: string; catalogItemId?: string; expiryDate?: string }): Promise<SystemProduct> {
     const updated = await firstValueFrom(this.http.put<SystemProduct>(`${API_BASE_URL}/system-products/${id}`, data));
     await this.refreshForClient(clientId);
     return updated;
@@ -87,5 +87,10 @@ export class SystemProductService {
   /** One-click Admin decision: marks this system/product's training Completed. Unlocks signing a Support agreement for it; does not stop further training records being logged afterward. */
   async markTrainingCompleted(systemProductId: string): Promise<SystemProduct> {
     return firstValueFrom(this.http.post<SystemProduct>(`${API_BASE_URL}/system-products/${systemProductId}/training-complete`, {}));
+  }
+
+  /** Trainer's own "done, ready for Admin" action once every checklist item has been saved. Stamps trainingSubmittedAt; does not itself mark training Completed. */
+  async submitTraining(systemProductId: string): Promise<SystemProduct> {
+    return firstValueFrom(this.http.post<SystemProduct>(`${API_BASE_URL}/system-products/${systemProductId}/training-submit`, {}));
   }
 }

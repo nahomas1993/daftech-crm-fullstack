@@ -31,7 +31,8 @@ public class SystemProductService : ISystemProductService
         s.TrainingCompletionStatus,
         s.TrainingAssignments.OrderBy(a => a.AssignedAt)
             .Select(a => new TrainingAssignmentDto(a.Id, a.TrainerEmployeeId, a.TrainerEmployee?.FullName ?? "(unknown)", a.AssignedAt))
-            .ToList()
+            .ToList(),
+        s.CatalogItemId, s.ExpiryDate, s.TrainingSubmittedAt
     );
 
     /// <summary>Always inserts a new SystemProduct — never overwrites or replaces one a client already has, regardless of how many the client already has. Starts with an empty training roster and TrainingCompletionStatus.NotStarted.</summary>
@@ -45,6 +46,13 @@ public class SystemProductService : ISystemProductService
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("Name is required.");
 
+        if (request.CatalogItemId is Guid catalogId)
+        {
+            var catalogExists = await _db.ProductCatalogItems.AnyAsync(c => c.Id == catalogId, ct);
+            if (!catalogExists)
+                throw new InvalidOperationException("Selected system/product catalog entry was not found.");
+        }
+
         var entry = new SystemProduct
         {
             ClientId = request.ClientId,
@@ -52,6 +60,8 @@ public class SystemProductService : ISystemProductService
             Name = name,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             DeploymentDate = request.DeploymentDate,
+            CatalogItemId = request.CatalogItemId,
+            ExpiryDate = request.ExpiryDate,
         };
         _db.Add(entry);
         await _db.SaveChangesAsync(ct);
@@ -80,9 +90,18 @@ public class SystemProductService : ISystemProductService
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("Name is required.");
 
+        if (request.CatalogItemId is Guid catalogId)
+        {
+            var catalogExists = await _db.ProductCatalogItems.AnyAsync(c => c.Id == catalogId, ct);
+            if (!catalogExists)
+                throw new InvalidOperationException("Selected system/product catalog entry was not found.");
+        }
+
         entry.Name = name;
         entry.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         entry.DeploymentDate = request.DeploymentDate;
+        entry.CatalogItemId = request.CatalogItemId;
+        entry.ExpiryDate = request.ExpiryDate;
         _db.Update(entry);
         await _db.SaveChangesAsync(ct);
         return ToDto(entry);
@@ -177,6 +196,30 @@ public class SystemProductService : ISystemProductService
             ?? throw new InvalidOperationException("System/Product not found.");
 
         entry.TrainingCompletionStatus = TrainingCompletionStatus.Completed;
+        _db.Update(entry);
+        await _db.SaveChangesAsync(ct);
+
+        return (await GetByIdAsync(systemProductId, ct))!;
+    }
+
+    /// <summary>Trainer's own "done, submit to Admin" action — see ISystemProductService.SubmitTrainingAsync.</summary>
+    public async Task<SystemProductDto> SubmitTrainingAsync(Guid systemProductId, Guid callerEmployeeId, CancellationToken ct = default)
+    {
+        var entry = await _db.SystemProducts.FirstOrDefaultAsync(s => s.Id == systemProductId && !s.IsDeleted, ct)
+            ?? throw new InvalidOperationException("System/Product not found.");
+
+        var onRoster = await _db.TrainingAssignments
+            .AnyAsync(a => a.SystemProductId == systemProductId && a.TrainerEmployeeId == callerEmployeeId, ct);
+        if (!onRoster)
+            throw new InvalidOperationException("You are not assigned to train on this client's system/product.");
+
+        var hasAnyRecord = await _db.TrainingRecords.AnyAsync(r => r.SystemProductId == systemProductId, ct);
+        if (!hasAnyRecord)
+            throw new InvalidOperationException("Log at least one training item before submitting.");
+
+        entry.TrainingSubmittedAt = DateTimeOffset.UtcNow;
+        if (entry.TrainingCompletionStatus == TrainingCompletionStatus.NotStarted)
+            entry.TrainingCompletionStatus = TrainingCompletionStatus.InProgress;
         _db.Update(entry);
         await _db.SaveChangesAsync(ct);
 

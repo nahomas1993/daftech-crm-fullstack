@@ -41,9 +41,29 @@ public class TicketService : ITicketService
         SubmitTicketRequest request,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(request.Description))
+            throw new ValidationException(
+                "Please describe the issue before submitting.");
+
         if (request.Description.Length > 1000)
             throw new ValidationException(
                 "Description must be 1000 characters or fewer.");
+
+        if (request.SystemProductId == Guid.Empty)
+            throw new ValidationException(
+                "Please select which system/product this issue is about.");
+
+        var systemProduct = await _db.SystemProducts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                s => s.Id == request.SystemProductId && !s.IsDeleted,
+                ct)
+            ?? throw new ValidationException(
+                "Selected system/product was not found.");
+
+        if (systemProduct.ClientId != request.ClientId)
+            throw new ValidationException(
+                "Selected system/product does not belong to this client.");
 
         var agreement = await _db.Agreements
             .AsNoTracking()
@@ -53,6 +73,10 @@ public class TicketService : ITicketService
             ?? throw new InvalidOperationException(
                 "Agreement not found.");
 
+        if (agreement.SystemProductId != request.SystemProductId)
+            throw new ValidationException(
+                "Selected system/product does not match the agreement being used for this ticket.");
+
         var chargeable =
             !agreement.IsWithinSupportWindow(
                 DateOnly.FromDateTime(DateTime.UtcNow));
@@ -61,6 +85,7 @@ public class TicketService : ITicketService
         {
             ClientId = request.ClientId,
             AgreementId = request.AgreementId,
+            SystemProductId = request.SystemProductId,
             Description = request.Description,
             Category = request.Category,
             FailureTypeId = request.FailureTypeId,
@@ -829,6 +854,7 @@ public class TicketService : ITicketService
             .Include(t => t.AuditTrail)
             .Include(t => t.FailureType)
             .Include(t => t.SupportType)
+            .Include(t => t.SystemProduct)
             .OrderByDescending(t => t.DateSubmitted)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -841,6 +867,8 @@ public class TicketService : ITicketService
                     t.ClientId,
                     t.Client.Name,
                     t.AgreementId,
+                    t.SystemProductId,
+                    t.SystemProduct?.Name,
                     t.Description,
                     t.Category,
                     t.FailureTypeId,
@@ -947,6 +975,7 @@ public class TicketService : ITicketService
             .Include(t => t.AuditTrail)
             .Include(t => t.FailureType)
             .Include(t => t.SupportType)
+            .Include(t => t.SystemProduct)
             .OrderByDescending(t => t.DateSubmitted)
             .ToListAsync(ct);
 
@@ -957,6 +986,8 @@ public class TicketService : ITicketService
                     t.ClientId,
                     t.Client.Name,
                     t.AgreementId,
+                    t.SystemProductId,
+                    t.SystemProduct?.Name,
                     t.Description,
                     t.Category,
                     t.FailureTypeId,

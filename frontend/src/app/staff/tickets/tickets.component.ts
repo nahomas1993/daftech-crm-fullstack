@@ -56,7 +56,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>Category</th><th>Description</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Priority</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>System/Product</th><th>Category</th><th>Description</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Priority</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -66,6 +66,7 @@ const REFRESH_INTERVAL_MS = 20_000;
             >
               <td class="mono">{{ t.id.slice(0,8) }}</td>
               <td>{{ t.clientName }}</td>
+              <td class="text-muted">{{ t.systemProductName ?? '—' }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
               <td class="description-cell" [title]="t.description">{{ t.description }}</td>
               <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
@@ -128,7 +129,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -178,6 +179,16 @@ export class TicketsComponent implements OnInit, OnDestroy {
   private pollHandle: ReturnType<typeof setInterval> | undefined;
 
   ngOnInit() {
+    // Fetch immediately on mount instead of waiting for the first poll
+    // tick 20s later — without this, the page briefly (or, on a shared
+    // workstation where a different technician was just using this
+    // browser, not-so-briefly) rendered whatever was still sitting in
+    // TicketService's signals from before this component existed, which
+    // could be another technician's own scoped ticket list. refreshAdmin()
+    // is a no-op server-side for a non-admin caller (see TicketService.refresh),
+    // so it's safe to call unconditionally here rather than branching on isAdmin().
+    void this.tickets.refresh();
+    void this.tickets.refreshPaged();
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
     this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
@@ -193,6 +204,7 @@ export class TicketsComponent implements OnInit, OnDestroy {
     // a concurrent poll-triggered refresh could otherwise briefly show
     // stale data right after a successful update.
     if (this.updatingTicketId()) return;
+    void this.tickets.refresh();
     void this.tickets.refreshPaged();
   }
 

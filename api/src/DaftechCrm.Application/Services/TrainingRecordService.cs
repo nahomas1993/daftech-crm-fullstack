@@ -39,20 +39,29 @@ public class TrainingRecordService : ITrainingRecordService
         if (string.IsNullOrWhiteSpace(request.Description))
             throw new InvalidOperationException("A description of what was taught/conducted is required.");
 
+        var agreementType = await _db.AgreementTypes.FirstOrDefaultAsync(t => t.Id == request.AgreementTypeId, ct)
+            ?? throw new InvalidOperationException("Selected training item was not found.");
+
+        if (request.StartDateTime is { } start && request.EndDateTime is { } end && end < start)
+            throw new InvalidOperationException("End date/time cannot be before the start date/time.");
+
         var trainer = await _db.Employees.FirstOrDefaultAsync(e => e.Id == callerEmployeeId, ct)
             ?? throw new InvalidOperationException("Trainer not found.");
 
         var record = new TrainingRecord
         {
             SystemProductId = request.SystemProductId,
+            AgreementTypeId = request.AgreementTypeId,
             TrainerEmployeeId = callerEmployeeId,
             TrainingDate = request.TrainingDate,
+            StartDateTime = request.StartDateTime,
+            EndDateTime = request.EndDateTime,
             Description = request.Description.Trim(),
         };
         _db.Add(record);
         await _db.SaveChangesAsync(ct);
 
-        return ToDto(record, systemProduct, trainer);
+        return ToDto(record, systemProduct, trainer, agreementType);
     }
 
     /// <summary>The system/products Admin assigned this Trainer to train on — the Trainer never picks a client themselves.</summary>
@@ -71,7 +80,7 @@ public class TrainingRecordService : ITrainingRecordService
         var records = await Query().Where(r => r.TrainerEmployeeId == trainerEmployeeId)
             .OrderByDescending(r => r.TrainingDate).ThenByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
-        return records.Select(r => ToDto(r, r.SystemProduct, r.TrainerEmployee)).ToList();
+        return records.Select(r => ToDto(r, r.SystemProduct, r.TrainerEmployee, r.AgreementType)).ToList();
     }
 
     public async Task<IReadOnlyList<TrainingRecordDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default)
@@ -79,13 +88,14 @@ public class TrainingRecordService : ITrainingRecordService
         var records = await Query().Where(r => r.SystemProductId == systemProductId)
             .OrderByDescending(r => r.TrainingDate).ThenByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
-        return records.Select(r => ToDto(r, r.SystemProduct, r.TrainerEmployee)).ToList();
+        return records.Select(r => ToDto(r, r.SystemProduct, r.TrainerEmployee, r.AgreementType)).ToList();
     }
 
     public async Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
         var record = await _db.TrainingRecords.Include(r => r.SystemProduct).ThenInclude(s => s.Client)
             .Include(r => r.TrainerEmployee)
+            .Include(r => r.AgreementType)
             .FirstOrDefaultAsync(r => r.Id == recordId, ct)
             ?? throw new InvalidOperationException("Training record not found.");
 
@@ -104,7 +114,7 @@ public class TrainingRecordService : ITrainingRecordService
         if (!string.IsNullOrEmpty(previousStorageKey))
             await _storage.DeleteAsync(previousStorageKey, ct);
 
-        return ToDto(record, record.SystemProduct, record.TrainerEmployee);
+        return ToDto(record, record.SystemProduct, record.TrainerEmployee, record.AgreementType);
     }
 
     public async Task<RetrievedFile?> DownloadFileAsync(Guid recordId, CancellationToken ct = default)
@@ -119,11 +129,13 @@ public class TrainingRecordService : ITrainingRecordService
     private IQueryable<TrainingRecord> Query() =>
         _db.TrainingRecords.AsNoTracking()
             .Include(r => r.SystemProduct).ThenInclude(s => s.Client)
-            .Include(r => r.TrainerEmployee);
+            .Include(r => r.TrainerEmployee)
+            .Include(r => r.AgreementType);
 
-    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee trainer) => new(
+    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee trainer, AgreementType agreementType) => new(
         r.Id, r.SystemProductId, systemProduct.Name, systemProduct.ClientId, systemProduct.Client.Name,
         r.TrainerEmployeeId, trainer.FullName,
-        r.TrainingDate, r.Description, r.FileName, r.CreatedAt
+        r.AgreementTypeId, agreementType.Name,
+        r.TrainingDate, r.StartDateTime, r.EndDateTime, r.Description, r.FileName, r.CreatedAt
     );
 }

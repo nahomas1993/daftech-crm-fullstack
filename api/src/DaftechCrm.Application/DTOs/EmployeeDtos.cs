@@ -36,9 +36,12 @@ public record UpdateEmployeeRequest(string FullName, string Email, string PhoneN
 
 /// <summary>
 /// The employee's full new set of responsibilities — replaces whatever
-/// they had before, not merged/appended. Must include at least one role;
-/// Admin and EmployeeTechnician/Trainer can combine freely (e.g. an Admin
-/// who also personally takes tickets). See IEmployeeService.SetResponsibilitiesAsync.
+/// they had before, not merged/appended. Must include at least one role.
+/// EmployeeTechnician and Trainer can combine freely with each other, but
+/// Admin cannot be combined with anything else — see
+/// EmployeeRoleValidator.EnsureValidCombination, which
+/// SetResponsibilitiesAsync enforces this against. See also
+/// IEmployeeService.SetResponsibilitiesAsync.
 /// </summary>
 public record SetEmployeeResponsibilitiesRequest(IReadOnlyList<EmployeeRole> Roles);
 

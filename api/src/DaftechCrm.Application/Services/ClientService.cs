@@ -25,6 +25,21 @@ public class ClientService : IClientService
     /// <summary>Admin registers a client directly — Approved, credentialed, and emailed in the same call, no separate approval step.</summary>
     public async Task<ClientRegisteredResult> RegisterAsync(RegisterClientRequest request, CancellationToken ct = default)
     {
+        // Region/Zone/City/Woreda and ItSupportContact are intentionally
+        // optional — not every client's address breaks down that far, and
+        // not every client has a separate IT contact. Everything else on
+        // the registration form is required.
+        RequiredFieldValidator.EnsureAllPresent(
+            ("Name / Organization", request.Name),
+            ("Phone Number", request.PhoneNumber),
+            ("Email", request.Email),
+            ("Office", request.Office),
+            ("Location", request.Location),
+            ("KYC Type", request.KycType),
+            ("KYC Contact", request.KycContact)
+        );
+        RequiredFieldValidator.EnsureGmailAddress(request.Email);
+
         var issued = await _credentials.IssueForNameAsync(request.Name, ct);
 
         var client = new Client
@@ -104,6 +119,17 @@ public class ClientService : IClientService
     {
         var client = await _db.Clients.FirstOrDefaultAsync(c => c.Id == clientId && !c.IsDeleted, ct)
             ?? throw new InvalidOperationException("Client not found.");
+
+        RequiredFieldValidator.EnsureAllPresent(
+            ("Name / Organization", request.Name),
+            ("Phone Number", request.PhoneNumber),
+            ("Email", request.Email),
+            ("Office", request.Office),
+            ("Location", request.Location),
+            ("KYC Type", request.KycType),
+            ("KYC Contact", request.KycContact)
+        );
+        RequiredFieldValidator.EnsureGmailAddress(request.Email);
 
         client.Name = request.Name;
         client.PhoneNumber = request.PhoneNumber;

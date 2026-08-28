@@ -41,10 +41,19 @@ public class TrainingAssignment
 /// any number of these over time (see TrainingRecordService.CreateAsync,
 /// which only ever inserts, same as Agreement) — there is no single
 /// "the" training session to submit/approve/reject; each visit gets its
-/// own row with its own date, description, and optional file. Admin
-/// reviews the accumulated set of these, informally, then marks the
-/// SystemProduct's training Completed as a separate one-click action —
-/// no record here is itself marked approved/rejected.
+/// own row with its own agreement item, dates, description, and optional
+/// file. Admin reviews the accumulated set of these, informally, then
+/// marks the SystemProduct's training Completed as a separate one-click
+/// action — no record here is itself marked approved/rejected.
+///
+/// AgreementTypeId is which named training item this record is for
+/// (e.g. "Attendance") — Admin defines the set of names via the same
+/// admin-managed AgreementType lookup table used for Support/Training
+/// agreements (see AgreementType), so the checklist of item names a
+/// Trainer works through is fully configurable without a code change.
+/// A SystemProduct's training roster works through one row per
+/// AgreementType they need to cover; a Trainer can still log more than
+/// one row against the same AgreementType over time (e.g. a refresher).
 /// </summary>
 public class TrainingRecord
 {
@@ -53,11 +62,39 @@ public class TrainingRecord
     public Guid SystemProductId { get; set; }
     public SystemProduct SystemProduct { get; set; } = default!;
 
+    /// <summary>
+    /// Which admin-configured training item this record is for (e.g.
+    /// "Attendance") — see AgreementType. Required: every logged session
+    /// belongs to exactly one named item.
+    /// </summary>
+    public Guid AgreementTypeId { get; set; }
+    public AgreementType AgreementType { get; set; } = default!;
+
     /// <summary>Who conducted this specific session — must have been on the SystemProduct's TrainingAssignment roster at the time it was logged (see TrainingRecordService.CreateAsync).</summary>
     public Guid TrainerEmployeeId { get; set; }
     public Employee TrainerEmployee { get; set; } = default!;
 
     public DateOnly TrainingDate { get; set; }
+
+    /// <summary>
+    /// When this session started. Optional — some agreement items (e.g.
+    /// a document review) have no real start/end time at all, only the
+    /// TrainingDate and a description; the Trainer can leave both this
+    /// and EndDateTime blank for those.
+    /// </summary>
+    public DateTimeOffset? StartDateTime { get; set; }
+
+    /// <summary>
+    /// When this session ended. For a training that runs only a couple
+    /// of hours and finishes the same day, StartDateTime and
+    /// EndDateTime fall on the same calendar date and the time-of-day
+    /// portion is what actually distinguishes them — trainings are not
+    /// assumed to all span the same length or even the same number of
+    /// days. Multi-day trainings simply carry different dates here.
+    /// Must be on/after StartDateTime when both are set (see
+    /// TrainingRecordService.CreateAsync).
+    /// </summary>
+    public DateTimeOffset? EndDateTime { get; set; }
 
     /// <summary>What was taught/conducted in this session — the trainer's own account, required.</summary>
     public string Description { get; set; } = default!;

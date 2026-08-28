@@ -4,6 +4,7 @@ import { SlicePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ClientService } from '../../core/services/client.service';
 import { SystemProductService } from '../../core/services/system-product.service';
+import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
@@ -74,12 +75,30 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
           <div class="add-form">
             <div class="form-grid">
               <div class="field">
-                <label>Name</label>
-                <input type="text" [ngModel]="newSystemForm.name" (ngModelChange)="newSystemForm.name = $event" placeholder="e.g. Branch POS System" />
+                <label>System/Product <span class="req">*</span></label>
+                @if (catalog.items().length > 0) {
+                  <select [ngModel]="newSystemForm.catalogItemId" (ngModelChange)="onNewSystemCatalogSelect($event)">
+                    <option value="">Select a system/product…</option>
+                    @for (c of catalog.items(); track c.id) {
+                      <option [value]="c.id">{{ c.name }}</option>
+                    }
+                    <option value="__other__">Other (type manually)…</option>
+                  </select>
+                  @if (newSystemForm.catalogItemId === '__other__') {
+                    <input type="text" style="margin-top:0.4rem;" [ngModel]="newSystemForm.name" (ngModelChange)="newSystemForm.name = $event" placeholder="e.g. Branch POS System" />
+                  }
+                } @else {
+                  <input type="text" [ngModel]="newSystemForm.name" (ngModelChange)="newSystemForm.name = $event" placeholder="e.g. Branch POS System" />
+                  <span class="text-muted" style="font-size:0.75rem;">No systems/products configured yet — add some under Settings, or type a name here.</span>
+                }
               </div>
               <div class="field">
                 <label>Deployment Date (optional)</label>
                 <input type="date" [ngModel]="newSystemForm.deploymentDate" (ngModelChange)="newSystemForm.deploymentDate = $event" />
+              </div>
+              <div class="field">
+                <label>Expiry Date (optional)</label>
+                <input type="date" [ngModel]="newSystemForm.expiryDate" (ngModelChange)="newSystemForm.expiryDate = $event" />
               </div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label>Description (optional)</label>
@@ -99,6 +118,11 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
               <div>
                 <h4 style="margin:0;">{{ sp.name }}</h4>
                 <p class="text-muted mono" style="margin: 0.15rem 0 0; font-size:0.75rem;">{{ sp.referenceNumber }}</p>
+                @if (sp.expiryDate) {
+                  <p class="text-muted" style="font-size:0.78rem; margin:0.2rem 0 0;">
+                    Expires {{ sp.expiryDate }}
+                  </p>
+                }
                 @if (sp.description) { <p class="text-muted" style="font-size:0.8rem; margin:0.3rem 0 0;">{{ sp.description }}</p> }
               </div>
               <button class="btn btn-outline btn-sm" (click)="toggleAgreementForm(sp.id)">
@@ -235,12 +259,15 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                   <p class="text-muted" style="font-size:0.82rem;">No training sessions logged yet.</p>
                 } @else {
                   <div class="table-scroll"><table>
-                    <thead><tr><th>Date</th><th>Trainer</th><th>Description</th><th>File</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Item</th><th>Trainer</th><th>Start</th><th>End</th><th>Description</th><th>File</th></tr></thead>
                     <tbody>
                       @for (r of recordsFor(sp.id); track r.id) {
                         <tr>
                           <td>{{ r.trainingDate }}</td>
+                          <td>{{ r.agreementTypeName }}</td>
                           <td>{{ r.trainerEmployeeName }}</td>
+                          <td>{{ r.startDateTime ? (r.startDateTime | slice:11:16) : '—' }}</td>
+                          <td>{{ r.endDateTime ? (r.endDateTime | slice:11:16) : '—' }}</td>
                           <td>{{ r.description }}</td>
                           <td>
                             @if (r.fileName) {
@@ -251,6 +278,10 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                       }
                     </tbody>
                   </table></div>
+                }
+
+                @if (sp.trainingSubmittedAt) {
+                  <p class="text-muted" style="font-size:0.76rem; margin: 0.5rem 0 0;">Trainer submitted this checklist on {{ sp.trainingSubmittedAt | slice:0:10 }}.</p>
                 }
 
                 @if (sp.trainingCompletionStatus !== 'Completed') {
@@ -303,6 +334,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
     .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; }
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.76rem; font-weight: 600; color: var(--slate-500); }
+    .field label .req { color: var(--red, #b3261e); }
     .upload-error { color: var(--red); font-size: 0.85rem; }
     .training-panel { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px dashed var(--slate-200); }
     .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
@@ -316,7 +348,7 @@ export class ClientDetailComponent {
   showNewSystemForm = signal(false);
   savingSystem = signal(false);
   systemError = signal<string | null>(null);
-  newSystemForm = { name: '', description: '', deploymentDate: '' };
+  newSystemForm = { name: '', description: '', deploymentDate: '', catalogItemId: '', expiryDate: '' };
 
   agreementFormOpenFor = signal<string | null>(null);
   submitting = signal(false);
@@ -349,7 +381,8 @@ export class ClientDetailComponent {
 
   constructor(
     private clientsSvc: ClientService,
-    private systemProductsSvc: SystemProductService,
+    public systemProductsSvc: SystemProductService,
+    public catalog: ProductCatalogService,
     public agreementsSvc: AgreementService,
     public agreementTypesSvc: AgreementTypeService,
     private ticketsSvc: TicketService,
@@ -453,25 +486,42 @@ export class ClientDetailComponent {
 
   toggleNewSystemForm() {
     this.systemError.set(null);
+    this.newSystemForm = { name: '', description: '', deploymentDate: '', catalogItemId: '', expiryDate: '' };
     this.showNewSystemForm.set(!this.showNewSystemForm());
+  }
+
+  /** Selecting a catalog entry sets its name as the system/product's Name (source of truth for display); "Other" clears it so the free-text input takes over. */
+  onNewSystemCatalogSelect(value: string) {
+    this.newSystemForm.catalogItemId = value;
+    if (value && value !== '__other__') {
+      const match = this.catalog.items().find(c => c.id === value);
+      this.newSystemForm.name = match?.name ?? '';
+    } else {
+      this.newSystemForm.name = '';
+    }
   }
 
   /** Always creates a brand-new SystemProduct — never overwrites or replaces one the client already has. Starts with an empty training roster. */
   async submitNewSystem(clientId: string) {
     if (!this.newSystemForm.name.trim()) {
-      this.systemError.set('Name is required.');
+      this.systemError.set('System/Product is required — select one from the list, or choose "Other" and type a name.');
       return;
     }
     this.savingSystem.set(true);
     this.systemError.set(null);
     try {
+      const catalogItemId = this.newSystemForm.catalogItemId && this.newSystemForm.catalogItemId !== '__other__'
+        ? this.newSystemForm.catalogItemId
+        : undefined;
       await this.systemProductsSvc.create({
         clientId,
         name: this.newSystemForm.name,
         description: this.newSystemForm.description || undefined,
         deploymentDate: this.newSystemForm.deploymentDate || undefined,
+        catalogItemId,
+        expiryDate: this.newSystemForm.expiryDate || undefined,
       });
-      this.newSystemForm = { name: '', description: '', deploymentDate: '' };
+      this.newSystemForm = { name: '', description: '', deploymentDate: '', catalogItemId: '', expiryDate: '' };
       this.showNewSystemForm.set(false);
     } catch (err: any) {
       this.systemError.set(err?.error?.error ?? 'Could not add this system/product — please try again.');

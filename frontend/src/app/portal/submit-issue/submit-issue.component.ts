@@ -240,7 +240,7 @@ export class SubmitIssueComponent {
       }
 
       const ticket = await this.tickets.submitFromClient(
-        client.id, agreement.id, this.description().trim(), this.category(),
+        client.id, agreement.id, agreement.systemProductId, this.description().trim(), this.category(),
         this.failureTypeId() || undefined, voiceNote
       );
 

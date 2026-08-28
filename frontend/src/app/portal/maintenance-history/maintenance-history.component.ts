@@ -5,6 +5,7 @@ import { RouterLink, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { AgreementService } from '../../core/services/agreement.service';
+import { SystemProductService } from '../../core/services/system-product.service';
 import { FailureTypeService } from '../../core/services/failure-type.service';
 import { SupportTypeService } from '../../core/services/support-type.service';
 import { BadgeComponent } from '../../shared/badge.component';
@@ -37,10 +38,23 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     @if (showSubmitPanel()) {
       <div class="panel panel-pad" style="margin-top:1.1rem; max-width:520px;">
-        @if (!agreement()) {
-          <p class="text-muted">No active agreement found on your account — please contact DAFTECH directly.</p>
+        @if (myProducts().length === 0) {
+          <p class="text-muted">No systems/products found on your account — please contact DAFTECH directly.</p>
         } @else {
           <div class="field">
+            <label>System/Product <span class="req">*</span></label>
+            <select [ngModel]="systemProductId()" (ngModelChange)="onSystemProductChange($event)">
+              <option value="">Select which system/product this is about…</option>
+              @for (p of myProducts(); track p.id) {
+                <option [value]="p.id">{{ p.name }}</option>
+              }
+            </select>
+          </div>
+          @if (systemProductId() && !agreement()) {
+            <p class="text-muted" style="margin-top:0.6rem;">No agreement found for this system/product — please contact DAFTECH directly.</p>
+          }
+          @if (agreement()) {
+          <div class="field" style="margin-top:0.8rem;">
             <label>Category</label>
             <select [ngModel]="category()" (ngModelChange)="onCategoryChange($event)">
               <option value="Frontend">Frontend</option>
@@ -148,7 +162,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               <div class="error" style="margin-top:0.5rem;">{{ recordingError() }}</div>
             }
           </div>
-          <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="!description().trim() || submitting() || !acknowledgementSatisfied()" (click)="submit()">
+          <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="!systemProductId() || !agreement() || !description().trim() || submitting() || !acknowledgementSatisfied()" (click)="submit()">
             {{ submitting() ? 'Submitting…' : 'Submit Issue' }}
           </button>
           @if (submittedId(); as id) {
@@ -156,6 +170,7 @@ const REFRESH_INTERVAL_MS = 20_000;
           }
           @if (uploadError()) {
             <div class="error">{{ uploadError() }}</div>
+          }
           }
         }
       </div>
@@ -170,11 +185,12 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     <div class="panel panel-pad" style="margin-top:1rem;">
       <div class="table-scroll"><table>
-        <thead><tr><th>Ticket #</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
+        <thead><tr><th>Ticket #</th><th>System/Product</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
         <tbody>
           @for (t of filteredTickets(); track t.id) {
             <tr>
               <td class="mono">{{ t.id.slice(0,8).toUpperCase() }}</td>
+              <td class="text-muted">{{ t.systemProductName ?? '—' }}</td>
               <td>{{ categoryLabel(t.category) }}</td>
               <td class="text-muted">{{ t.failureTypeName ?? '—' }}</td>
               <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
@@ -199,7 +215,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="11" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
+          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
         </tbody>
       </table></div>
     </div>
@@ -217,6 +233,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--slate-500); }
+    .field label .req { color: var(--red, #b3261e); }
     textarea { resize: vertical; width: 100%; }
     select { width: 100%; }
     .success { margin-top: 1rem; padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--green-bg); color: var(--green); font-size: 0.85rem; }
@@ -238,6 +255,8 @@ const REFRESH_INTERVAL_MS = 20_000;
 export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   showSubmitPanel = signal(false);
   category = signal<TicketCategory>('Frontend');
+  /** Required — which of the client's systems/products this issue is about. Chosen first; the agreement to bill against is resolved from it. */
+  systemProductId = signal<string>('');
   failureTypeId = signal<string>('');
   supportTypeId = signal<string>('');
   description = signal('');
@@ -273,10 +292,24 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     private auth: AuthService,
     private ticketsSvc: TicketService,
     private agreementsSvc: AgreementService,
+    public systemProductsSvc: SystemProductService,
     private route: ActivatedRoute,
     public failureTypes: FailureTypeService,
     public supportTypes: SupportTypeService
   ) {}
+
+  /** All of the client's systems/products — what the required selector offers. */
+  myProducts = computed(() => {
+    const client = this.auth.currentClient();
+    if (!client) return [];
+    this.systemProductsSvc.byClient();
+    return this.systemProductsSvc.systemProductsFor(client.id);
+  });
+
+  onSystemProductChange(value: string) {
+    this.systemProductId.set(value);
+    void this.refreshQuote();
+  }
 
   selectedFailureType = computed(() =>
     this.failureTypes.types().find(f => f.id === this.failureTypeId())
@@ -370,6 +403,8 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
     void this.failureTypes.refresh();
     void this.supportTypes.refresh();
+    const client = this.auth.currentClient();
+    if (client) void this.systemProductsSvc.refreshForClient(client.id);
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
   }
 
@@ -498,10 +533,13 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
     this.previewOpen.set(false);
   }
 
+  /** Resolves to the active (or most recent) agreement for whichever system/product the client has selected — not just any agreement on the account, since a client with multiple products may have a different agreement per product. */
   agreement = computed(() => {
     const client = this.auth.currentClient();
-    if (!client) return undefined;
-    return this.agreementsSvc.forClient(client.id).find(a => a.status === 'Active') ?? this.agreementsSvc.forClient(client.id)[0];
+    const productId = this.systemProductId();
+    if (!client || !productId) return undefined;
+    const agreements = this.agreementsSvc.forClient(client.id).filter(a => a.systemProductId === productId);
+    return agreements.find(a => a.status === 'Active') ?? agreements[0];
   });
 
   private myTickets = computed(() => {
@@ -536,7 +574,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
   async submit() {
     const client = this.auth.currentClient();
     const agreement = this.agreement();
-    if (!client || !agreement || !this.description().trim()) return;
+    if (!client || !this.systemProductId() || !agreement || !this.description().trim()) return;
     // Belt and braces alongside the disabled button: never post a chargeable
     // issue that hasn't been acknowledged (the server rejects it too).
     if (!this.acknowledgementSatisfied()) return;
@@ -560,7 +598,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
       }
 
       const ticket = await this.ticketsSvc.submitFromClient(
-        client.id, agreement.id, this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote,
+        client.id, agreement.id, this.systemProductId(), this.description().trim(), this.category(), this.failureTypeId() || undefined, voiceNote,
         this.supportTypeId() || undefined, this.acknowledged()
       );
 
@@ -575,6 +613,7 @@ export class MaintenanceHistoryComponent implements OnInit, OnDestroy {
 
       this.submittedId.set(ticket.id);
       this.description.set('');
+      this.systemProductId.set('');
       this.failureTypeId.set('');
       this.supportTypeId.set('');
       this.acknowledged.set(false);

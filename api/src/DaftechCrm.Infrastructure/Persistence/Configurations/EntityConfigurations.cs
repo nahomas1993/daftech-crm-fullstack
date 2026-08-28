@@ -83,6 +83,24 @@ public class SystemProductConfiguration : IEntityTypeConfiguration<SystemProduct
         b.HasMany(x => x.Agreements).WithOne(a => a.SystemProduct).HasForeignKey(a => a.SystemProductId);
         b.HasMany(x => x.TrainingAssignments).WithOne(a => a.SystemProduct).HasForeignKey(a => a.SystemProductId);
         b.HasMany(x => x.TrainingRecords).WithOne(r => r.SystemProduct).HasForeignKey(r => r.SystemProductId);
+        // Catalog entry a client's product was created from, if any — a
+        // catalog entry being deleted must not take down the client's
+        // (already-provisioned) product record, so SetNull rather than
+        // Restrict/Cascade.
+        b.HasOne(x => x.CatalogItem).WithMany().HasForeignKey(x => x.CatalogItemId).OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+/// <summary>Admin-managed catalog of system/product names — see ProductCatalogItem.</summary>
+public class ProductCatalogItemConfiguration : IEntityTypeConfiguration<ProductCatalogItem>
+{
+    public void Configure(EntityTypeBuilder<ProductCatalogItem> b)
+    {
+        b.ToTable("product_catalog_items");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.HasIndex(x => x.Name).IsUnique();
+        b.Property(x => x.Description).HasMaxLength(500);
     }
 }
 
@@ -167,8 +185,17 @@ public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingReco
         b.HasOne(x => x.TrainerEmployee).WithMany()
             .HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.Restrict);
 
+        // Restrict — the AgreementType (e.g. "Attendance") is an
+        // admin-managed lookup value; a training record referencing it is
+        // historical fact and must not vanish if the type is later removed
+        // (AgreementTypeService.DeleteAsync already blocks deleting a type
+        // that's still in use by an Agreement — same guard covers this FK).
+        b.HasOne(x => x.AgreementType).WithMany()
+            .HasForeignKey(x => x.AgreementTypeId).OnDelete(DeleteBehavior.Restrict);
+
         b.HasIndex(x => x.SystemProductId);
         b.HasIndex(x => x.TrainerEmployeeId);
+        b.HasIndex(x => x.AgreementTypeId);
     }
 }
 
@@ -184,6 +211,12 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.Property(x => x.VoiceNoteStorageKey).HasMaxLength(500);
         b.Property(x => x.VoiceNoteFileName).HasMaxLength(300);
         b.HasOne(x => x.Agreement).WithMany(a => a.Tickets).HasForeignKey(x => x.AgreementId);
+        // SystemProduct is soft-delete only in practice (see
+        // SystemProductConfiguration) — SetNull rather than Restrict so a
+        // (rare, admin-only) removal never blocks on historical tickets;
+        // Restrict is unnecessary here since SystemProduct is never
+        // hard-deleted by any application code path.
+        b.HasOne(x => x.SystemProduct).WithMany().HasForeignKey(x => x.SystemProductId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.AssignedEmployee).WithMany(e => e.AssignedTickets).HasForeignKey(x => x.AssignedEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.ForwardedByEmployee).WithMany().HasForeignKey(x => x.ForwardedByEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.FailureType).WithMany().HasForeignKey(x => x.FailureTypeId).OnDelete(DeleteBehavior.SetNull);

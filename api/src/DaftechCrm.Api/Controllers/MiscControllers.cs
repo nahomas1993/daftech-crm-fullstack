@@ -1,4 +1,5 @@
 using DaftechCrm.Api.Auth;
+using DaftechCrm.Application;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Entities;
@@ -51,8 +52,13 @@ public class ClientsController : ControllerBase
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<ClientRegisteredResult>> Register([FromBody] RegisterClientRequest request, CancellationToken ct)
     {
-        var result = await _clients.RegisterAsync(request, ct);
-        return CreatedAtAction(nameof(GetById), new { id = result.Client.Id }, result);
+        try
+        {
+            var result = await _clients.RegisterAsync(request, ct);
+            return CreatedAtAction(nameof(GetById), new { id = result.Client.Id }, result);
+        }
+        catch (ValidationException ex) { return BadRequest(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     /// <summary>Retries sending the credential email with a freshly regenerated one-time password (SRS v2.0 §4.3.1).</summary>
@@ -70,6 +76,7 @@ public class ClientsController : ControllerBase
     public async Task<ActionResult<ClientDto>> Update(Guid id, [FromBody] UpdateClientRequest request, CancellationToken ct)
     {
         try { return Ok(await _clients.UpdateAsync(id, request, ct)); }
+        catch (ValidationException ex) { return BadRequest(ex.Message); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
     }
 
@@ -200,6 +207,24 @@ public class SystemProductsController : ControllerBase
     {
         try { return Ok(await _systemProducts.MarkTrainingCompletedAsync(id, ct)); }
         catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>
+    /// Trainer's own action once they've saved a TrainingRecord for every
+    /// agreement item on their checklist for this system/product — marks
+    /// SystemProduct.TrainingSubmittedAt so Admin knows it's ready to
+    /// review, without itself marking training Completed (Admin still
+    /// does that separately via MarkTrainingCompleted above).
+    /// </summary>
+    [HttpPost("{id:guid}/training-submit")]
+    public async Task<ActionResult<SystemProductDto>> SubmitTraining(Guid id, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        try { return Ok(await _systemProducts.SubmitTrainingAsync(id, callerId, ct)); }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You are not assigned")) { return this.ForbidOwnership(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 }
 
@@ -386,6 +411,10 @@ public class AgreementsController : ControllerBase
         {
             var a = await _agreements.CreateAsync(request, ct);
             return Created($"/api/agreements/{a.Id}", a);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(ex.Message);
         }
         catch (InvalidOperationException ex)
         {
@@ -1004,6 +1033,55 @@ public class SupportTypesController : ControllerBase
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         try { await _supportTypes.DeleteAsync(id, ct); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+}
+
+/// <summary>
+/// Admin-configurable Systems/Products catalog — lets an Admin add, edit,
+/// and remove the systems/products clients and tickets can be associated
+/// with, entirely from Settings (no code change required). See
+/// ProductCatalogItem.
+/// </summary>
+[ApiController]
+[Route("api/product-catalog")]
+public class ProductCatalogItemsController : ControllerBase
+{
+    private readonly IProductCatalogItemService _catalog;
+    public ProductCatalogItemsController(IProductCatalogItemService catalog) => _catalog = catalog;
+
+    /// <summary>Active entries only. Public — client registration and the client portal's Submit Issue/System selection both need this list.</summary>
+    [HttpGet]
+    [AllowAnonymous]
+    public async Task<ActionResult<IReadOnlyList<ProductCatalogItemDto>>> GetAll(CancellationToken ct) => Ok(await _catalog.GetAllAsync(ct));
+
+    /// <summary>Every entry, including inactive ones — the admin Settings management list.</summary>
+    [HttpGet("admin")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<IReadOnlyList<ProductCatalogItemDto>>> GetAllForAdmin(CancellationToken ct) => Ok(await _catalog.GetAllForAdminAsync(ct));
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<ProductCatalogItemDto>> Create([FromBody] CreateProductCatalogItemRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _catalog.CreateAsync(request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<ProductCatalogItemDto>> Update(Guid id, [FromBody] UpdateProductCatalogItemRequest request, CancellationToken ct)
+    {
+        try { return Ok(await _catalog.UpdateAsync(id, request, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    /// <summary>Deactivates rather than hard-deletes — see ProductCatalogItemService.DeleteAsync.</summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try { await _catalog.DeleteAsync(id, ct); return NoContent(); }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 }

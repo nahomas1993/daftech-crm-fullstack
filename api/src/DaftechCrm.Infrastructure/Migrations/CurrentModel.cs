@@ -47,17 +47,33 @@ namespace DaftechCrm.Infrastructure.Migrations
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<Guid>("ClientId").HasColumnType("uuid");
+                b.Property<Guid?>("CatalogItemId").HasColumnType("uuid");
                 b.Property<DateTimeOffset?>("DeletedAt").HasColumnType("timestamp with time zone");
                 b.Property<DateOnly?>("DeploymentDate").HasColumnType("date");
+                b.Property<DateOnly?>("ExpiryDate").HasColumnType("date");
                 b.Property<string>("Description").HasColumnType("text");
                 b.Property<bool>("IsDeleted").HasColumnType("boolean");
                 b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("ReferenceNumber").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
                 b.Property<int>("TrainingCompletionStatus").HasColumnType("integer");
+                b.Property<DateTimeOffset?>("TrainingSubmittedAt").HasColumnType("timestamp with time zone");
                 b.HasKey("Id");
                 b.HasIndex("ClientId");
+                b.HasIndex("CatalogItemId");
                 b.HasIndex("ReferenceNumber").IsUnique();
                 b.ToTable("system_products");
+            });
+
+            modelBuilder.Entity("DaftechCrm.Domain.Entities.ProductCatalogItem", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<bool>("IsActive").HasColumnType("boolean");
+                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+                b.HasKey("Id");
+                b.HasIndex("Name").IsUnique();
+                b.ToTable("product_catalog_items");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingAssignment", b =>
@@ -76,14 +92,18 @@ namespace DaftechCrm.Infrastructure.Migrations
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TrainingRecord", b =>
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
+                b.Property<Guid>("AgreementTypeId").HasColumnType("uuid");
                 b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
                 b.Property<string>("Description").IsRequired().HasColumnType("text");
+                b.Property<DateTimeOffset?>("EndDateTime").HasColumnType("timestamp with time zone");
                 b.Property<string>("FileName").HasMaxLength(300).HasColumnType("character varying(300)");
                 b.Property<string>("FileStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
+                b.Property<DateTimeOffset?>("StartDateTime").HasColumnType("timestamp with time zone");
                 b.Property<Guid>("SystemProductId").HasColumnType("uuid");
                 b.Property<Guid>("TrainerEmployeeId").HasColumnType("uuid");
                 b.Property<DateOnly>("TrainingDate").HasColumnType("date");
                 b.HasKey("Id");
+                b.HasIndex("AgreementTypeId");
                 b.HasIndex("SystemProductId");
                 b.HasIndex("TrainerEmployeeId");
                 b.ToTable("training_records");
@@ -285,6 +305,7 @@ namespace DaftechCrm.Infrastructure.Migrations
             {
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<Guid>("AgreementId").HasColumnType("uuid");
+                b.Property<Guid?>("SystemProductId").HasColumnType("uuid");
                 b.Property<Guid?>("AssignedEmployeeId").HasColumnType("uuid");
                 b.Property<DateTimeOffset?>("AssignedAt").HasColumnType("timestamp with time zone");
                 b.Property<int?>("ExpectedResolutionMinutes").HasColumnType("integer");
@@ -313,6 +334,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("VoiceNoteFileName").HasMaxLength(300).HasColumnType("character varying(300)");
                 b.HasKey("Id");
                 b.HasIndex("AgreementId");
+                b.HasIndex("SystemProductId");
                 b.HasIndex("AssignedEmployeeId");
                 b.HasIndex("ClientConfirmationDeadline");
                 b.HasIndex("ClientId");
@@ -439,7 +461,15 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .HasForeignKey("ClientId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                // Catalog entry a client's product was created from, if any
+                // — a deleted catalog entry must not take down the
+                // client's already-provisioned product record.
+                b.HasOne("DaftechCrm.Domain.Entities.ProductCatalogItem", "CatalogItem")
+                    .WithMany()
+                    .HasForeignKey("CatalogItemId")
+                    .OnDelete(DeleteBehavior.SetNull);
                 b.Navigation("Client");
+                b.Navigation("CatalogItem");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.Agreement", b =>
@@ -505,8 +535,17 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .HasForeignKey("TrainerEmployeeId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                // The admin-configured item name (e.g. "Attendance") this
+                // record is logged against — Restrict so removing the
+                // lookup value can't silently delete training history.
+                b.HasOne("DaftechCrm.Domain.Entities.AgreementType", "AgreementType")
+                    .WithMany()
+                    .HasForeignKey("AgreementTypeId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
                 b.Navigation("SystemProduct");
                 b.Navigation("TrainerEmployee");
+                b.Navigation("AgreementType");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.DeviceSession", b =>
@@ -594,6 +633,14 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .HasForeignKey("AgreementId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                // SystemProduct is never hard-deleted by any application
+                // code path (soft-delete only) — SetNull is purely a
+                // belt-and-braces default, not expected to fire in
+                // practice.
+                b.HasOne("DaftechCrm.Domain.Entities.SystemProduct", "SystemProduct")
+                    .WithMany()
+                    .HasForeignKey("SystemProductId")
+                    .OnDelete(DeleteBehavior.SetNull);
                 b.HasOne("DaftechCrm.Domain.Entities.Employee", "AssignedEmployee")
                     .WithMany("AssignedTickets")
                     .HasForeignKey("AssignedEmployeeId")
@@ -618,6 +665,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .HasForeignKey("SupportTypeId")
                     .OnDelete(DeleteBehavior.SetNull);
                 b.Navigation("Agreement");
+                b.Navigation("SystemProduct");
                 b.Navigation("AssignedEmployee");
                 b.Navigation("Client");
                 b.Navigation("ForwardedByEmployee");

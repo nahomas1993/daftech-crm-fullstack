@@ -36,6 +36,11 @@ export const routes: Routes = [
         loadComponent: () => import('./staff/clients/clients-list.component').then(m => m.ClientsListComponent),
       },
       {
+        path: 'clients/import',
+        canActivate: [adminRoleGuard],
+        loadComponent: () => import('./staff/clients/client-import.component').then(m => m.ClientImportComponent),
+      },
+      {
         path: 'clients/:id',
         canActivate: [adminRoleGuard],
         loadComponent: () => import('./staff/clients/client-detail.component').then(m => m.ClientDetailComponent),

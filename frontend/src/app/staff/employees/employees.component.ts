@@ -5,6 +5,8 @@ import { LocationService } from '../../core/services/location.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { EmployeeRegisteredResult, EmployeeRole, EMPLOYEE_ROLE_LABELS } from '../../core/models';
+import { requiredFieldsError } from '../../core/required-fields';
+import { isValidRegistrationEmail } from '../../core/email-validation';
 
 // ItSupport is retired — Admin absorbs that scope, so it's no longer offered
 // when creating/editing an employee. Kept off this list even though the
@@ -29,11 +31,13 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
       <div class="panel panel-pad" style="margin-top:1.25rem;">
         @if (!justRegistered()) {
           <div class="form-grid">
-            <div class="field"><label>Full Name</label><input type="text" [ngModel]="form.fullName" (ngModelChange)="form.fullName = $event" /></div>
-            <div class="field"><label>Phone Number</label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
-            <div class="field"><label>Email</label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" /></div>
+            <div class="field"><label>Full Name <span class="req">*</span></label><input type="text" [ngModel]="form.fullName" (ngModelChange)="form.fullName = $event" /></div>
+            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
+            <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
+              @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
+            </div>
             <div class="field">
-              <label>Specialization</label>
+              <label>Specialization <span class="req">*</span></label>
               <select [ngModel]="form.specialization" (ngModelChange)="form.specialization = $event">
                 <option value="">Select specialization…</option>
                 @for (s of locations.options().specializations; track s.id) {
@@ -46,12 +50,13 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
               <label>Roles</label>
               <div class="role-checks">
                 @for (r of allRoles; track r) {
-                  <label class="role-check">
-                    <input type="checkbox" [checked]="form.roles.includes(r)" (change)="toggleRole(r)" />
+                  <label class="role-check" [class.role-check-disabled]="isRoleDisabled(form.roles, r)">
+                    <input type="checkbox" [checked]="form.roles.includes(r)" [disabled]="isRoleDisabled(form.roles, r)" (change)="toggleRole(r)" />
                     {{ roleLabel(r) }}
                   </label>
                 }
               </div>
+              <span class="text-muted" style="font-size:0.72rem;">Admin is its own account tier and can't be combined with Technician/Trainer. Technician and Trainer can be combined with each other.</span>
             </div>
             @if (locations.options().customRoles.length > 0) {
               <div class="field">
@@ -151,11 +156,13 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
               <tr class="edit-row">
                 <td colspan="8">
                   <div class="edit-form">
-                    <div class="field"><label>Full Name</label><input type="text" [ngModel]="editForm.fullName" (ngModelChange)="editForm.fullName = $event" /></div>
-                    <div class="field"><label>Email</label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" /></div>
-                    <div class="field"><label>Phone Number</label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field"><label>Full Name <span class="req">*</span></label><input type="text" [ngModel]="editForm.fullName" (ngModelChange)="editForm.fullName = $event" /></div>
+                    <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
+                      @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
+                    </div>
+                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
                     <div class="field">
-                      <label>Specialization</label>
+                      <label>Specialization <span class="req">*</span></label>
                       <select [ngModel]="editForm.specialization" (ngModelChange)="editForm.specialization = $event">
                         <option value="">Select specialization…</option>
                         @for (s of locations.options().specializations; track s.id) {
@@ -167,13 +174,13 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
                       <label>Responsibilities</label>
                       <div class="role-checks">
                         @for (r of allRoles; track r) {
-                          <label class="role-check">
-                            <input type="checkbox" [checked]="editResponsibilities.includes(r)" (change)="toggleEditResponsibility(r)" />
+                          <label class="role-check" [class.role-check-disabled]="isRoleDisabled(editResponsibilities, r)">
+                            <input type="checkbox" [checked]="editResponsibilities.includes(r)" [disabled]="isRoleDisabled(editResponsibilities, r)" (change)="toggleEditResponsibility(r)" />
                             {{ roleLabel(r) }}
                           </label>
                         }
                       </div>
-                      <span class="text-muted" style="font-size:0.72rem;">An employee can hold Technician and Trainer at once. Changes here take effect immediately on Save.</span>
+                      <span class="text-muted" style="font-size:0.72rem;">An employee can hold Technician and Trainer at once, but not together with Admin. Changes here take effect immediately on Save.</span>
                     </div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(e.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
@@ -215,8 +222,15 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
     .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--slate-500); }
+    .field label .req { color: var(--red, #b3261e); }
+    .field-error { background: var(--red-bg, #fde8e8); color: var(--red, #b3261e); font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 5px; margin-top: 0.3rem; display: inline-block; }
     .role-checks { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.2rem; }
     .role-check { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 400; color: var(--navy-900); }
+    /* Dims a checkbox that's currently unselectable because it conflicts
+       with what's already checked (Admin vs Technician/Trainer — see
+       isRoleDisabled()), so the constraint reads visually before the
+       person tries to click it and nothing happens. */
+    .role-check-disabled { opacity: 0.45; cursor: not-allowed; }
     .credential-panel { background: var(--green-bg); border-radius: 10px; padding: 1.1rem; }
     .credential-panel h4 { color: var(--green); font-size: 0.92rem; }
     .cred-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-top: 1px solid rgba(0,0,0,0.06); }
@@ -267,6 +281,19 @@ export class EmployeesComponent {
 
   roleLabel = (r: EmployeeRole) => EMPLOYEE_ROLE_LABELS[r];
 
+  /**
+   * Admin is a distinct account tier and can never be combined with
+   * Technician/Trainer (or vice versa) — see EmployeeRoleValidator on
+   * the backend, which enforces the same rule server-side. Disables
+   * (rather than just un-checking) the incompatible checkbox(es) so the
+   * constraint is visible before the person clicks, not just after.
+   */
+  isRoleDisabled(selected: EmployeeRole[], r: EmployeeRole): boolean {
+    if (selected.includes(r)) return false;
+    if (r === 'Admin') return selected.length > 0;
+    return selected.includes('Admin');
+  }
+
   filtered = computed(() => {
     const q = this.query().toLowerCase().trim();
     const status = this.statusFilter();
@@ -290,8 +317,15 @@ export class EmployeesComponent {
 
   toggleRole(r: EmployeeRole) {
     const idx = this.form.roles.indexOf(r);
-    if (idx === -1) this.form.roles = [...this.form.roles, r];
-    else this.form.roles = this.form.roles.filter(x => x !== r);
+    if (idx !== -1) {
+      this.form.roles = this.form.roles.filter(x => x !== r);
+      return;
+    }
+    // Admin is its own account tier and can't be combined with anything
+    // else — picking it replaces whatever was selected. Picking a
+    // non-Admin role while Admin is selected drops Admin instead, since
+    // Technician/Trainer are meant to combine freely with each other.
+    this.form.roles = r === 'Admin' ? ['Admin'] : [...this.form.roles.filter(x => x !== 'Admin'), r];
   }
 
   toggleExtraRole(name: string) {
@@ -300,8 +334,29 @@ export class EmployeesComponent {
     else this.form.extraRoleLabels = this.form.extraRoleLabels.filter(x => x !== name);
   }
 
+  isEmailValid(email: string | null | undefined): boolean {
+    return isValidRegistrationEmail(email);
+  }
+
   async submit() {
-    if (!this.form.fullName || this.form.roles.length === 0) return;
+    const validationError = requiredFieldsError([
+      { label: 'Full Name', value: this.form.fullName },
+      { label: 'Email', value: this.form.email },
+      { label: 'Phone Number', value: this.form.phoneNumber },
+      { label: 'Specialization', value: this.form.specialization },
+    ]);
+    if (validationError) {
+      this.registerError.set(validationError);
+      return;
+    }
+    if (!isValidRegistrationEmail(this.form.email)) {
+      this.registerError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (this.form.roles.length === 0) {
+      this.registerError.set('Please assign at least one responsibility.');
+      return;
+    }
     this.registering.set(true);
     this.registerError.set('');
     try {
@@ -377,11 +432,31 @@ export class EmployeesComponent {
 
   toggleEditResponsibility(r: EmployeeRole) {
     const idx = this.editResponsibilities.indexOf(r);
-    if (idx === -1) this.editResponsibilities = [...this.editResponsibilities, r];
-    else this.editResponsibilities = this.editResponsibilities.filter(x => x !== r);
+    if (idx !== -1) {
+      this.editResponsibilities = this.editResponsibilities.filter(x => x !== r);
+      return;
+    }
+    // Same Admin-is-exclusive rule as toggleRole() above — see its comment.
+    this.editResponsibilities = r === 'Admin'
+      ? ['Admin']
+      : [...this.editResponsibilities.filter(x => x !== 'Admin'), r];
   }
 
   async saveEdit(id: string) {
+    const validationError = requiredFieldsError([
+      { label: 'Full Name', value: this.editForm.fullName },
+      { label: 'Email', value: this.editForm.email },
+      { label: 'Phone Number', value: this.editForm.phoneNumber },
+      { label: 'Specialization', value: this.editForm.specialization },
+    ]);
+    if (validationError) {
+      this.editError.set(validationError);
+      return;
+    }
+    if (!isValidRegistrationEmail(this.editForm.email)) {
+      this.editError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
     if (this.editResponsibilities.length === 0) {
       this.editError.set('An employee must have at least one responsibility.');
       return;

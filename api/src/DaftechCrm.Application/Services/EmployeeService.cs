@@ -23,6 +23,17 @@ public class EmployeeService : IEmployeeService
 
     public async Task<EmployeeRegisteredResult> RegisterAsync(CreateEmployeeRequest request, CancellationToken ct = default)
     {
+        RequiredFieldValidator.EnsureAllPresent(
+            ("Full Name", request.FullName),
+            ("Email", request.Email),
+            ("Phone Number", request.PhoneNumber),
+            ("Specialization", request.Specialization)
+        );
+        RequiredFieldValidator.EnsureGmailAddress(request.Email);
+        if (request.Roles.Count == 0)
+            throw new ValidationException("Please assign at least one responsibility.");
+        EmployeeRoleValidator.EnsureValidCombination(request.Roles);
+
         var issued = await _credentials.IssueForNameAsync(request.FullName, ct);
 
         var employee = new Employee
@@ -178,6 +189,14 @@ public class EmployeeService : IEmployeeService
         var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && !e.IsDeleted, ct)
             ?? throw new InvalidOperationException("Employee not found.");
 
+        RequiredFieldValidator.EnsureAllPresent(
+            ("Full Name", request.FullName),
+            ("Email", request.Email),
+            ("Phone Number", request.PhoneNumber),
+            ("Specialization", request.Specialization)
+        );
+        RequiredFieldValidator.EnsureGmailAddress(request.Email);
+
         employee.FullName = request.FullName;
         employee.Email = request.Email;
         employee.PhoneNumber = request.PhoneNumber;
@@ -195,6 +214,7 @@ public class EmployeeService : IEmployeeService
 
         if (request.Roles.Count == 0)
             throw new InvalidOperationException("An employee must have at least one responsibility.");
+        EmployeeRoleValidator.EnsureValidCombination(request.Roles);
 
         // De-duplicate defensively — the request is client-supplied and
         // Roles is stored as a delimited string (see EntityConfigurations),

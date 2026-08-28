@@ -157,6 +157,7 @@ public static class DependencyInjection
         services.AddScoped<AccountCredentialService>();
         services.AddScoped<ReferenceNumberService>();
         services.AddScoped<AccountReferenceIdService>();
+        services.AddScoped<ClientImportService>();
         services.AddScoped<ITicketAssignmentService, TicketAssignmentService>();
         services.AddScoped<ITicketService, TicketService>();
         services.AddScoped<IEmployeeService, EmployeeService>();
@@ -184,6 +185,7 @@ public static class DependencyInjection
         services.AddScoped<ILocationService, LocationService>();
         services.AddScoped<IFailureTypeService, FailureTypeService>();
         services.AddScoped<ISupportTypeService, SupportTypeService>();
+        services.AddScoped<IProductCatalogItemService, ProductCatalogItemService>();
 
         return services;
     }

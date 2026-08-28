@@ -20,24 +20,48 @@ public record MyTrainingAssignmentDto(Guid SystemProductId, string SystemProduct
 public record TrainingRecordDto(
     Guid Id, Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName,
     Guid TrainerEmployeeId, string TrainerEmployeeName,
-    DateOnly TrainingDate, string Description, string? FileName, DateTimeOffset CreatedAt
+    Guid AgreementTypeId, string AgreementTypeName,
+    DateOnly TrainingDate, DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime,
+    string Description, string? FileName, DateTimeOffset CreatedAt
 );
 
 /// <summary>
-/// "Add Training": the Trainer picks the Client's SystemProduct, enters
-/// the date and what was taught, and optionally attaches a file
-/// (uploaded separately, multipart — see TrainingController.UploadFile).
-/// callerEmployeeId (who conducted it) is resolved server-side from the
-/// JWT, never taken from this request.
+/// "Add Training": the Trainer picks the Client's SystemProduct, picks
+/// which admin-configured item (e.g. "Attendance" — see AgreementType)
+/// this session is for, enters the date and what was taught, and
+/// optionally attaches a file (uploaded separately, multipart — see
+/// TrainingController.UploadFile). callerEmployeeId (who conducted it) is
+/// resolved server-side from the JWT, never taken from this request.
+///
+/// StartDateTime/EndDateTime are both optional — some items have no real
+/// duration worth recording. When a training starts and finishes the
+/// same day, give both the same date and let the time-of-day carry the
+/// distinction; a training that runs across days simply carries
+/// different dates. When EndDateTime is given it must be on/after
+/// StartDateTime (see TrainingRecordService.CreateAsync).
 /// </summary>
-public record CreateTrainingRecordRequest(Guid SystemProductId, DateOnly TrainingDate, string Description);
+public record CreateTrainingRecordRequest(
+    Guid SystemProductId, Guid AgreementTypeId, DateOnly TrainingDate,
+    DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime, string Description
+);
 
 public record SystemProductDto(
     Guid Id, Guid ClientId, string ReferenceNumber, string Name, string? Description, DateOnly? DeploymentDate,
-    TrainingCompletionStatus TrainingCompletionStatus, IReadOnlyList<TrainingAssignmentDto> TrainingAssignments
+    TrainingCompletionStatus TrainingCompletionStatus, IReadOnlyList<TrainingAssignmentDto> TrainingAssignments,
+    /// <summary>Optional catalog entry this product was created from — see ProductCatalogItem.</summary>
+    Guid? CatalogItemId,
+    /// <summary>When this client's product is due to expire, shown on the client dashboard. Optional.</summary>
+    DateOnly? ExpiryDate,
+    /// <summary>Set once a Trainer has submitted — see ISystemProductService.SubmitTrainingAsync. Null until then.</summary>
+    DateTimeOffset? TrainingSubmittedAt
 );
-public record CreateSystemProductRequest(Guid ClientId, string Name, string? Description, DateOnly? DeploymentDate);
-public record UpdateSystemProductRequest(string Name, string? Description, DateOnly? DeploymentDate);
+public record CreateSystemProductRequest(Guid ClientId, string Name, string? Description, DateOnly? DeploymentDate, Guid? CatalogItemId = null, DateOnly? ExpiryDate = null);
+public record UpdateSystemProductRequest(string Name, string? Description, DateOnly? DeploymentDate, Guid? CatalogItemId = null, DateOnly? ExpiryDate = null);
+
+/// <summary>Admin-managed catalog entry describing a kind of system/product DAFTECH deploys — see ProductCatalogItem.</summary>
+public record ProductCatalogItemDto(Guid Id, string Name, string? Description, bool IsActive);
+public record CreateProductCatalogItemRequest(string Name, string? Description);
+public record UpdateProductCatalogItemRequest(string Name, string? Description, bool IsActive);
 
 public record AgreementDto(
     Guid Id, Guid SystemProductId, Guid ClientId, string ClientName, string SystemProductName,

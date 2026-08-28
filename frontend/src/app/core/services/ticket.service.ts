@@ -78,6 +78,26 @@ export class TicketService {
     await this.refreshPaged(page);
   }
 
+  /**
+   * Wipes every cached ticket list back to empty. Called from
+   * AuthService on logout/forced-logout so a second staff member
+   * signing in on the same browser session never has a window — even
+   * before their own first fetch resolves — where this singleton
+   * service is still holding the previous technician's scoped ticket
+   * list (TicketService.refreshPaged() is scoped server-side per caller,
+   * but the signals here persist across logins since this service is
+   * providedIn: 'root' and is never itself destroyed).
+   */
+  clear(): void {
+    this._tickets.set([]);
+    this._myTickets.set([]);
+    this._page.set(1);
+    this._pageSize.set(20);
+    this._totalCount.set(0);
+    this._totalPages.set(0);
+    this._pagedTickets.set([]);
+  }
+
   getById(id: string): Ticket | undefined {
     return this._tickets().find(t => t.id === id)
       ?? this._myTickets().find(t => t.id === id);
@@ -145,6 +165,7 @@ export class TicketService {
   async submitFromClient(
     clientId: string,
     agreementId: string,
+    systemProductId: string,
     description: string,
     category: TicketCategory,
     failureTypeId?: string,
@@ -161,6 +182,7 @@ export class TicketService {
         {
           clientId,
           agreementId,
+          systemProductId,
           description,
           category,
           failureTypeId,

@@ -127,6 +127,21 @@ export interface SystemProduct {
   trainingCompletionStatus: TrainingCompletionStatus;
   /** Who's currently assigned to train a client on this system/product — a roster, not a task list. See TrainingAssignment. */
   trainingAssignments: TrainingAssignment[];
+  /** Optional link back to the admin-managed Systems/Products catalog entry this was created from. See ProductCatalogItem. */
+  catalogItemId?: string;
+  /** When this client's system/product is due to expire — shown on the client dashboard. Optional. */
+  expiryDate?: string; // ISO date
+  /** Set once a Trainer has submitted their training checklist — see SystemProductService.submitTraining. Undefined until then. */
+  trainingSubmittedAt?: string; // ISO datetime
+}
+
+/** Admin-managed catalog entry describing a kind of system/product DAFTECH deploys (e.g. "Branch POS System") — configurable from Settings, no code change required. */
+export interface ProductCatalogItem {
+  id: string;
+  name: string;
+  description?: string;
+  /** False once an Admin retires this entry — hidden from new selections but still resolvable by Id for anything already pointing at it. */
+  isActive: boolean;
 }
 
 /** Admin-managed lookup — Support and Training always exist (see AgreementTypeNames on the backend); an Admin can add further custom types. Training is kept as a lookup value only — the training workflow itself lives on SystemProduct, not as an Agreement. */
@@ -151,9 +166,16 @@ export interface TrainingAssignment {
  * conducted it — "Add Training" on the trainer's own page. Open-ended: a
  * system/product can accumulate any number of these over time, even after
  * its trainingCompletionStatus is already Completed (e.g. a refresher).
- * There is no submit/approve step per record — Admin reviews the
- * accumulated set informally, then marks the whole SystemProduct's
- * training Completed as a separate one-click action.
+ * There is no submit/approve step per record — the Trainer saves each one
+ * as they finish it, then hits Submit once every item on their checklist
+ * is logged (see SystemProductService.submitTraining); Admin's review of
+ * the accumulated set happens separately via Mark Training Completed.
+ *
+ * agreementTypeId/-Name is which admin-configured checklist item (e.g.
+ * "Attendance") this session is for — see AgreementType. startDateTime/
+ * endDateTime are both optional: some items have no real duration worth
+ * recording. A same-day training just carries the same date on both with
+ * different times; a multi-day one carries different dates.
  */
 export interface TrainingRecord {
   id: string;
@@ -163,7 +185,11 @@ export interface TrainingRecord {
   clientName: string;
   trainerEmployeeId: string;
   trainerEmployeeName: string;
+  agreementTypeId: string;
+  agreementTypeName: string;
   trainingDate: string; // ISO date
+  startDateTime?: string; // ISO datetime
+  endDateTime?: string; // ISO datetime
   description: string;
   fileName?: string;
   createdAt: string; // ISO datetime
@@ -194,6 +220,9 @@ export interface Ticket {
   clientId: string;
   clientName: string;
   agreementId: string;
+  /** Which of the client's systems/products this issue is about. Undefined only for tickets submitted before this field existed. */
+  systemProductId?: string;
+  systemProductName?: string;
   description: string;
   category: TicketCategory;
   failureTypeId?: string;
@@ -774,3 +803,30 @@ export interface OverallClientReport {
   satisfactionSurveys: ClientReportSurvey[];
   summary: ClientReportSummary;
 }
+
+/** Outcome for one row of a client bulk-import CSV — see ClientImportService (Angular) and the backend's ClientImportService. */
+export interface ClientImportRowResult {
+  rowNumber: number;
+  clientName: string;
+  systemProductName: string;
+  success: boolean;
+  /** Null on success. Names the specific problem with this row. */
+  error?: string;
+  /** True when this row's client name matched an existing client and was held for manual review instead of being imported. */
+  flaggedAsDuplicate: boolean;
+  clientId?: string;
+  systemProductId?: string;
+  agreementId?: string;
+  /** The login username issued for a newly created client — null for rows that attached to a client created earlier in the same import (see the row that actually created the client for its username), and for failed/flagged rows. */
+  issuedUsername?: string;
+}
+
+/** Full report returned after a bulk import run. */
+export interface ClientImportResult {
+  totalRows: number;
+  succeededCount: number;
+  failedCount: number;
+  flaggedDuplicateCount: number;
+  rows: ClientImportRowResult[];
+}
+
