@@ -255,6 +255,25 @@ public class TrainingController : ControllerBase
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
+    /// <summary>
+    /// Admin backfills a historical training session on behalf of
+    /// request.TrainerEmployeeId — e.g. encoding old paper records for an
+    /// existing client via the Upload Attachments screen, where the
+    /// session predates (or the trainer is no longer on) that
+    /// system/product's live roster. See ITrainingRecordService.AdminCreateAsync.
+    /// </summary>
+    [HttpPost("admin")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<TrainingRecordDto>> AdminCreate([FromBody] AdminCreateTrainingRecordRequest request, CancellationToken ct)
+    {
+        var innerRequest = new CreateTrainingRecordRequest(
+            request.SystemProductId, request.AgreementTypeId, request.TrainingDate,
+            request.StartDateTime, request.EndDateTime, request.Description);
+
+        try { return Ok(await _training.AdminCreateAsync(request.TrainerEmployeeId, innerRequest, ct)); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
     /// <summary>The system/products Admin has assigned the calling Trainer to train on — "My Trainings" offers only these, the Trainer never chooses a client themselves.</summary>
     [HttpGet("my-assignments")]
     public async Task<ActionResult<IReadOnlyList<MyTrainingAssignmentDto>>> GetMyAssignments(CancellationToken ct)
