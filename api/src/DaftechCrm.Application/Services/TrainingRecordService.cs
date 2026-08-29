@@ -48,6 +48,22 @@ public class TrainingRecordService : ITrainingRecordService
         var trainer = await _db.Employees.FirstOrDefaultAsync(e => e.Id == callerEmployeeId, ct)
             ?? throw new InvalidOperationException("Trainer not found.");
 
+        // One training-item can only be logged once per system/product per
+        // day — if Trainer A already logged "Attendance" for this product
+        // today, Trainer B (or anyone else) trying to log the same item on
+        // the same date is blocked, regardless of who they are. Different
+        // dates, or a different training item, are unaffected — this only
+        // catches the exact same session being reported twice.
+        var existing = await _db.TrainingRecords
+            .Include(r => r.TrainerEmployee)
+            .FirstOrDefaultAsync(r =>
+                r.SystemProductId == request.SystemProductId &&
+                r.AgreementTypeId == request.AgreementTypeId &&
+                r.TrainingDate == request.TrainingDate, ct);
+        if (existing is not null)
+            throw new InvalidOperationException(
+                $"{agreementType.Name} for {request.TrainingDate:yyyy-MM-dd} was already logged by {existing.TrainerEmployee.FullName}.");
+
         var record = new TrainingRecord
         {
             SystemProductId = request.SystemProductId,
