@@ -291,7 +291,7 @@ public interface ITrainingRecordService
     Task<IReadOnlyList<TrainingRecordDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
 
     /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may replace its file.</summary>
-    Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+    Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, Stream content, string fileName, string contentType, CancellationToken ct = default);
 
     /// <summary>Retrieves a training record's supporting file, or null if none is attached or the record doesn't exist.</summary>
     Task<RetrievedFile?> DownloadFileAsync(Guid recordId, CancellationToken ct = default);

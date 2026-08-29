@@ -280,7 +280,7 @@ public class TrainingController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<TrainingRecordDto>>> GetForSystemProduct(Guid systemProductId, CancellationToken ct) =>
         Ok(await _training.GetForSystemProductAsync(systemProductId, ct));
 
-    /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may attach/replace its file.</summary>
+    /// <summary>Uploads (or replaces) the supporting file for one training record. Allowed for the trainer who logged it, or any Admin (e.g. reconciling scanned attendance sheets from a CSV import).</summary>
     [HttpPost("{id:guid}/file")]
     [RequestSizeLimit(20 * 1024 * 1024)]
     public async Task<ActionResult<TrainingRecordDto>> UploadFile(Guid id, IFormFile file, CancellationToken ct)
@@ -294,7 +294,8 @@ public class TrainingController : ControllerBase
         try
         {
             await using var stream = file.OpenReadStream();
-            var dto = await _training.UploadFileAsync(id, callerId, stream, file.FileName, file.ContentType, ct);
+            var callerIsAdmin = User.IsInRole(nameof(EmployeeRole.Admin));
+            var dto = await _training.UploadFileAsync(id, callerId, callerIsAdmin, stream, file.FileName, file.ContentType, ct);
             return Ok(dto);
         }
         catch (InvalidOperationException ex) when (ex.Message.StartsWith("You can only"))

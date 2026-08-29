@@ -8,10 +8,11 @@ import { FailureTypeService } from '../../core/services/failure-type.service';
 import { SupportTypeService } from '../../core/services/support-type.service';
 import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { SurveyQuestionService } from '../../core/services/survey-question.service';
+import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
-type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'productCatalog' | 'satisfactionSurvey';
+type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'productCatalog' | 'trainingItems' | 'satisfactionSurvey';
 
 @Component({
   selector: 'app-staff-settings',
@@ -29,6 +30,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
         <button class="tab" [class.active]="tab() === 'locations'" (click)="tab.set('locations')">Locations</button>
         <button class="tab" [class.active]="tab() === 'failureTypes'" (click)="tab.set('failureTypes')">Failure Types &amp; Pricing</button>
         <button class="tab" [class.active]="tab() === 'productCatalog'" (click)="tab.set('productCatalog')">Systems/Products</button>
+        <button class="tab" [class.active]="tab() === 'trainingItems'" (click)="tab.set('trainingItems')">Training Items</button>
         <button class="tab" [class.active]="tab() === 'satisfactionSurvey'" (click)="tab.set('satisfactionSurvey')">Satisfaction Survey</button>
       }
     </div>
@@ -340,6 +342,60 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
       </div>
     }
 
+    @if (tab() === 'trainingItems' && isAdmin()) {
+      <div class="section" style="max-width: 640px;">
+        <div class="panel panel-pad">
+          <h3>Training Items</h3>
+          <p class="text-muted hint">
+            The named checklist items a Trainer works through when logging a training session (e.g. "Attendance",
+            "System Walkthrough"). Add as many as needed — each one you add here appears immediately as a new
+            option in the Trainer's "Log Training Session" screen, no code change needed.
+            "Support" and "Training" are built in and can't be removed since other parts of the app depend on them
+            by name; items you add here are separate custom checklist entries and can be edited or removed anytime.
+          </p>
+
+          <div class="ft-add-row">
+            <input type="text" placeholder="Training item name…" [ngModel]="newTiName()" (ngModelChange)="newTiName.set($event)" />
+            <input type="text" placeholder="Description (optional)…" [ngModel]="newTiDescription()" (ngModelChange)="newTiDescription.set($event)" />
+            <button class="btn btn-primary btn-sm" [disabled]="savingTrainingItem()" (click)="addTrainingItem()">Add</button>
+          </div>
+
+          <ul class="entry-list">
+            @for (t of agreementTypes.types(); track t.id) {
+              <li class="entry-row">
+                @if (editingTiId() === t.id) {
+                  <div class="ft-edit-row">
+                    <span class="entry-name">{{ t.name }}</span>
+                    <input type="text" placeholder="Description (optional)…" [ngModel]="editingTiDescription()" (ngModelChange)="editingTiDescription.set($event)" />
+                  </div>
+                  <div class="entry-actions">
+                    <button class="btn btn-primary btn-sm" [disabled]="savingTrainingItem()" (click)="saveTiEdit(t.id)">Save</button>
+                    <button class="btn btn-outline btn-sm" (click)="cancelTiEdit()">Cancel</button>
+                  </div>
+                } @else {
+                  <span class="entry-name">
+                    {{ t.name }}
+                    @if (t.isSystemDefined) { <span class="text-muted"> · built-in</span> }
+                    @if (t.description) { <span class="text-muted"> · {{ t.description }}</span> }
+                  </span>
+                  <div class="entry-actions">
+                    <button class="btn btn-outline btn-sm" (click)="startTiEdit(t)">Edit</button>
+                    @if (!t.isSystemDefined) {
+                      <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingTrainingItem()" (click)="deleteTrainingItem(t.id)">Remove</button>
+                    }
+                  </div>
+                }
+              </li>
+            }
+            @empty {
+              <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">No training items added yet.</li>
+            }
+          </ul>
+          @if (trainingItemError()) { <div class="err" style="margin-top:0.5rem;">{{ trainingItemError() }}</div> }
+        </div>
+      </div>
+    }
+
     @if (tab() === 'satisfactionSurvey' && isAdmin()) {
       <div class="section" style="max-width: 640px;">
         <div class="panel panel-pad">
@@ -482,7 +538,7 @@ export class SettingsComponent implements OnInit {
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
-  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService, public catalog: ProductCatalogService, public surveyQuestions: SurveyQuestionService) {}
+  constructor(public auth: AuthService, public config: SystemConfigurationService, public locations: LocationService, public failureTypes: FailureTypeService, public supportTypes: SupportTypeService, public catalog: ProductCatalogService, public surveyQuestions: SurveyQuestionService, public agreementTypes: AgreementTypeService) {}
 
   async ngOnInit() {
     if (this.isAdmin()) {
@@ -904,6 +960,67 @@ export class SettingsComponent implements OnInit {
       this.productCatalogError.set(e?.error ?? 'Could not remove this system/product — please try again.');
     } finally {
       this.savingProductCatalog.set(false);
+    }
+  }
+
+  // --- Training Items (AgreementType lookup, feeds the Trainer's "Log Training Session" dropdown) ---
+
+  newTiName = signal('');
+  newTiDescription = signal('');
+  savingTrainingItem = signal(false);
+  trainingItemError = signal<string | null>(null);
+  editingTiId = signal<string | null>(null);
+  editingTiDescription = signal('');
+
+  async addTrainingItem() {
+    const name = this.newTiName().trim();
+    if (!name) return;
+
+    this.trainingItemError.set(null);
+    this.savingTrainingItem.set(true);
+    try {
+      await this.agreementTypes.create(name, this.newTiDescription().trim() || undefined);
+      this.newTiName.set('');
+      this.newTiDescription.set('');
+    } catch (e: any) {
+      this.trainingItemError.set(e?.error ?? 'Could not add this training item — the name may already exist.');
+    } finally {
+      this.savingTrainingItem.set(false);
+    }
+  }
+
+  startTiEdit(t: { id: string; description?: string }) {
+    this.editingTiId.set(t.id);
+    this.editingTiDescription.set(t.description ?? '');
+    this.trainingItemError.set(null);
+  }
+
+  cancelTiEdit() {
+    this.editingTiId.set(null);
+  }
+
+  async saveTiEdit(id: string) {
+    this.trainingItemError.set(null);
+    this.savingTrainingItem.set(true);
+    try {
+      await this.agreementTypes.update(id, this.editingTiDescription().trim() || undefined);
+      this.cancelTiEdit();
+    } catch (e: any) {
+      this.trainingItemError.set(e?.error ?? 'Could not save this change — please try again.');
+    } finally {
+      this.savingTrainingItem.set(false);
+    }
+  }
+
+  async deleteTrainingItem(id: string) {
+    this.trainingItemError.set(null);
+    this.savingTrainingItem.set(true);
+    try {
+      await this.agreementTypes.remove(id);
+    } catch (e: any) {
+      this.trainingItemError.set(e?.error ?? 'Could not remove this training item — please try again.');
+    } finally {
+      this.savingTrainingItem.set(false);
     }
   }
 

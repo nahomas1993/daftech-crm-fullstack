@@ -23,6 +23,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
       </div>
       <div style="display:flex; gap:0.5rem;">
         <a routerLink="/admin/clients/import" class="btn btn-outline">Import Clients (CSV)</a>
+        <a routerLink="/admin/clients/import-attachments" class="btn btn-outline">Upload Attachments</a>
         <button class="btn btn-primary" (click)="toggleForm()">{{ showForm() ? 'Cancel' : '+ Register Client' }}</button>
       </div>
     </div>
@@ -38,7 +39,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
             </div>
             <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="form.office" (ngModelChange)="form.office = $event" /></div>
             <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="form.location" (ngModelChange)="form.location = $event" /></div>
-            <div class="field"><label>Region</label>
+            <div class="field"><label>Region <span class="req">*</span></label>
               <select [ngModel]="form.region" (ngModelChange)="form.region = $event">
                 <option value="">Select region…</option>
                 @for (r of locations.options().regions; track r.id) {
@@ -46,7 +47,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                 }
               </select>
             </div>
-            <div class="field"><label>Zone</label>
+            <div class="field"><label>Zone <span class="req">*</span></label>
               <select [ngModel]="form.zone" (ngModelChange)="form.zone = $event">
                 <option value="">Select zone…</option>
                 @for (z of locations.options().zones; track z.id) {
@@ -54,7 +55,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                 }
               </select>
             </div>
-            <div class="field"><label>City</label>
+            <div class="field"><label>City <span class="req">*</span></label>
               <select [ngModel]="form.city" (ngModelChange)="form.city = $event">
                 <option value="">Select city…</option>
                 @for (c of locations.options().cities; track c.id) {
@@ -62,7 +63,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                 }
               </select>
             </div>
-            <div class="field"><label>Woreda</label>
+            <div class="field"><label>Woreda <span class="req">*</span></label>
               <select [ngModel]="form.woreda" (ngModelChange)="form.woreda = $event">
                 <option value="">Select woreda…</option>
                 @for (w of locations.options().woredas; track w.id) {
@@ -190,7 +191,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                     </div>
                     <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
                     <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
-                    <div class="field"><label>Region</label>
+                    <div class="field"><label>Region <span class="req">*</span></label>
                       <select [ngModel]="editForm.region" (ngModelChange)="editForm.region = $event">
                         <option value="">Select region…</option>
                         @for (r of locations.options().regions; track r.id) {
@@ -198,7 +199,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                         }
                       </select>
                     </div>
-                    <div class="field"><label>Zone</label>
+                    <div class="field"><label>Zone <span class="req">*</span></label>
                       <select [ngModel]="editForm.zone" (ngModelChange)="editForm.zone = $event">
                         <option value="">Select zone…</option>
                         @for (z of locations.options().zones; track z.id) {
@@ -206,7 +207,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                         }
                       </select>
                     </div>
-                    <div class="field"><label>City</label>
+                    <div class="field"><label>City <span class="req">*</span></label>
                       <select [ngModel]="editForm.city" (ngModelChange)="editForm.city = $event">
                         <option value="">Select city…</option>
                         @for (ct of locations.options().cities; track ct.id) {
@@ -214,7 +215,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                         }
                       </select>
                     </div>
-                    <div class="field"><label>Woreda</label>
+                    <div class="field"><label>Woreda <span class="req">*</span></label>
                       <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event">
                         <option value="">Select woreda…</option>
                         @for (w of locations.options().woredas; track w.id) {
@@ -360,10 +361,14 @@ export class ClientsListComponent {
       { label: 'Email', value: this.form.email },
       { label: 'Office', value: this.form.office },
       { label: 'Location', value: this.form.location },
+      { label: 'Region', value: this.form.region },
+      { label: 'Zone', value: this.form.zone },
+      { label: 'City', value: this.form.city },
+      { label: 'Woreda', value: this.form.woreda },
       { label: 'KYC Type', value: this.form.kycType },
       { label: 'KYC Contact', value: this.form.kycContact },
-      // Region/Zone/City/Woreda and IT Support Contact are intentionally
-      // left out — they're marked optional on the form.
+      // IT Support Contact is intentionally left out — it's marked
+      // optional on the form.
     ]);
     if (validationError) {
       this.registerError.set(validationError);
@@ -479,6 +484,10 @@ export class ClientsListComponent {
       { label: 'Email', value: this.editForm.email },
       { label: 'Office', value: this.editForm.office },
       { label: 'Location', value: this.editForm.location },
+      { label: 'Region', value: this.editForm.region },
+      { label: 'Zone', value: this.editForm.zone },
+      { label: 'City', value: this.editForm.city },
+      { label: 'Woreda', value: this.editForm.woreda },
       { label: 'KYC Type', value: this.editForm.kycType },
       { label: 'KYC Contact', value: this.editForm.kycContact },
     ]);

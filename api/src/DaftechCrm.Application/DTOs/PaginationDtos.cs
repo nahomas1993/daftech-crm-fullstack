@@ -27,6 +27,9 @@ public class PaginationQuery
     }
 
     public int Skip => (Page - 1) * PageSize;
+
+    /// <summary>Optional free-text filter. Each endpoint decides which field(s) it matches against (e.g. Clients matches Name); ignored by endpoints that don't support search.</summary>
+    public string? Search { get; set; }
 }
 
 /// <summary>

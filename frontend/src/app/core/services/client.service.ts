@@ -23,6 +23,7 @@ export class ClientService {
   readonly pageSize = this._pageSize.asReadonly();
   readonly totalCount = this._totalCount.asReadonly();
   readonly totalPages = this._totalPages.asReadonly();
+  private _lastSearch = '';
 
   constructor(private http: HttpClient) {
     void this.refresh();
@@ -35,8 +36,12 @@ export class ClientService {
     this._loaded.set(true);
   }
 
-  async refreshPaged(page = this._page(), pageSize = this._pageSize()): Promise<void> {
-    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+  /** search is optional free-text (matches Name/Email/PhoneNumber server-side); pass '' or omit to clear the filter. Resets to page 1 whenever the search term itself changes, since a stale page number from a wider result set rarely makes sense against a narrower one. */
+  async refreshPaged(page = this._page(), pageSize = this._pageSize(), search = this._lastSearch): Promise<void> {
+    const pageToUse = search !== this._lastSearch ? 1 : page;
+    this._lastSearch = search;
+    let params = new HttpParams().set('page', pageToUse).set('pageSize', pageSize);
+    if (search) params = params.set('search', search);
     const result = await firstValueFrom(
       this.http.get<PagedResult<Client>>(`${API_BASE_URL}/clients/paged`, { params })
     );
@@ -49,6 +54,10 @@ export class ClientService {
 
   async goToPage(page: number): Promise<void> {
     await this.refreshPaged(page);
+  }
+
+  async search(term: string): Promise<void> {
+    await this.refreshPaged(1, this._pageSize(), term);
   }
 
   approvedClients(): Client[] {
@@ -66,7 +75,7 @@ export class ClientService {
    */
   async registerClient(data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; zone?: string; city?: string; woreda?: string;
+    region: string; zone: string; city: string; woreda: string;
     kycType: string; kycContact: string; itSupportContact?: string;
   }): Promise<ClientRegisteredResult> {
     const result = await firstValueFrom(this.http.post<ClientRegisteredResult>(`${API_BASE_URL}/clients/register`, data));
@@ -81,7 +90,7 @@ export class ClientService {
   /** Edits the plain profile fields. Account status/credentials go through resendCredentialEmail instead. */
   async updateClient(id: string, data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; zone?: string; city?: string; woreda?: string;
+    region: string; zone: string; city: string; woreda: string;
     kycType: string; kycContact: string; itSupportContact?: string;
   }): Promise<void> {
     await firstValueFrom(this.http.put<Client>(`${API_BASE_URL}/clients/${id}`, data));

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { TrainingService } from '../../core/services/training.service';
 import { SystemProductService } from '../../core/services/system-product.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
+import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
 
 /**
@@ -32,7 +33,7 @@ import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
 @Component({
   selector: 'app-my-trainings',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, FilePreviewModalComponent],
   template: `
     <h1>My Trainings</h1>
     <p class="text-muted" style="margin-top:0.3rem;">Log each training item you conducted, then submit once the checklist is done.</p>
@@ -164,7 +165,7 @@ import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
                 <td>{{ r.description }}</td>
                 <td>
                   @if (r.fileName) {
-                    <button class="btn btn-outline btn-sm" (click)="downloadFile(r)">{{ r.fileName }}</button>
+                    <button class="btn btn-outline btn-sm" (click)="viewFile(r)">{{ r.fileName }}</button>
                   } @else { <span class="text-muted">None</span> }
                 </td>
               </tr>
@@ -173,6 +174,15 @@ import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
         </table></div>
       }
     </div>
+
+    <app-file-preview-modal
+      [open]="previewOpen"
+      title="Training Record File"
+      [fileName]="previewFileName"
+      [kind]="previewKind"
+      [load]="previewLoader"
+      (closed)="closePreview()">
+    </app-file-preview-modal>
   `,
   styles: [`
     .field { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -372,17 +382,21 @@ export class MyTrainingsComponent implements OnInit {
     }
   }
 
-  async downloadFile(r: TrainingRecord) {
-    try {
-      const blob = await this.trainingSvc.downloadFile(r.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = r.fileName ?? '';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to download training record file', err);
-    }
+  // Shown inline in the shared preview modal (audio player / image / PDF
+  // viewer) rather than forcing a download — see FilePreviewModalComponent.
+  previewOpen = false;
+  previewFileName = '';
+  previewKind: FilePreviewKind = 'other';
+  previewLoader?: () => Promise<Blob>;
+
+  viewFile(r: TrainingRecord) {
+    this.previewFileName = r.fileName ?? '';
+    this.previewKind = filePreviewKindFor(r.fileName);
+    this.previewLoader = () => this.trainingSvc.downloadFile(r.id);
+    this.previewOpen = true;
+  }
+
+  closePreview() {
+    this.previewOpen = false;
   }
 }

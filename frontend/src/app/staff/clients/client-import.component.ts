@@ -105,6 +105,11 @@ import { ClientImportResult, ClientImportRowResult } from '../../core/models';
               }
             </tbody>
           </table>
+          <p class="text-muted" style="margin-top:0.75rem;">
+            Next: scanned agreements and training-record files weren't part of the CSV — attach them from
+            <a routerLink="/admin/clients/import-attachments">Upload Attachments</a>, and send each client's
+            login credentials from their own Client Detail page when you're ready.
+          </p>
         }
       </div>
     }

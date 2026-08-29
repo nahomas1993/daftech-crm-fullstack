@@ -10,6 +10,7 @@ import { AgreementTypeService } from '../../core/services/agreement-type.service
 import { TicketService } from '../../core/services/ticket.service';
 import { TrainingService } from '../../core/services/training.service';
 import { BadgeComponent } from '../../shared/badge.component';
+import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload } from '../../core/models';
 
 /**
@@ -35,7 +36,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
 @Component({
   selector: 'app-client-detail',
   standalone: true,
-  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule],
+  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule, FilePreviewModalComponent],
   template: `
     @if (client(); as c) {
       <a routerLink="/admin/clients" class="back">← Back to Clients</a>
@@ -204,7 +205,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                     <td><app-badge [status]="a.status"></app-badge></td>
                     <td>
                       @if (a.scannedFileUrl) {
-                        <button class="btn btn-outline btn-sm" (click)="download(a.id)">Download</button>
+                        <button class="btn btn-outline btn-sm" (click)="viewAgreementFile(a.id, a.scannedFileUrl)">View</button>
                       } @else { <span class="text-muted">None</span> }
                     </td>
                   </tr>
@@ -271,7 +272,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                           <td>{{ r.description }}</td>
                           <td>
                             @if (r.fileName) {
-                              <button class="btn btn-outline btn-sm" (click)="downloadRecordFile(r)">{{ r.fileName }}</button>
+                              <button class="btn btn-outline btn-sm" (click)="viewRecordFile(r)">{{ r.fileName }}</button>
                             } @else { <span class="text-muted">None</span> }
                           </td>
                         </tr>
@@ -322,6 +323,15 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
     } @else {
       <p class="text-muted">Client not found.</p>
     }
+
+    <app-file-preview-modal
+      [open]="previewOpen"
+      [title]="previewTitle"
+      [fileName]="previewFileName"
+      [kind]="previewKind"
+      [load]="previewLoader"
+      (closed)="closePreview()">
+    </app-file-preview-modal>
   `,
   styles: [`
     .back { display: inline-block; margin-bottom: 1rem; font-size: 0.82rem; color: var(--slate-500); }
@@ -613,18 +623,32 @@ export class ClientDetailComponent {
     }
   }
 
-  async download(agreementId: string) {
-    try {
-      const blob = await this.agreementsSvc.downloadScannedFile(agreementId);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to download scanned document', err);
-    }
+  // Shown inline in the shared preview modal (audio player / image / PDF
+  // viewer) rather than forcing a download — see FilePreviewModalComponent.
+  previewOpen = false;
+  previewTitle = 'Preview';
+  previewFileName = '';
+  previewKind: FilePreviewKind = 'other';
+  previewLoader?: () => Promise<Blob>;
+
+  viewAgreementFile(agreementId: string, scannedFileUrl: string) {
+    this.previewTitle = 'Scanned Agreement';
+    this.previewFileName = scannedFileUrl;
+    this.previewKind = filePreviewKindFor(scannedFileUrl);
+    this.previewLoader = () => this.agreementsSvc.downloadScannedFile(agreementId);
+    this.previewOpen = true;
+  }
+
+  viewRecordFile(r: TrainingRecord) {
+    this.previewTitle = 'Training Record File';
+    this.previewFileName = r.fileName ?? '';
+    this.previewKind = filePreviewKindFor(r.fileName);
+    this.previewLoader = () => this.trainingSvc.downloadFile(r.id);
+    this.previewOpen = true;
+  }
+
+  closePreview() {
+    this.previewOpen = false;
   }
 
   private async refreshSystemProductOnly(systemProductId: string, clientId: string) {
@@ -685,20 +709,6 @@ export class ClientDetailComponent {
       console.error('Failed to mark training completed', err);
     } finally {
       this.markingComplete.set(null);
-    }
-  }
-
-  async downloadRecordFile(r: TrainingRecord) {
-    try {
-      const blob = await this.trainingSvc.downloadFile(r.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = r.fileName ?? '';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to download training record file', err);
     }
   }
 }

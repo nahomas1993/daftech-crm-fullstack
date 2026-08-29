@@ -25,16 +25,19 @@ public class ClientService : IClientService
     /// <summary>Admin registers a client directly — Approved, credentialed, and emailed in the same call, no separate approval step.</summary>
     public async Task<ClientRegisteredResult> RegisterAsync(RegisterClientRequest request, CancellationToken ct = default)
     {
-        // Region/Zone/City/Woreda and ItSupportContact are intentionally
-        // optional — not every client's address breaks down that far, and
-        // not every client has a separate IT contact. Everything else on
-        // the registration form is required.
+        // ItSupportContact remains optional — not every client has a
+        // separate IT contact. Region/Zone/City/Woreda are required as
+        // of this change (previously optional) — see RequiredFieldValidator.
         RequiredFieldValidator.EnsureAllPresent(
             ("Name / Organization", request.Name),
             ("Phone Number", request.PhoneNumber),
             ("Email", request.Email),
             ("Office", request.Office),
             ("Location", request.Location),
+            ("Region", request.Region),
+            ("Zone", request.Zone),
+            ("City", request.City),
+            ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
             ("KYC Contact", request.KycContact)
         );
@@ -96,11 +99,20 @@ public class ClientService : IClientService
 
     public async Task<PagedResult<ClientDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
-        var totalCount = await _db.Clients.CountAsync(c => !c.IsDeleted, ct);
+        var baseQuery = _db.Clients.AsNoTracking().Where(c => !c.IsDeleted);
 
-        var items = await _db.Clients
-            .AsNoTracking()
-            .Where(c => !c.IsDeleted)
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var term = query.Search.Trim();
+            baseQuery = baseQuery.Where(c =>
+                EF.Functions.ILike(c.Name, $"%{term}%") ||
+                EF.Functions.ILike(c.Email, $"%{term}%") ||
+                EF.Functions.ILike(c.PhoneNumber, $"%{term}%"));
+        }
+
+        var totalCount = await baseQuery.CountAsync(ct);
+
+        var items = await baseQuery
             .OrderBy(c => c.Name)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -126,6 +138,10 @@ public class ClientService : IClientService
             ("Email", request.Email),
             ("Office", request.Office),
             ("Location", request.Location),
+            ("Region", request.Region),
+            ("Zone", request.Zone),
+            ("City", request.City),
+            ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
             ("KYC Contact", request.KycContact)
         );

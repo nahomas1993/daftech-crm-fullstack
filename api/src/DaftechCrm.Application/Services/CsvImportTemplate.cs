@@ -21,7 +21,7 @@ public static class CsvImportTemplate
         // existing signed Support agreement.
         AppendRow(sb,
             "Example Trading PLC", "0911223344", "example.trading@email.com", "Bole Branch", "Addis Ababa",
-            "Addis Ababa", "", "", "",
+            "Addis Ababa", "Bole", "Addis Ababa", "Woreda 03",
             "Business License", "Ato Example — 0911223344", "",
             "Branch POS System", "Point-of-sale system for the Bole branch", "2023-05-01", "",
             "Yes",
@@ -33,9 +33,11 @@ public static class CsvImportTemplate
         // agreement recorded yet (leave the agreement columns blank —
         // AgreementType blank means "skip creating an agreement for this
         // row", it can be added later from the Client Detail page).
+        // Region/Zone/City/Woreda are still required even though the
+        // agreement columns are blank.
         AppendRow(sb,
             "Sample Retailers", "0922334455", "sample.retailers@email.com", "Merkato Branch", "Addis Ababa",
-            "Addis Ababa", "", "", "",
+            "Addis Ababa", "Addis Ketema", "Addis Ababa", "Woreda 07",
             "Business License", "W/ro Sample — 0922334455", "",
             "HR Portal", "", "2024-01-10", "",
             "No",

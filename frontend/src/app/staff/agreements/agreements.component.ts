@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { AgreementService } from '../../core/services/agreement.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
+import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 
 /**
  * Cross-client read-only agreement listing. Creating a new agreement
@@ -15,7 +16,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
 @Component({
   selector: 'app-agreements',
   standalone: true,
-  imports: [RouterLink, BadgeComponent, PaginationComponent],
+  imports: [RouterLink, BadgeComponent, PaginationComponent, FilePreviewModalComponent],
   template: `
     <div class="header-row">
       <div>
@@ -40,7 +41,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
               <td><app-badge [status]="a.status"></app-badge></td>
               <td>
                 @if (a.scannedFileUrl) {
-                  <button class="btn btn-outline btn-sm" (click)="download(a.id)">Download</button>
+                  <button class="btn btn-outline btn-sm" (click)="view(a.id, a.scannedFileUrl)">View</button>
                 } @else {
                   <span class="text-muted">None</span>
                 }
@@ -61,6 +62,15 @@ import { PaginationComponent } from '../../shared/pagination.component';
         (pageChange)="agreements.goToPage($event)">
       </app-pagination>
     </div>
+
+    <app-file-preview-modal
+      [open]="previewOpen"
+      title="Scanned Agreement"
+      [fileName]="previewFileName"
+      [kind]="previewKind"
+      [load]="previewLoader"
+      (closed)="closePreview()">
+    </app-file-preview-modal>
   `,
   styles: [`
     .header-row { display: flex; justify-content: space-between; align-items: flex-start; }
@@ -69,17 +79,22 @@ import { PaginationComponent } from '../../shared/pagination.component';
 export class AgreementsComponent {
   constructor(public agreements: AgreementService) {}
 
-  async download(agreementId: string) {
-    try {
-      const blob = await this.agreements.downloadScannedFile(agreementId);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Failed to download scanned document', err);
-    }
+  previewOpen = false;
+  previewFileName = '';
+  previewKind: FilePreviewKind = 'other';
+  previewLoader?: () => Promise<Blob>;
+
+  // Shown inline in the same modal used for ticket attachments (audio
+  // player / image / PDF viewer), rather than forcing the scanned
+  // document to save to the browser's Downloads folder.
+  view(agreementId: string, scannedFileUrl: string) {
+    this.previewFileName = scannedFileUrl;
+    this.previewKind = filePreviewKindFor(scannedFileUrl);
+    this.previewLoader = () => this.agreements.downloadScannedFile(agreementId);
+    this.previewOpen = true;
+  }
+
+  closePreview() {
+    this.previewOpen = false;
   }
 }

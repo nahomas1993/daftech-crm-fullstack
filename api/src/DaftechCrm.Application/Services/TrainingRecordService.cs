@@ -91,7 +91,15 @@ public class TrainingRecordService : ITrainingRecordService
         return records.Select(r => ToDto(r, r.SystemProduct, r.TrainerEmployee, r.AgreementType)).ToList();
     }
 
-    public async Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, Stream content, string fileName, string contentType, CancellationToken ct = default)
+    /// <summary>
+    /// Attaches/replaces a training record's supporting file. Allowed for
+    /// the Trainer who logged the record, OR any Admin (e.g. reconciling
+    /// scanned attendance sheets from a bulk CSV import's paper records,
+    /// where the file wasn't captured by the Trainer at the time) — see
+    /// TrainingRecordsController.UploadFile for how callerIsAdmin is
+    /// resolved from the caller's role claim.
+    /// </summary>
+    public async Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, Stream content, string fileName, string contentType, CancellationToken ct = default)
     {
         var record = await _db.TrainingRecords.Include(r => r.SystemProduct).ThenInclude(s => s.Client)
             .Include(r => r.TrainerEmployee)
@@ -99,7 +107,7 @@ public class TrainingRecordService : ITrainingRecordService
             .FirstOrDefaultAsync(r => r.Id == recordId, ct)
             ?? throw new InvalidOperationException("Training record not found.");
 
-        if (record.TrainerEmployeeId != callerEmployeeId)
+        if (record.TrainerEmployeeId != callerEmployeeId && !callerIsAdmin)
             throw new InvalidOperationException("You can only attach a file to your own training record.");
 
         var previousStorageKey = record.FileStorageKey;

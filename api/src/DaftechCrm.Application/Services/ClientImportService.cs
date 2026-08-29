@@ -133,7 +133,11 @@ public class ClientImportService
             ("Row's KycType", row.KycType),
             ("Row's KycContact", row.KycContact),
             ("Row's SystemProductName", row.SystemProductName),
-            ("Row's TrainingCompleted", row.TrainingCompleted)
+            ("Row's TrainingCompleted", row.TrainingCompleted),
+            ("Row's Region", row.Region),
+            ("Row's Zone", row.Zone),
+            ("Row's City", row.City),
+            ("Row's Woreda", row.Woreda)
         );
 
         var trainingCompleted = ParseYesNo(row.TrainingCompleted, "TrainingCompleted");
@@ -179,10 +183,10 @@ public class ClientImportService
                 Email = row.Email,
                 Office = row.Office,
                 Location = row.Location,
-                Region = string.IsNullOrWhiteSpace(row.Region) ? null : row.Region,
-                Zone = string.IsNullOrWhiteSpace(row.Zone) ? null : row.Zone,
-                City = string.IsNullOrWhiteSpace(row.City) ? null : row.City,
-                Woreda = string.IsNullOrWhiteSpace(row.Woreda) ? null : row.Woreda,
+                Region = row.Region,
+                Zone = row.Zone,
+                City = row.City,
+                Woreda = row.Woreda,
                 KycType = row.KycType,
                 KycContact = row.KycContact,
                 ItSupportContact = string.IsNullOrWhiteSpace(row.ItSupportContact) ? null : row.ItSupportContact,
