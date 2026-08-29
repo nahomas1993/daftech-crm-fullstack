@@ -41,6 +41,26 @@ export class TrainingService {
     return firstValueFrom(this.http.post<TrainingRecord>(`${API_BASE_URL}/training`, data));
   }
 
+  /**
+   * Admin backfills a historical training session on behalf of
+   * data.trainerEmployeeId — e.g. encoding old paper records for an
+   * existing client via the Upload Attachments screen, where the session
+   * predates (or the trainer is no longer on) that system/product's live
+   * roster. Admin-only; unlike create(), the trainer does not need to be
+   * on the current training roster.
+   */
+  async adminCreate(data: {
+    trainerEmployeeId: string;
+    systemProductId: string;
+    agreementTypeId: string;
+    trainingDate: string;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
+    description: string;
+  }): Promise<TrainingRecord> {
+    return firstValueFrom(this.http.post<TrainingRecord>(`${API_BASE_URL}/training/admin`, data));
+  }
+
   /** The system/products Admin has assigned the logged-in Trainer to train on — the only valid targets for create(). Trainers never pick a client themselves. */
   async getMyAssignments(): Promise<MyTrainingAssignment[]> {
     return firstValueFrom(this.http.get<MyTrainingAssignment[]>(`${API_BASE_URL}/training/my-assignments`));
