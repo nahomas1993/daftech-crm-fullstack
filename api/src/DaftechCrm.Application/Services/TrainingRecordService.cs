@@ -1,6 +1,7 @@
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Entities;
+using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace DaftechCrm.Application.Services;
@@ -27,14 +28,40 @@ public class TrainingRecordService : ITrainingRecordService
     /// </summary>
     public async Task<TrainingRecordDto> CreateAsync(Guid callerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default)
     {
-        var systemProduct = await _db.SystemProducts.Include(s => s.Client)
-            .FirstOrDefaultAsync(s => s.Id == request.SystemProductId && !s.IsDeleted, ct)
-            ?? throw new InvalidOperationException("System/Product not found.");
-
         var onRoster = await _db.TrainingAssignments
             .AnyAsync(a => a.SystemProductId == request.SystemProductId && a.TrainerEmployeeId == callerEmployeeId, ct);
         if (!onRoster)
             throw new InvalidOperationException("You are not assigned to train on this client's system/product.");
+
+        return await CreateInternalAsync(callerEmployeeId, request, ct);
+    }
+
+    /// <summary>
+    /// Admin encodes a historical training session on behalf of
+    /// trainerEmployeeId — see the ITrainingRecordService doc comment for
+    /// when this is used instead of CreateAsync. Deliberately skips the
+    /// roster check (the trainer may no longer be assigned to this
+    /// system/product, or never formally was, if the session predates the
+    /// roster feature entirely), but still requires trainerEmployeeId to
+    /// actually hold the Trainer role — this isn't a way to attribute a
+    /// session to an arbitrary non-training employee.
+    /// </summary>
+    public async Task<TrainingRecordDto> AdminCreateAsync(Guid trainerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default)
+    {
+        var trainerCandidate = await _db.Employees.FirstOrDefaultAsync(e => e.Id == trainerEmployeeId, ct)
+            ?? throw new InvalidOperationException("Selected trainer was not found.");
+        if (!trainerCandidate.Roles.Contains(EmployeeRole.Trainer))
+            throw new InvalidOperationException($"{trainerCandidate.FullName} does not have the Trainer role.");
+
+        return await CreateInternalAsync(trainerEmployeeId, request, ct);
+    }
+
+    /// <summary>Shared validation + insert for CreateAsync and AdminCreateAsync — everything except who's allowed to name trainerEmployeeId in the first place.</summary>
+    private async Task<TrainingRecordDto> CreateInternalAsync(Guid trainerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct)
+    {
+        var systemProduct = await _db.SystemProducts.Include(s => s.Client)
+            .FirstOrDefaultAsync(s => s.Id == request.SystemProductId && !s.IsDeleted, ct)
+            ?? throw new InvalidOperationException("System/Product not found.");
 
         if (string.IsNullOrWhiteSpace(request.Description))
             throw new InvalidOperationException("A description of what was taught/conducted is required.");
@@ -45,7 +72,7 @@ public class TrainingRecordService : ITrainingRecordService
         if (request.StartDateTime is { } start && request.EndDateTime is { } end && end < start)
             throw new InvalidOperationException("End date/time cannot be before the start date/time.");
 
-        var trainer = await _db.Employees.FirstOrDefaultAsync(e => e.Id == callerEmployeeId, ct)
+        var trainer = await _db.Employees.FirstOrDefaultAsync(e => e.Id == trainerEmployeeId, ct)
             ?? throw new InvalidOperationException("Trainer not found.");
 
         // One training-item can only be logged once per system/product per
@@ -68,7 +95,7 @@ public class TrainingRecordService : ITrainingRecordService
         {
             SystemProductId = request.SystemProductId,
             AgreementTypeId = request.AgreementTypeId,
-            TrainerEmployeeId = callerEmployeeId,
+            TrainerEmployeeId = trainerEmployeeId,
             TrainingDate = request.TrainingDate,
             StartDateTime = request.StartDateTime,
             EndDateTime = request.EndDateTime,
