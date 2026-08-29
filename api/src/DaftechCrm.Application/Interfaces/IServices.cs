@@ -281,6 +281,18 @@ public interface ITrainingRecordService
     /// </summary>
     Task<TrainingRecordDto> CreateAsync(Guid callerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Admin encodes a historical training session on behalf of a chosen
+    /// Trainer — for backfilling paper records (e.g. from a CSV import)
+    /// where the actual Trainer may no longer be assigned to this
+    /// system/product, or the session predates the roster entirely. Skips
+    /// the "caller must be on the roster" check that CreateAsync enforces
+    /// for a Trainer logging their own session, but still requires
+    /// trainerEmployeeId to have the Trainer role, and still runs the
+    /// same same-item/same-date duplicate check as CreateAsync.
+    /// </summary>
+    Task<TrainingRecordDto> AdminCreateAsync(Guid trainerEmployeeId, CreateTrainingRecordRequest request, CancellationToken ct = default);
+
     /// <summary>Every system/product the given Trainer is on the training roster for (Admin decides this) — the only valid targets for CreateAsync.</summary>
     Task<IReadOnlyList<MyTrainingAssignmentDto>> GetAssignmentsForTrainerAsync(Guid trainerEmployeeId, CancellationToken ct = default);
 
