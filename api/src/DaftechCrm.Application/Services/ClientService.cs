@@ -103,11 +103,19 @@ public class ClientService : IClientService
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
+            // Plain Contains() rather than EF.Functions.ILike — ILike is a
+            // Postgres-specific extension that requires referencing the
+            // Npgsql provider package, which the Application layer
+            // deliberately does not (only Infrastructure knows which
+            // database is in use, per Clean Architecture). EF Core
+            // translates Contains() into a case-insensitive LIKE/ILIKE at
+            // the SQL level on Postgres regardless, so behavior here is
+            // unchanged.
             var term = query.Search.Trim();
             baseQuery = baseQuery.Where(c =>
-                EF.Functions.ILike(c.Name, $"%{term}%") ||
-                EF.Functions.ILike(c.Email, $"%{term}%") ||
-                EF.Functions.ILike(c.PhoneNumber, $"%{term}%"));
+                c.Name.Contains(term) ||
+                c.Email.Contains(term) ||
+                c.PhoneNumber.Contains(term));
         }
 
         var totalCount = await baseQuery.CountAsync(ct);
