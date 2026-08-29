@@ -5,6 +5,8 @@ import { ClientService } from '../../core/services/client.service';
 import { SystemProductService } from '../../core/services/system-product.service';
 import { AgreementService } from '../../core/services/agreement.service';
 import { TrainingService } from '../../core/services/training.service';
+import { EmployeeService } from '../../core/services/employee.service';
+import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
@@ -123,9 +125,60 @@ import { Agreement, SystemProduct, TrainingRecord } from '../../core/models';
                 </ul>
               }
 
-              <p class="text-muted section-label">Training Sessions</p>
+              <div class="header-row" style="align-items:center;">
+                <p class="text-muted section-label" style="margin:0;">Training Sessions</p>
+                <button class="btn btn-outline btn-sm" (click)="toggleLogTrainingForm(sp.id)">
+                  {{ logTrainingFormOpenFor() === sp.id ? 'Cancel' : '+ Log Training Session' }}
+                </button>
+              </div>
+
+              @if (logTrainingFormOpenFor() === sp.id) {
+                <div class="log-training-form">
+                  <div class="form-grid">
+                    <div class="field">
+                      <label>Trainer <span class="req">*</span></label>
+                      <select [ngModel]="logTrainingForm.trainerEmployeeId" (ngModelChange)="logTrainingForm.trainerEmployeeId = $event">
+                        <option value="">Select trainer…</option>
+                        @for (t of trainerEmployees(); track t.id) {
+                          <option [value]="t.id">{{ t.fullName }}</option>
+                        }
+                      </select>
+                      @if (trainerEmployees().length === 0) {
+                        <span class="text-muted" style="font-size:0.75rem;">No employees have the Trainer role yet — add one under Employees first.</span>
+                      }
+                    </div>
+                    <div class="field">
+                      <label>Training Item <span class="req">*</span></label>
+                      <select [ngModel]="logTrainingForm.agreementTypeId" (ngModelChange)="logTrainingForm.agreementTypeId = $event">
+                        <option value="">Select item…</option>
+                        @for (t of agreementTypesSvc.types(); track t.id) {
+                          <option [value]="t.id">{{ t.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Date <span class="req">*</span></label>
+                      <input type="date" [ngModel]="logTrainingForm.trainingDate" (ngModelChange)="logTrainingForm.trainingDate = $event" />
+                    </div>
+                    <div class="field">
+                      <label>Attachment (optional)</label>
+                      <input type="file" (change)="onLogTrainingFileSelected($event)" />
+                      @if (logTrainingFile()) { <span class="text-muted" style="font-size:0.75rem;">{{ logTrainingFile()!.name }}</span> }
+                    </div>
+                    <div class="field" style="grid-column: 1 / -1;">
+                      <label>Description <span class="req">*</span></label>
+                      <textarea rows="2" [ngModel]="logTrainingForm.description" (ngModelChange)="logTrainingForm.description = $event" placeholder="What was taught/conducted"></textarea>
+                    </div>
+                  </div>
+                  @if (logTrainingError()) { <p class="upload-error" style="margin-top:0.6rem;">{{ logTrainingError() }}</p> }
+                  <button class="btn btn-primary btn-sm" style="margin-top:0.75rem;" [disabled]="loggingTraining()" (click)="submitLogTraining(sp.id)">
+                    {{ loggingTraining() ? 'Saving…' : 'Save Training Session' }}
+                  </button>
+                </div>
+              }
+
               @if (recordsFor(sp.id).length === 0) {
-                <p class="text-muted" style="font-size:0.85rem;">No training sessions logged for this product yet.</p>
+                <p class="text-muted" style="font-size:0.85rem; margin-top:0.5rem;">No training sessions logged for this product yet.</p>
               } @else {
                 <ul class="entry-list">
                   @for (r of recordsFor(sp.id); track r.id) {
@@ -188,6 +241,10 @@ import { Agreement, SystemProduct, TrainingRecord } from '../../core/models';
       position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;
     }
     .err { padding: 0.6rem 0.75rem; border-radius: 8px; background: var(--red-bg); color: var(--red); font-size: 0.85rem; }
+    .log-training-form { margin-top: 0.6rem; padding: 0.85rem; border: 1px solid var(--slate-200); border-radius: 10px; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; }
+    .field label .req { color: var(--red, #b3261e); }
+    .upload-error { color: var(--red); font-size: 0.85rem; }
   `],
 })
 export class ClientImportAttachmentsComponent {
@@ -196,6 +253,8 @@ export class ClientImportAttachmentsComponent {
     private systemProductsSvc: SystemProductService,
     private agreementsSvc: AgreementService,
     private trainingSvc: TrainingService,
+    private employeesSvc: EmployeeService,
+    public agreementTypesSvc: AgreementTypeService,
   ) {}
 
   searchTerm = signal('');
@@ -219,6 +278,68 @@ export class ClientImportAttachmentsComponent {
 
   recordsFor(systemProductId: string): TrainingRecord[] {
     return this._recordsByProduct()[systemProductId] ?? [];
+  }
+
+  /** Active employees with the Trainer role — the only valid picks for the Log Training Session form's Trainer dropdown (see TrainingRecordService.AdminCreateAsync's role check). */
+  trainerEmployees = computed(() => this.employeesSvc.activeEmployees().filter(e => e.roles.includes('Trainer')));
+
+  logTrainingFormOpenFor = signal<string | null>(null);
+  loggingTraining = signal(false);
+  logTrainingError = signal<string | null>(null);
+  logTrainingFile = signal<File | null>(null);
+  logTrainingForm = this.blankLogTrainingForm();
+
+  private blankLogTrainingForm() {
+    return { trainerEmployeeId: '', agreementTypeId: '', trainingDate: new Date().toISOString().slice(0, 10), description: '' };
+  }
+
+  toggleLogTrainingForm(systemProductId: string) {
+    if (this.logTrainingFormOpenFor() === systemProductId) {
+      this.logTrainingFormOpenFor.set(null);
+      return;
+    }
+    this.logTrainingFormOpenFor.set(systemProductId);
+    this.logTrainingForm = this.blankLogTrainingForm();
+    this.logTrainingFile.set(null);
+    this.logTrainingError.set(null);
+  }
+
+  onLogTrainingFileSelected(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    this.logTrainingFile.set(file ?? null);
+  }
+
+  async submitLogTraining(systemProductId: string) {
+    const form = this.logTrainingForm;
+    if (!form.trainerEmployeeId || !form.agreementTypeId || !form.trainingDate || !form.description.trim()) {
+      this.logTrainingError.set('Trainer, Training Item, Date, and Description are all required.');
+      return;
+    }
+
+    this.loggingTraining.set(true);
+    this.logTrainingError.set(null);
+    try {
+      const created = await this.trainingSvc.adminCreate({
+        trainerEmployeeId: form.trainerEmployeeId,
+        systemProductId,
+        agreementTypeId: form.agreementTypeId,
+        trainingDate: form.trainingDate,
+        description: form.description,
+      });
+
+      const file = this.logTrainingFile();
+      if (file) {
+        await this.trainingSvc.uploadFile(created.id, file);
+      }
+
+      await this.refreshProductFiles(systemProductId);
+      this.logTrainingFormOpenFor.set(null);
+    } catch (err: any) {
+      this.logTrainingError.set(err?.error ?? 'Could not save this training session — please try again.');
+      console.error(err);
+    } finally {
+      this.loggingTraining.set(false);
+    }
   }
 
   completionSummary = computed(() => {
