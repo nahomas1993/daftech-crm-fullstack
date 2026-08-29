@@ -45,6 +45,12 @@ public record CreateTrainingRecordRequest(
     DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime, string Description
 );
 
+/// <summary>Admin backfilling a historical training session on behalf of a chosen Trainer — see ITrainingRecordService.AdminCreateAsync.</summary>
+public record AdminCreateTrainingRecordRequest(
+    Guid TrainerEmployeeId, Guid SystemProductId, Guid AgreementTypeId, DateOnly TrainingDate,
+    DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime, string Description
+);
+
 public record SystemProductDto(
     Guid Id, Guid ClientId, string ReferenceNumber, string Name, string? Description, DateOnly? DeploymentDate,
     TrainingCompletionStatus TrainingCompletionStatus, IReadOnlyList<TrainingAssignmentDto> TrainingAssignments,
