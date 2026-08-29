@@ -61,6 +61,37 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
         </dl>
       </div>
 
+      <div class="panel panel-pad" style="margin-top:1.25rem;">
+        <h3>Login Credentials</h3>
+        @if (c.username) {
+          <dl>
+            <dt>Username</dt><dd class="mono">{{ c.username }}</dd>
+            <dt>Password status</dt><dd>{{ c.mustChangePassword ? 'Awaiting first login / change' : 'Set by client' }}</dd>
+          </dl>
+        } @else {
+          <p class="text-muted" style="font-size:0.85rem;">No credentials issued yet.</p>
+        }
+
+        <p class="text-muted" style="font-size:0.82rem; margin-top:0.5rem;">
+          The one-time password itself is never stored or shown again after it's issued —
+          resending generates a brand-new one and emails it to {{ c.email }}.
+        </p>
+
+        <button class="btn btn-outline btn-sm" style="margin-top:0.5rem;" [disabled]="resendingCredential()" (click)="resendCredentialEmail(c.id)">
+          {{ resendingCredential() ? 'Sending…' : 'Resend credential email' }}
+        </button>
+
+        @if (resendResult(); as r) {
+          @if (r.emailSent) {
+            <p class="text-muted" style="margin-top:0.5rem; font-size:0.85rem;">A new one-time password was emailed to {{ c.email }}.</p>
+          } @else {
+            <p class="err" style="margin-top:0.5rem;">
+              Could not send the email{{ r.emailError ? ' (' + r.emailError + ')' : '' }} — a new password was still generated; you may need to relay it another way, or try resending again.
+            </p>
+          }
+        }
+      </div>
+
       <div class="panel panel-pad" id="agreements-section" style="margin-top:1.25rem;">
         <div class="header-row">
           <h3 style="margin:0;">Systems / Products & Agreements</h3>
@@ -364,6 +395,24 @@ export class ClientDetailComponent {
   submitting = signal(false);
   uploadError = signal<string | null>(null);
   selectedFile = signal<File | null>(null);
+
+  resendingCredential = signal(false);
+  resendResult = signal<{ emailSent: boolean; emailError?: string } | null>(null);
+
+  async resendCredentialEmail(clientId: string) {
+    this.resendingCredential.set(true);
+    this.resendResult.set(null);
+    try {
+      const result = await this.clientsSvc.resendCredentialEmail(clientId);
+      this.resendResult.set(result);
+      await this.clientsSvc.refresh();
+    } catch (err) {
+      this.resendResult.set({ emailSent: false });
+      console.error('Failed to resend credential email', err);
+    } finally {
+      this.resendingCredential.set(false);
+    }
+  }
 
   canSignSupport = signal<boolean | null>(null);
   trainingCheckPending = signal(false);
