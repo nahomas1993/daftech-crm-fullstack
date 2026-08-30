@@ -332,8 +332,10 @@ public class TicketsController : ControllerBase
             callerId,
             ct);
 
+        if (access == AttachmentAccessResult.Forbidden)
+            return this.ForbidOwnership();
         if (access != AttachmentAccessResult.Granted)
-            return AttachmentAccessError(access);
+            return NotFound();
 
         try
         {
