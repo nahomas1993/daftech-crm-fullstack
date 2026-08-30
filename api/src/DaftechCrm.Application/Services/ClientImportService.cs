@@ -145,6 +145,12 @@ public class ClientImportService
         // --- Resolve or create the Client ---
         Guid clientId;
         string? username;
+        // Both only set when THIS row creates a new client — null for a
+        // row that attaches to a client created by an earlier row in the
+        // same run, matching ClientImportRowResult's documented null
+        // cases for IssuedOneTimePassword/Region/Zone/City/Woreda.
+        string? issuedOneTimePassword = null;
+        var createdNewClientThisRow = false;
         if (clientsCreatedThisRun.TryGetValue(row.ClientName, out var created))
         {
             // A later row for the same client name created earlier in
@@ -213,14 +219,19 @@ public class ClientImportService
 
             clientId = client.Id;
             username = issued.Username;
+            issuedOneTimePassword = issued.OneTimePassword;
+            createdNewClientThisRow = true;
             clientsCreatedThisRun[row.ClientName] = (clientId, username);
 
             // Deliberately no SendCredentialEmailAsync call here — see
-            // the class-level doc comment. The plaintext OTP isn't
-            // retained anywhere either; credentials get reissued (fresh
-            // OTP, same flow as any client) via the existing "Resend
-            // credential email" action whenever the Admin is ready to
-            // actually hand the account to that client.
+            // the class-level doc comment. The plaintext OTP is returned
+            // in this row's ClientImportRowResult below (the only place
+            // it's ever surfaced — it isn't retained anywhere after
+            // this), so the Admin can read every issued OTP straight off
+            // the import results table. It isn't persisted anywhere else;
+            // credentials get reissued (fresh OTP, same flow as any
+            // client) via the existing "Resend credential email" action
+            // if this response wasn't captured before being closed.
         }
 
         // --- Create the SystemProduct ---
@@ -298,7 +309,13 @@ public class ClientImportService
 
         return new ClientImportRowResult(
             row.RowNumber, row.ClientName, row.SystemProductName, true, null, false,
-            clientId, systemProduct.Id, agreementId, username);
+            clientId, systemProduct.Id, agreementId, username,
+            issuedOneTimePassword,
+            createdNewClientThisRow ? row.Email : null,
+            createdNewClientThisRow ? row.Region : null,
+            createdNewClientThisRow ? row.Zone : null,
+            createdNewClientThisRow ? row.City : null,
+            createdNewClientThisRow ? row.Woreda : null);
     }
 
     private static bool ParseYesNo(string value, string fieldName)

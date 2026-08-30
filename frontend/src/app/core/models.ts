@@ -819,6 +819,14 @@ export interface ClientImportRowResult {
   agreementId?: string;
   /** The login username issued for a newly created client — null for rows that attached to a client created earlier in the same import (see the row that actually created the client for its username), and for failed/flagged rows. */
   issuedUsername?: string;
+  /** The plaintext one-time password issued for a newly created client on this row — the only place it's ever surfaced; it isn't retained anywhere after this response. Null for a row that attached to an earlier-created client, or a failed/flagged row. */
+  issuedOneTimePassword?: string;
+  /** Only set on the row that actually created the client (same null pattern as issuedOneTimePassword) — the email and location fields the import saved onto the client record. */
+  email?: string;
+  region?: string;
+  zone?: string;
+  city?: string;
+  woreda?: string;
 }
 
 /** Full report returned after a bulk import run. */

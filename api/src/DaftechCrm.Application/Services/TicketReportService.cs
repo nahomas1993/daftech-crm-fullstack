@@ -1,11 +1,9 @@
 using System.Text;
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
-using DaftechCrm.Application.Options;
 using DaftechCrm.Domain.Entities;
 using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace DaftechCrm.Application.Services;
 
@@ -26,14 +24,12 @@ namespace DaftechCrm.Application.Services;
 public class TicketReportService : ITicketReportService
 {
     private readonly IAppDbContext _db;
-    private readonly TicketWorkflowOptions _options;
-    private readonly IEthiopianTimeService _officeTime;
+    private readonly TicketOnTimeCalculator _onTime;
 
-    public TicketReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IEthiopianTimeService officeTime)
+    public TicketReportService(IAppDbContext db, TicketOnTimeCalculator onTime)
     {
         _db = db;
-        _options = options.Value;
-        _officeTime = officeTime;
+        _onTime = onTime;
     }
 
     /// <summary>
@@ -108,18 +104,14 @@ public class TicketReportService : ITicketReportService
         _ => Array.Empty<TicketStatus>(),
     };
 
-    private TimeSpan ExpectedResolutionFor(Ticket t) =>
-        t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
+    /// <summary>The ticket's SLA target — see TicketOnTimeCalculator.TargetFor.</summary>
+    private TimeSpan ExpectedResolutionFor(Ticket t) => _onTime.TargetFor(t);
 
     /// <summary>Working hours (not wall-clock) between AssignedAt and ResolvedAt — null if either is unset. See class remarks for why working hours, not wall-clock.</summary>
-    private double? WorkingResolutionHours(Ticket t) =>
-        t.AssignedAt is DateTimeOffset assigned && t.ResolvedAt is DateTimeOffset resolved
-            ? _officeTime.WorkingMinutesElapsed(assigned, resolved) / 60.0
-            : null;
+    private double? WorkingResolutionHours(Ticket t) => _onTime.ResolutionHours(t);
 
-    private bool IsOnTime(Ticket t) =>
-        t.AssignedAt is DateTimeOffset assigned && t.ResolvedAt is DateTimeOffset resolved &&
-        _officeTime.WorkingMinutesElapsed(assigned, resolved) <= ExpectedResolutionFor(t).TotalMinutes;
+    /// <summary>True if the ticket was resolved within its SLA target — see TicketOnTimeCalculator.IsOnTime.</summary>
+    private bool IsOnTime(Ticket t) => _onTime.IsOnTime(t);
 
     // --- Report 1: Customer/Support ---
 

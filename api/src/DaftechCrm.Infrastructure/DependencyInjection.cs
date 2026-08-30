@@ -156,6 +156,7 @@ public static class DependencyInjection
 
         services.AddScoped<AccountCredentialService>();
         services.AddScoped<ReferenceNumberService>();
+        services.AddScoped<TicketOnTimeCalculator>();
         services.AddScoped<AccountReferenceIdService>();
         services.AddScoped<ClientImportService>();
         services.AddScoped<ITicketAssignmentService, TicketAssignmentService>();

@@ -13,14 +13,16 @@ public class ReportService : IReportService
 {
     private readonly IAppDbContext _db;
     private readonly TicketWorkflowOptions _options;
-    private readonly IEthiopianTimeService _officeTime;
+    private readonly TicketOnTimeCalculator _onTime;
     private readonly IMemoryCache _cache;
 
-    public ReportService(IAppDbContext db, IOptions<TicketWorkflowOptions> options, IEthiopianTimeService officeTime, IMemoryCache cache)
+    public ReportService(
+        IAppDbContext db, IOptions<TicketWorkflowOptions> options,
+        TicketOnTimeCalculator onTime, IMemoryCache cache)
     {
         _db = db;
         _options = options.Value;
-        _officeTime = officeTime;
+        _onTime = onTime;
         _cache = cache;
     }
 
@@ -50,37 +52,30 @@ public class ReportService : IReportService
     /// </summary>
     public async Task<OnTimeReportDto> GetOnTimeResolutionReportAsync(CancellationToken ct = default)
     {
-        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
-
         var resolvedTickets = await _db.Tickets
             .AsNoTracking()
             .Include(t => t.AssignedEmployee)
             .Where(t => t.AssignedAt != null && t.ResolvedAt != null)
             .ToListAsync(ct);
 
-        TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
-        bool IsOnTime(Ticket t) => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <= TargetFor(t).TotalMinutes;
-
-        var onTime = resolvedTickets.Count(IsOnTime);
-        var late = resolvedTickets.Count - onTime;
-        var overallRate = resolvedTickets.Count > 0 ? Math.Round(onTime * 100.0 / resolvedTickets.Count, 1) : 0;
-
-        var summary = new OnTimeSummaryDto(onTime, late, resolvedTickets.Count, overallRate, _options.OnTimeResolutionTargetDays);
+        var overall = _onTime.Tally(resolvedTickets);
+        var summary = new OnTimeSummaryDto(
+            overall.OnTimeCount, overall.LateCount, overall.Total, overall.OnTimeRatePercent ?? 0,
+            _options.OnTimeResolutionTargetDays);
 
         var byEmployee = resolvedTickets
             .Where(t => t.AssignedEmployeeId != null)
             .GroupBy(t => new { t.AssignedEmployeeId, Name = t.AssignedEmployee?.FullName ?? "Unknown" })
             .Select(g =>
             {
-                var onTimeCount = g.Count(IsOnTime);
-                var total = g.Count();
+                var tally = _onTime.Tally(g);
                 return new EmployeeOnTimeStatsDto(
                     g.Key.AssignedEmployeeId!.Value,
                     g.Key.Name,
-                    onTimeCount,
-                    total - onTimeCount,
-                    total,
-                    total > 0 ? Math.Round(onTimeCount * 100.0 / total, 1) : 0
+                    tally.OnTimeCount,
+                    tally.LateCount,
+                    tally.Total,
+                    tally.OnTimeRatePercent ?? 0
                 );
             })
             .OrderByDescending(e => e.OnTimeRate)
@@ -100,17 +95,9 @@ public class ReportService : IReportService
         double? avgResolutionHours = null;
         var withBothTimestamps = assignedTickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
         if (withBothTimestamps.Count > 0)
-            avgResolutionHours = withBothTimestamps.Average(t => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) / 60.0);
+            avgResolutionHours = withBothTimestamps.Average(t => _onTime.ResolutionHours(t)!.Value);
 
-        // Same reasoning as GetOnTimeResolutionReportAsync above: read the
-        // frozen per-ticket snapshot, not FailureType's current duration,
-        // so editing a FailureType later doesn't retroactively change this
-        // employee's historical on-time rate. Working hours, not
-        // wall-clock — same as GetOnTimeResolutionReportAsync.
-        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
-        TimeSpan TargetFor(Ticket t) => t.ExpectedResolutionMinutes is int mins ? TimeSpan.FromMinutes(mins) : fallbackSpan;
-        var onTimeCount = withBothTimestamps.Count(t => _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <= TargetFor(t).TotalMinutes);
-        var onTimeRate = withBothTimestamps.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBothTimestamps.Count, 1) : 0;
+        var onTimeRate = _onTime.Tally(withBothTimestamps).OnTimeRatePercent ?? 0;
 
         var scores = assignedTickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
         double? avgSatisfaction = scores.Count > 0 ? scores.Average() : null;
@@ -269,16 +256,11 @@ public class ReportService : IReportService
             var resolvedTickets = tickets.Count(t => t.ResolvedAt != null);
             var overdueTickets = tickets.Count(t => t.ResolvedAt == null && t.ExpectedResolutionBy != null && t.ExpectedResolutionBy < now);
             var withBoth = tickets.Where(t => t.AssignedAt != null && t.ResolvedAt != null).ToList();
-            var onTimeCount = withBoth.Count(t =>
-                _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
-                (t.ExpectedResolutionMinutes is int mins ? mins : TimeSpan.FromDays(_options.OnTimeResolutionTargetDays).TotalMinutes));
-            var resolutionRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : 0;
+            var resolutionRate = _onTime.Tally(withBoth).OnTimeRatePercent ?? 0;
             var ratedScores = tickets.Where(t => t.SatisfactionScore != null).Select(t => t.SatisfactionScore!.Value).ToList();
             var avgSatisfaction = ratedScores.Count > 0 ? ratedScores.Average() : (double?)null;
             return new DashboardKpisDto(tickets.Count, openTickets, resolvedTickets, overdueTickets, resolutionRate, avgSatisfaction);
         }, new DashboardKpisDto(tickets.Count, 0, 0, 0, 0, null));
-
-        var fallbackSpan = TimeSpan.FromDays(_options.OnTimeResolutionTargetDays);
 
         // --- Bar: tickets by region ---
         var byRegion = Section("ticketsByRegion", () => tickets
@@ -314,7 +296,7 @@ public class ReportService : IReportService
             .ToList();
 
         // --- Line: monthly tickets / resolved / on-time rate, last 6 calendar months (in Ethiopian local time, for consistency with every other date-bucketing decision in this app) ---
-        var monthlyTrend = Section("monthlyTrend", () => BuildMonthlyTrend(tickets, fallbackSpan), new List<MonthlyPointDto>());
+        var monthlyTrend = Section("monthlyTrend", () => BuildMonthlyTrend(tickets), new List<MonthlyPointDto>());
 
         SupportOverviewDto supportOverview;
         try
@@ -336,7 +318,7 @@ public class ReportService : IReportService
         return result;
     }
 
-    private List<MonthlyPointDto> BuildMonthlyTrend(List<Ticket> tickets, TimeSpan fallbackSpan)
+    private List<MonthlyPointDto> BuildMonthlyTrend(List<Ticket> tickets)
     {
         var nowLocal = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(3));
         var months = Enumerable.Range(0, 6)
@@ -355,11 +337,8 @@ public class ReportService : IReportService
             }).ToList();
 
             var resolvedInMonth = inMonth.Where(t => t.ResolvedAt != null).ToList();
-            var withBoth = resolvedInMonth.Where(t => t.AssignedAt != null).ToList();
-            var onTimeCount = withBoth.Count(t =>
-                _officeTime.WorkingMinutesElapsed(t.AssignedAt!.Value, t.ResolvedAt!.Value) <=
-                (t.ExpectedResolutionMinutes is int mins ? mins : fallbackSpan.TotalMinutes));
-            var onTimeRate = withBoth.Count > 0 ? Math.Round(onTimeCount * 100.0 / withBoth.Count, 1) : (double?)null;
+            var withBoth = TicketOnTimeCalculator.ResolvableTickets(resolvedInMonth).ToList();
+            var onTimeRate = _onTime.Tally(withBoth).OnTimeRatePercent;
 
             return new MonthlyPointDto(monthLabel, inMonth.Count, resolvedInMonth.Count, onTimeRate);
         }).ToList();

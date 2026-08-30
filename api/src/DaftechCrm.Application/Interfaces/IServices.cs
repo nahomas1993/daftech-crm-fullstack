@@ -186,8 +186,23 @@ public interface IAgreementService
     /// </summary>
     Task<AgreementDto> UploadScannedFileAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
 
-    /// <summary>Retrieves the agreement's attached scanned file, or null if none is attached or the agreement doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
+    /// <summary>
+    /// Retrieves the agreement's attached scanned file. Result.Status
+    /// distinguishes an agreement with nothing attached (NoFileAttached)
+    /// from one whose recorded file the storage backend has lost
+    /// (FileLost), so the two are never reported to the caller as the
+    /// same generic "not found".
+    /// </summary>
+    Task<FileRetrievalResult> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Whether the given caller may download this agreement's scanned
+    /// file: any Employee, or the Client that owns the agreement's
+    /// SystemProduct. Distinguishes RecordNotFound (→ 404) from Forbidden
+    /// (→ 403 via ForbidOwnership) so a client probing someone else's
+    /// agreement ID isn't told it doesn't exist when it does.
+    /// </summary>
+    Task<AttachmentAccessResult> CanAccessScannedFileAsync(Guid agreementId, SessionAccountType callerType, Guid callerId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -305,8 +320,14 @@ public interface ITrainingRecordService
     /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may replace its file.</summary>
     Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, Stream content, string fileName, string contentType, CancellationToken ct = default);
 
-    /// <summary>Retrieves a training record's supporting file, or null if none is attached or the record doesn't exist.</summary>
-    Task<RetrievedFile?> DownloadFileAsync(Guid recordId, CancellationToken ct = default);
+    /// <summary>
+    /// Retrieves a training record's supporting file. Result.Status
+    /// distinguishes a record with nothing attached (NoFileAttached) from
+    /// one whose recorded file the storage backend has since lost
+    /// (FileLost), so the two are never reported as the same generic
+    /// "not found".
+    /// </summary>
+    Task<FileRetrievalResult> DownloadFileAsync(Guid recordId, CancellationToken ct = default);
 }
 
 /// <summary>Manages the admin-editable AgreementType lookup (Support always present — see AgreementTypeNames — plus any custom types an Admin adds).</summary>

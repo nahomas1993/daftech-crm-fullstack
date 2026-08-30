@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ClientImportService } from '../../core/services/client-import.service';
+import { ClientService } from '../../core/services/client.service';
 import { ClientImportResult, ClientImportRowResult } from '../../core/models';
 
 /**
@@ -36,7 +37,7 @@ import { ClientImportResult, ClientImportRowResult } from '../../core/models';
         <li>Leave <span class="mono">AgreementType</span> blank to skip creating an agreement for that row — add it later from the client's page instead. In practice this will almost always be <span class="mono">Support</span> — Training is no longer tracked as its own agreement, that's what the <span class="mono">TrainingCompleted</span> column is for.</li>
         <li>A <span class="mono">Support</span> agreement can't be created unless <span class="mono">TrainingCompleted</span> is <span class="mono">Yes</span> on that row.</li>
         <li>Dates use <span class="mono">YYYY-MM-DD</span>. <span class="mono">BillingTier</span> is <span class="mono">Basic</span>, <span class="mono">Intermediate</span>, or <span class="mono">Advanced</span>.</li>
-        <li>Real login credentials are created for each new client, but no email is sent automatically — send each one individually from the client's page when you're ready, using "Resend credential email".</li>
+        <li>Real login credentials are created for each new client, but no email is sent automatically — after importing, use "Send email" on each row below (or send later from that client's own page).</li>
       </ul>
       <button class="btn btn-outline" [disabled]="downloadingTemplate()" (click)="downloadTemplate()">
         {{ downloadingTemplate() ? 'Preparing…' : 'Download CSV Template' }}
@@ -92,23 +93,63 @@ import { ClientImportResult, ClientImportRowResult } from '../../core/models';
 
         @if (r.succeededCount > 0) {
           <h4 style="margin-top:1.25rem;">Imported successfully</h4>
+          <p class="text-muted" style="font-size:0.8rem; margin-top:-0.3rem; margin-bottom:0.6rem;">
+            One-time passwords are shown here once and are not saved anywhere — copy them now, or use "Send email"
+            to email the client directly (this issues a fresh one-time password and replaces the one shown above,
+            since the original isn't retrievable once it leaves this screen).
+          </p>
           <table class="report-table">
-            <thead><tr><th>Row</th><th>Client</th><th>System/Product</th><th>Username issued</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Row</th><th>Client</th><th>System/Product</th><th>Email</th><th>Location</th>
+                <th>Username</th><th>One-time password</th><th></th>
+              </tr>
+            </thead>
             <tbody>
               @for (row of successRows(); track row.rowNumber) {
                 <tr>
                   <td class="mono">{{ row.rowNumber }}</td>
                   <td>{{ row.clientName }}</td>
                   <td>{{ row.systemProductName }}</td>
+                  <td class="text-muted" style="font-size:0.8rem;">{{ row.email ?? '—' }}</td>
+                  <td class="text-muted" style="font-size:0.8rem;">{{ formatLocation(row) }}</td>
                   <td class="mono text-muted">{{ row.issuedUsername ?? '—' }}</td>
+                  <td class="mono">
+                    @if (row.clientId && emailSentFor().has(row.clientId)) {
+                      <span class="text-muted" style="font-style:italic;">emailed — no longer shown</span>
+                    } @else {
+                      {{ row.issuedOneTimePassword ?? '—' }}
+                    }
+                  </td>
+                  <td>
+                    @if (row.clientId && row.email) {
+                      @if (emailSentFor().has(row.clientId)) {
+                        <span class="ok-text" style="font-size:0.78rem;">✓ Sent</span>
+                      } @else if (sendErrorFor()[row.clientId]) {
+                        <button class="btn btn-outline" style="font-size:0.78rem; padding:0.3rem 0.6rem;"
+                                [disabled]="sendingFor().has(row.clientId)"
+                                (click)="sendCredentialEmail(row)">
+                          Retry
+                        </button>
+                        <div class="err" style="font-size:0.72rem; margin-top:0.2rem;">{{ sendErrorFor()[row.clientId] }}</div>
+                      } @else {
+                        <button class="btn btn-outline" style="font-size:0.78rem; padding:0.3rem 0.6rem;"
+                                [disabled]="sendingFor().has(row.clientId)"
+                                (click)="sendCredentialEmail(row)">
+                          {{ sendingFor().has(row.clientId) ? 'Sending…' : 'Send email' }}
+                        </button>
+                      }
+                    }
+                  </td>
                 </tr>
               }
             </tbody>
           </table>
           <p class="text-muted" style="margin-top:0.75rem;">
             Next: scanned agreements and training-record files weren't part of the CSV — attach them from
-            <a routerLink="/admin/clients/import-attachments">Upload Attachments</a>, and send each client's
-            login credentials from their own Client Detail page when you're ready.
+            <a routerLink="/admin/clients/import-attachments">Upload Attachments</a>. A row with no email address
+            can't use "Send email" here — hand its username/password over directly, or add an email later from
+            that client's own Client Detail page and use "Resend credential email" there.
           </p>
         }
       </div>
@@ -130,6 +171,7 @@ import { ClientImportResult, ClientImportRowResult } from '../../core/models';
     .report-table th { text-align:left; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.02em; color: var(--slate-500); padding:0.4rem 0.6rem; border-bottom:1px solid var(--slate-200); }
     .report-table td { padding:0.5rem 0.6rem; border-bottom:1px solid var(--slate-100); vertical-align:top; }
     .warn-text { color: var(--amber, #b45309); }
+    .ok-text { color: var(--green, #1a7f37); font-weight: 600; }
   `],
 })
 export class ClientImportComponent {
@@ -139,7 +181,15 @@ export class ClientImportComponent {
   uploadError = signal('');
   result = signal<ClientImportResult | null>(null);
 
-  constructor(private importer: ClientImportService) {}
+  // Per-clientId send state for the "Send email" button on each success
+  // row. Keyed by clientId (not row number) since that's what the resend
+  // endpoint actually takes, and it's the field that uniquely identifies
+  // which row's button was clicked.
+  sendingFor = signal<Set<string>>(new Set());
+  emailSentFor = signal<Set<string>>(new Set());
+  sendErrorFor = signal<Record<string, string>>({});
+
+  constructor(private importer: ClientImportService, private clients: ClientService) {}
 
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -182,5 +232,54 @@ export class ClientImportComponent {
 
   successRows(): ClientImportRowResult[] {
     return this.result()?.rows.filter(r => r.success) ?? [];
+  }
+
+  formatLocation(row: ClientImportRowResult): string {
+    const parts = [row.region, row.zone, row.city, row.woreda].filter((v): v is string => !!v);
+    return parts.length > 0 ? parts.join(' / ') : '—';
+  }
+
+  async sendCredentialEmail(row: ClientImportRowResult) {
+    const clientId = row.clientId;
+    if (!clientId) return;
+
+    // Clear any previous error for this row and mark it sending.
+    this.sendErrorFor.update(errors => {
+      const { [clientId]: _, ...rest } = errors;
+      return rest;
+    });
+    this.sendingFor.update(set => new Set(set).add(clientId));
+
+    try {
+      const outcome = await this.clients.resendCredentialEmail(clientId);
+      if (outcome.emailSent) {
+        this.emailSentFor.update(set => new Set(set).add(clientId));
+      } else {
+        // The backend reached the point of trying to send (a fresh OTP
+        // WAS generated and saved) but delivery itself failed — e.g. SMTP
+        // unreachable. The on-screen OTP is already invalid at this point
+        // regardless of whether the email arrived, so this is not
+        // retry-safe in the sense of "nothing happened yet" — a retry
+        // here issues yet another fresh OTP on top of the one that just
+        // failed to send, which is fine (each retry simply supersedes the
+        // last), but the client cannot use the original OTP shown above
+        // anymore either way.
+        this.sendErrorFor.update(errors => ({
+          ...errors,
+          [clientId]: outcome.emailError ?? 'Email could not be delivered — try again, or hand over new credentials manually from this client\'s detail page.',
+        }));
+      }
+    } catch (err: any) {
+      this.sendErrorFor.update(errors => ({
+        ...errors,
+        [clientId]: err?.error?.text ?? err?.error ?? 'Could not send the email — try again.',
+      }));
+    } finally {
+      this.sendingFor.update(set => {
+        const next = new Set(set);
+        next.delete(clientId);
+        return next;
+      });
+    }
   }
 }

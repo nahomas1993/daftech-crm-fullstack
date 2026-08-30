@@ -335,8 +335,13 @@ public class TrainingController : ControllerBase
     [HttpGet("{id:guid}/file")]
     public async Task<IActionResult> DownloadFile(Guid id, CancellationToken ct)
     {
-        var file = await _training.DownloadFileAsync(id, ct);
-        return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
+        var result = await _training.DownloadFileAsync(id, ct);
+        return result.Status switch
+        {
+            FileRetrievalStatus.Found => File(result.File!.Content, result.File.ContentType, result.File.OriginalFileName),
+            FileRetrievalStatus.FileLost => NotFound("This training record's file was recorded but could not be found in storage."),
+            _ => NotFound("This training record has no supporting file attached."),
+        };
     }
 }
 
@@ -491,15 +496,22 @@ public class AgreementsController : ControllerBase
     public async Task<IActionResult> DownloadScannedFile(Guid id, CancellationToken ct)
     {
         var (callerType, callerId) = CallerIdentity.Resolve(User);
-        if (callerType == SessionAccountType.Client)
+
+        var access = await _agreements.CanAccessScannedFileAsync(id, callerType, callerId, ct);
+        if (access != AttachmentAccessResult.Granted)
         {
-            var owning = await _agreements.GetByIdAsync(id, ct);
-            if (owning is null || owning.ClientId != callerId)
-                return NotFound();
+            return access == AttachmentAccessResult.Forbidden
+                ? this.ForbidOwnership()
+                : NotFound();
         }
 
-        var file = await _agreements.DownloadScannedFileAsync(id, ct);
-        return file is null ? NotFound() : File(file.Content, file.ContentType, file.OriginalFileName);
+        var result = await _agreements.DownloadScannedFileAsync(id, ct);
+        return result.Status switch
+        {
+            FileRetrievalStatus.Found => File(result.File!.Content, result.File.ContentType, result.File.OriginalFileName),
+            FileRetrievalStatus.FileLost => NotFound("This agreement's scanned file was recorded but could not be found in storage."),
+            _ => NotFound("This agreement has no scanned file attached."),
+        };
     }
 }
 

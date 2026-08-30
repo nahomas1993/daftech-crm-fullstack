@@ -326,14 +326,14 @@ public class TicketsController : ControllerBase
         var (callerType, callerId) =
             CallerIdentity.Resolve(User);
 
-        if (!await _tickets.CanAccessAttachmentAsync(
+        var access = await _tickets.CanAccessAttachmentAsync(
             id,
             callerType,
             callerId,
-            ct))
-        {
-            return NotFound();
-        }
+            ct);
+
+        if (access != AttachmentAccessResult.Granted)
+            return AttachmentAccessError(access);
 
         try
         {
@@ -372,14 +372,14 @@ public class TicketsController : ControllerBase
         var (callerType, callerId) =
             CallerIdentity.Resolve(User);
 
-        if (!await _tickets.CanAccessAttachmentAsync(
+        var access = await _tickets.CanAccessAttachmentAsync(
             id,
             callerType,
             callerId,
-            ct))
-        {
-            return NotFound();
-        }
+            ct);
+
+        if (access != AttachmentAccessResult.Granted)
+            return AttachmentAccessError(access);
 
         var result =
             await _tickets.DownloadAttachmentAsync(
@@ -448,14 +448,14 @@ public class TicketsController : ControllerBase
         var (callerType, callerId) =
             CallerIdentity.Resolve(User);
 
-        if (!await _tickets.CanAccessAttachmentAsync(
+        var access = await _tickets.CanAccessAttachmentAsync(
             id,
             callerType,
             callerId,
-            ct))
-        {
-            return NotFound();
-        }
+            ct);
+
+        if (access != AttachmentAccessResult.Granted)
+            return AttachmentAccessError(access);
 
         var result =
             await _tickets.DownloadVoiceNoteAsync(
@@ -473,4 +473,19 @@ public class TicketsController : ControllerBase
             _ => NotFound("This ticket has no voice note."),
         };
     }
+
+    /// <summary>
+    /// Maps a CanAccessAttachmentAsync result to the right HTTP response:
+    /// RecordNotFound is a genuine 404 (the ticket itself doesn't exist),
+    /// while Forbidden is an authenticated caller who exists but isn't
+    /// permitted — a 403 via ForbidOwnership, tagged so the frontend can
+    /// tell it apart from an expired-token 403 and show an accurate
+    /// message instead of "this file could not be found".
+    /// </summary>
+    private IActionResult AttachmentAccessError(AttachmentAccessResult access) => access switch
+    {
+        AttachmentAccessResult.RecordNotFound => NotFound(),
+        AttachmentAccessResult.Forbidden => this.ForbidOwnership(),
+        _ => NotFound(),
+    };
 }

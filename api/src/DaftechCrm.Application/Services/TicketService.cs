@@ -1132,7 +1132,19 @@ public class TicketService : ITicketService
         return FileRetrievalResult.Found(file);
     }
 
-    public async Task<bool> CanAccessAttachmentAsync(
+    /// <summary>
+    /// Any active Employee (Technician or Admin) may access a ticket's
+    /// attachment — not only whoever is CURRENTLY assigned. A ticket can
+    /// be reassigned (a client reopening it after "not fixed", or the
+    /// queued-ticket sweep picking it up), and the previous technician —
+    /// quite possibly the one who added the attachment in the first place
+    /// — must not lose the ability to view it minutes later just because
+    /// AssignedEmployeeId moved on. Attachments aren't scoped as tightly
+    /// as ticket assignment/ownership itself; any technician reviewing a
+    /// ticket's history needs to see them. A Client, by contrast, is still
+    /// restricted to tickets they themselves raised.
+    /// </summary>
+    public async Task<AttachmentAccessResult> CanAccessAttachmentAsync(
         Guid ticketId,
         SessionAccountType callerType,
         Guid callerId,
@@ -1145,13 +1157,12 @@ public class TicketService : ITicketService
                 ct);
 
         if (ticket is null)
-            return false;
+            return AttachmentAccessResult.RecordNotFound;
 
         if (callerType == SessionAccountType.Client)
-            return ticket.ClientId == callerId;
-
-        if (ticket.AssignedEmployeeId == callerId)
-            return true;
+            return ticket.ClientId == callerId
+                ? AttachmentAccessResult.Granted
+                : AttachmentAccessResult.Forbidden;
 
         var employee = await _db.Employees
             .AsNoTracking()
@@ -1159,9 +1170,12 @@ public class TicketService : ITicketService
                 e => e.Id == callerId,
                 ct);
 
-        return employee is not null &&
+        var permitted = employee is not null &&
+               employee.AccountStatus == EmployeeAccountStatus.Active &&
                employee.Roles.Any(
-                   r => r == EmployeeRole.Admin);
+                   r => r == EmployeeRole.Admin || r == EmployeeRole.EmployeeTechnician);
+
+        return permitted ? AttachmentAccessResult.Granted : AttachmentAccessResult.Forbidden;
     }
 
     public async Task<(

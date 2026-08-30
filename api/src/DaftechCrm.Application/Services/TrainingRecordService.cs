@@ -3,6 +3,7 @@ using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Entities;
 using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DaftechCrm.Application.Services;
 
@@ -10,11 +11,13 @@ public class TrainingRecordService : ITrainingRecordService
 {
     private readonly IAppDbContext _db;
     private readonly IFileStorageService _storage;
+    private readonly ILogger<TrainingRecordService> _logger;
 
-    public TrainingRecordService(IAppDbContext db, IFileStorageService storage)
+    public TrainingRecordService(IAppDbContext db, IFileStorageService storage, ILogger<TrainingRecordService> logger)
     {
         _db = db;
         _storage = storage;
+        _logger = logger;
     }
 
     /// <summary>
@@ -168,13 +171,29 @@ public class TrainingRecordService : ITrainingRecordService
         return ToDto(record, record.SystemProduct, record.TrainerEmployee, record.AgreementType);
     }
 
-    public async Task<RetrievedFile?> DownloadFileAsync(Guid recordId, CancellationToken ct = default)
+    /// <summary>
+    /// Retrieves the training record's supporting file. Result.Status
+    /// distinguishes a record with nothing attached (NoFileAttached) from
+    /// one whose recorded file the storage backend has since lost
+    /// (FileLost), so the two are never reported as the same generic
+    /// "not found" to whoever is trying to view it.
+    /// </summary>
+    public async Task<FileRetrievalResult> DownloadFileAsync(Guid recordId, CancellationToken ct = default)
     {
         var record = await _db.TrainingRecords.AsNoTracking().FirstOrDefaultAsync(r => r.Id == recordId, ct);
         if (record is null || string.IsNullOrEmpty(record.FileStorageKey))
-            return null;
+            return FileRetrievalResult.NoFile();
 
-        return await _storage.GetAsync(record.FileStorageKey, ct);
+        var file = await _storage.GetAsync(record.FileStorageKey, ct);
+        if (file is null)
+        {
+            _logger.LogWarning(
+                "Training record {RecordId} has FileStorageKey {StorageKey} on record, but the storage backend could not find it.",
+                recordId, record.FileStorageKey);
+            return FileRetrievalResult.Lost();
+        }
+
+        return FileRetrievalResult.Found(file);
     }
 
     private IQueryable<TrainingRecord> Query() =>

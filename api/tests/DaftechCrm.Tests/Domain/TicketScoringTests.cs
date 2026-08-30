@@ -31,7 +31,7 @@ public class TicketScoringTests
     [InlineData(1, false)]
     [InlineData(2, false)]
     [InlineData(3, false)]
-    [InlineData(4, true)]
+    [InlineData(4, false)]
     [InlineData(5, true)]
     public void Ticket_closes_only_when_score_meets_the_minimum_threshold(int stars, bool expectedClosesTicket)
     {

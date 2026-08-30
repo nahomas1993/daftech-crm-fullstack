@@ -36,6 +36,28 @@ public enum FileRetrievalStatus
 }
 
 /// <summary>
+/// Outcome of an attachment/scanned-file/training-file permission check.
+/// Distinguishes "the owning record doesn't exist" (→ 404) from "it
+/// exists, but this caller isn't allowed to see it" (→ 403 via
+/// ForbidOwnership) — collapsing both into a single bool, as the older
+/// CanAccessAttachmentAsync signature did, made an authenticated caller
+/// who'd simply lost access (e.g. a ticket reassigned away from them)
+/// indistinguishable from a nonexistent resource, on both the wire and in
+/// the UI that has to explain the failure to a person.
+/// </summary>
+public enum AttachmentAccessResult
+{
+    /// <summary>The caller may access this record's file.</summary>
+    Granted,
+
+    /// <summary>The owning record (ticket, agreement, training record, etc.) does not exist.</summary>
+    RecordNotFound,
+
+    /// <summary>The record exists, but this caller is not permitted to access its file.</summary>
+    Forbidden,
+}
+
+/// <summary>
 /// Thrown when an upload fails validation (bad extension, oversized file)
 /// — distinct from unexpected I/O failures so callers can return 400 vs 500.
 /// </summary>

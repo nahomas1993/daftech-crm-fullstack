@@ -97,10 +97,18 @@ export class FilePreviewModalComponent implements OnChanges {
     } catch (err: any) {
       // Surface the real cause where we can — a stale/expired session
       // (401, or a 403 the auth interceptor's silent refresh already gave
-      // up on) needs a different fix (re-login) than the file genuinely
-      // being gone (404), and a bare "please try again" hides that
-      // distinction from whoever's debugging a report of this happening.
-      if (err?.status === 401 || err?.status === 403) {
+      // up on) needs a different fix (re-login) than being genuinely
+      // denied access to this specific record (403 tagged
+      // X-Forbidden-Reason, see CallerIdentity.ForbidOwnership on the
+      // backend) or the file itself being gone (404) — a bare "please
+      // try again" hides all of that from whoever's debugging a report
+      // of this happening.
+      const isOwnershipForbidden =
+        err?.status === 403 && err?.headers?.get?.('X-Forbidden-Reason') === 'not-owner';
+
+      if (isOwnershipForbidden) {
+        this.error.set("You no longer have access to this file — it may have been reassigned to someone else.");
+      } else if (err?.status === 401 || err?.status === 403) {
         this.error.set('Your session has expired — please refresh the page and sign in again to view this file.');
       } else if (err?.status === 404) {
         // The backend now distinguishes "nothing was ever attached" from

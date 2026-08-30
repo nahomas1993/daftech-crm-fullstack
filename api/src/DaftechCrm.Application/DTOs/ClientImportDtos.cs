@@ -65,7 +65,30 @@ public record ClientImportRowResult(
     Guid? ClientId = null,
     Guid? SystemProductId = null,
     Guid? AgreementId = null,
-    string? IssuedUsername = null
+    string? IssuedUsername = null,
+    /// <summary>
+    /// The plaintext one-time password issued for a newly created client
+    /// on this row — null for a row that attached to a client created
+    /// earlier in the same run (only the client's first row actually
+    /// issues credentials) or for a failed/duplicate row. This is the
+    /// ONLY place the plaintext OTP is ever surfaced: the hash is what
+    /// gets persisted, so if this response isn't read/saved now, the
+    /// Admin has to reissue a fresh one later via "Resend credential
+    /// email" rather than recover this one.
+    /// </summary>
+    string? IssuedOneTimePassword = null,
+    /// <summary>
+    /// Only set on a row that created a new client (mirrors
+    /// IssuedOneTimePassword's null pattern) — the email and location
+    /// fields the import saved for them, so the results table can show
+    /// what actually landed on the client record without a second lookup
+    /// per row.
+    /// </summary>
+    string? Email = null,
+    string? Region = null,
+    string? Zone = null,
+    string? City = null,
+    string? Woreda = null
 );
 
 /// <summary>Full report returned after a bulk import run — see ClientImportService.ImportAsync.</summary>

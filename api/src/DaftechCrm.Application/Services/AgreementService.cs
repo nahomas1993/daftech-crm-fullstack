@@ -1,7 +1,9 @@
 using DaftechCrm.Application.DTOs;
 using DaftechCrm.Application.Interfaces;
 using DaftechCrm.Domain.Entities;
+using DaftechCrm.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DaftechCrm.Application.Services;
 
@@ -11,15 +13,17 @@ public class AgreementService : IAgreementService
     private readonly IFileStorageService _storage;
     private readonly ReferenceNumberService _referenceNumbers;
     private readonly ISystemProductService _systemProducts;
+    private readonly ILogger<AgreementService> _logger;
 
     public AgreementService(
         IAppDbContext db, IFileStorageService storage, ReferenceNumberService referenceNumbers,
-        ISystemProductService systemProducts)
+        ISystemProductService systemProducts, ILogger<AgreementService> logger)
     {
         _db = db;
         _storage = storage;
         _referenceNumbers = referenceNumbers;
         _systemProducts = systemProducts;
+        _logger = logger;
     }
 
     /// <summary>
@@ -135,13 +139,56 @@ public class AgreementService : IAgreementService
         return ToDto(agreement);
     }
 
-    public async Task<RetrievedFile?> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default)
+    /// <summary>
+    /// Streams the agreement's scanned file. Distinguishes "no scan was
+    /// ever uploaded for this agreement" (NoFileAttached) from "one was
+    /// uploaded and the storage backend has since lost it" (FileLost) —
+    /// collapsing both into a null, as this used to, made a genuinely
+    /// lost file indistinguishable from one that was simply never
+    /// attached, which read to the person seeing it as unexplained data
+    /// loss even when nothing had actually gone missing.
+    /// </summary>
+    public async Task<FileRetrievalResult> DownloadScannedFileAsync(Guid agreementId, CancellationToken ct = default)
     {
         var agreement = await _db.Agreements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agreementId, ct);
         if (agreement is null || string.IsNullOrEmpty(agreement.ScannedFileUrl))
-            return null;
+            return FileRetrievalResult.NoFile();
 
-        return await _storage.GetAsync(agreement.ScannedFileUrl, ct);
+        var file = await _storage.GetAsync(agreement.ScannedFileUrl, ct);
+        if (file is null)
+        {
+            _logger.LogWarning(
+                "Agreement {AgreementId} has ScannedFileUrl {StorageKey} on record, but the storage backend could not find it.",
+                agreementId, agreement.ScannedFileUrl);
+            return FileRetrievalResult.Lost();
+        }
+
+        return FileRetrievalResult.Found(file);
+    }
+
+    /// <summary>
+    /// Whether the given caller may download this agreement's scanned
+    /// file: any Employee, or the Client the agreement's SystemProduct
+    /// belongs to. Distinguishes RecordNotFound (→ 404) from Forbidden
+    /// (→ 403 via ForbidOwnership) so a client trying to view someone
+    /// else's agreement isn't told the agreement doesn't exist.
+    /// </summary>
+    public async Task<AttachmentAccessResult> CanAccessScannedFileAsync(
+        Guid agreementId, SessionAccountType callerType, Guid callerId, CancellationToken ct = default)
+    {
+        if (callerType != SessionAccountType.Client)
+            return AttachmentAccessResult.Granted;
+
+        var agreement = await _db.Agreements.AsNoTracking()
+            .Include(a => a.SystemProduct)
+            .FirstOrDefaultAsync(a => a.Id == agreementId, ct);
+
+        if (agreement is null)
+            return AttachmentAccessResult.RecordNotFound;
+
+        return agreement.SystemProduct.ClientId == callerId
+            ? AttachmentAccessResult.Granted
+            : AttachmentAccessResult.Forbidden;
     }
 
     private IQueryable<Agreement> AgreementQuery() =>
