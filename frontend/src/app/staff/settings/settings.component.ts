@@ -205,13 +205,13 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             the support type fee below is added on top.
           </p>
 
-          <div class="ft-add-row">
+          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr auto;">
             <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
               @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
             </select>
             <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
-            <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="newFtBasePrice.set($event)" />
+            <input type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="newFtBasePrice.set($event)" />
             <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
             <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
               <option value="Hours">Hour(s)</option>
@@ -225,13 +225,13 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             @for (ft of failureTypes.types(); track ft.id) {
               <li class="entry-row">
                 @if (editingFtId() === ft.id) {
-                  <div class="ft-edit-row">
+                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr;">
                     <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
                       @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
                     </select>
                     <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
-                    <input type="number" min="0" step="0.01" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="editingFtBasePrice.set($event)" />
+                    <input type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="editingFtBasePrice.set($event)" />
                     <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
                     <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
                       <option value="Hours">Hour(s)</option>
@@ -245,7 +245,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   </div>
                 } @else {
                   <span class="entry-name">
-                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ durationUnitLabel(ft.durationValue, ft.durationUnit) }} · {{ ft.basePrice }} ETB base
+                    {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ durationUnitLabel(ft.durationValue, ft.durationUnit) }} · {{ formatBirr(ft.basePrice) }} ETB base
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
                   </span>
                   <div class="entry-actions">
@@ -270,10 +270,10 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             type they chose. A zero fee is fine if a support type costs nothing extra.
           </p>
 
-          <div class="ft-add-row">
+          <div class="ft-add-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr auto;">
             <input type="text" placeholder="Support type name…" [ngModel]="newStName()" (ngModelChange)="newStName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newStDescription()" (ngModelChange)="newStDescription.set($event)" />
-            <input type="number" min="0" step="0.01" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="newStFee.set($event)" />
+            <input type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="newStFee.set($event)" />
             <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="addSupportType()">Add</button>
           </div>
 
@@ -281,10 +281,10 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             @for (st of supportTypes.types(); track st.id) {
               <li class="entry-row">
                 @if (editingStId() === st.id) {
-                  <div class="ft-edit-row">
+                  <div class="ft-edit-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr;">
                     <input type="text" [ngModel]="editingStName()" (ngModelChange)="editingStName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingStDescription()" (ngModelChange)="editingStDescription.set($event)" />
-                    <input type="number" min="0" step="0.01" [ngModel]="editingStFee()" (ngModelChange)="editingStFee.set($event)" />
+                    <input type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="editingStFee()" (ngModelChange)="editingStFee.set($event)" />
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="saveStEdit(st.id)">Save</button>
@@ -292,7 +292,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   </div>
                 } @else {
                   <span class="entry-name">
-                    {{ st.name }} — +{{ st.additionalFee }} ETB
+                    {{ st.name }} — +{{ formatBirr(st.additionalFee) }} ETB
                     @if (st.description) { <span class="text-muted"> · {{ st.description }}</span> }
                   </span>
                   <div class="entry-actions">
@@ -535,6 +535,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
 
     .ft-add-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
     .ft-edit-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
+    .price-input { padding: 0.62rem 0.75rem; font-size: 0.92rem; }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -779,7 +780,7 @@ export class SettingsComponent implements OnInit {
   newFtCategory = signal<TicketCategory>('Frontend');
   newFtName = signal('');
   newFtDescription = signal('');
-  newFtBasePrice = signal<number>(0);
+  newFtBasePrice = signal<string>('');
   newFtValue = signal<number>(1);
   newFtUnit = signal<DurationUnit>('Days');
   savingFailureTypes = signal(false);
@@ -788,11 +789,33 @@ export class SettingsComponent implements OnInit {
   editingFtCategory = signal<TicketCategory>('Frontend');
   editingFtName = signal('');
   editingFtDescription = signal('');
-  editingFtBasePrice = signal<number>(0);
+  editingFtBasePrice = signal<string>('');
   editingFtValue = signal<number>(1);
   editingFtUnit = signal<DurationUnit>('Days');
 
   categoryLabel(category: TicketCategory): string { return TICKET_CATEGORY_LABELS[category]; }
+
+  /** "12345.5" -> "12,345.50" — thousands separators for an ETB amount, capped at 2 decimal places since Birr doesn't go finer than cents. */
+  formatBirr(amount: number): string {
+    return amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  /**
+   * Parses a price field's raw text into a non-negative ETB amount, or
+   * null if it isn't one — blank is treated as 0 (a free failure
+   * type/support type is valid and common), but garbage like "12a" or a
+   * negative number is rejected rather than silently coerced to 0, since
+   * that would let a typo silently zero out a price without the Admin
+   * noticing. Now that the field is plain text (no browser-level number
+   * validation from the removed type="number"), this is the only thing
+   * standing between a typo and an accidentally free support type.
+   */
+  private parseBirr(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (trimmed === '') return 0;
+    const value = Number(trimmed);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
 
   /** Singular/plural unit word matching the actual duration value — "1 hour" vs "2 hours". */
   durationUnitLabel(value: number, unit: DurationUnit): string {
@@ -804,15 +827,21 @@ export class SettingsComponent implements OnInit {
     const name = this.newFtName().trim();
     if (!name || !this.newFtValue() || this.newFtValue() <= 0) return;
 
+    const basePrice = this.parseBirr(this.newFtBasePrice());
+    if (basePrice === null) {
+      this.failureTypesError.set('Base price must be a number, 0 or greater.');
+      return;
+    }
+
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, Number(this.newFtBasePrice()) || 0);
+      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, basePrice);
       this.newFtName.set('');
       this.newFtDescription.set('');
       this.newFtValue.set(1);
       this.newFtUnit.set('Days');
-      this.newFtBasePrice.set(0);
+      this.newFtBasePrice.set('');
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not add this failure type — the name may already exist.');
     } finally {
@@ -825,7 +854,7 @@ export class SettingsComponent implements OnInit {
     this.editingFtCategory.set(ft.category);
     this.editingFtName.set(ft.name);
     this.editingFtDescription.set(ft.description ?? '');
-    this.editingFtBasePrice.set(ft.basePrice ?? 0);
+    this.editingFtBasePrice.set(String(ft.basePrice ?? 0));
     this.editingFtValue.set(ft.durationValue);
     this.editingFtUnit.set(ft.durationUnit);
     this.failureTypesError.set(null);
@@ -839,10 +868,16 @@ export class SettingsComponent implements OnInit {
     const name = this.editingFtName().trim();
     if (!name || !this.editingFtValue() || this.editingFtValue() <= 0) return;
 
+    const basePrice = this.parseBirr(this.editingFtBasePrice());
+    if (basePrice === null) {
+      this.failureTypesError.set('Base price must be a number, 0 or greater.');
+      return;
+    }
+
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, Number(this.editingFtBasePrice()) || 0);
+      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, basePrice);
       this.cancelFtEdit();
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');
@@ -867,25 +902,31 @@ export class SettingsComponent implements OnInit {
 
   newStName = signal('');
   newStDescription = signal('');
-  newStFee = signal<number>(0);
+  newStFee = signal<string>('');
   savingSupportTypes = signal(false);
   supportTypesError = signal<string | null>(null);
   editingStId = signal<string | null>(null);
   editingStName = signal('');
   editingStDescription = signal('');
-  editingStFee = signal<number>(0);
+  editingStFee = signal<string>('');
 
   async addSupportType() {
     const name = this.newStName().trim();
     if (!name) return;
 
+    const fee = this.parseBirr(this.newStFee());
+    if (fee === null) {
+      this.supportTypesError.set('Additional fee must be a number, 0 or greater.');
+      return;
+    }
+
     this.supportTypesError.set(null);
     this.savingSupportTypes.set(true);
     try {
-      await this.supportTypes.create(name, Number(this.newStFee()) || 0, this.newStDescription().trim() || undefined);
+      await this.supportTypes.create(name, fee, this.newStDescription().trim() || undefined);
       this.newStName.set('');
       this.newStDescription.set('');
-      this.newStFee.set(0);
+      this.newStFee.set('');
     } catch (e: any) {
       this.supportTypesError.set(e?.error ?? 'Could not add this support type — the name may already exist.');
     } finally {
@@ -897,7 +938,7 @@ export class SettingsComponent implements OnInit {
     this.editingStId.set(st.id);
     this.editingStName.set(st.name);
     this.editingStDescription.set(st.description ?? '');
-    this.editingStFee.set(st.additionalFee ?? 0);
+    this.editingStFee.set(String(st.additionalFee ?? 0));
     this.supportTypesError.set(null);
   }
 
@@ -909,10 +950,16 @@ export class SettingsComponent implements OnInit {
     const name = this.editingStName().trim();
     if (!name) return;
 
+    const fee = this.parseBirr(this.editingStFee());
+    if (fee === null) {
+      this.supportTypesError.set('Additional fee must be a number, 0 or greater.');
+      return;
+    }
+
     this.supportTypesError.set(null);
     this.savingSupportTypes.set(true);
     try {
-      await this.supportTypes.update(id, name, Number(this.editingStFee()) || 0, this.editingStDescription().trim() || undefined);
+      await this.supportTypes.update(id, name, fee, this.editingStDescription().trim() || undefined);
       this.cancelStEdit();
     } catch (e: any) {
       this.supportTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');
