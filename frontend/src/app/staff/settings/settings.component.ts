@@ -211,7 +211,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             </select>
             <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
-            <input type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="newFtBasePrice.set($event)" />
+            <input #newFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="onNewFtBasePriceInput($event, newFtPriceEl)" />
             <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
             <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
               <option value="Hours">Hour(s)</option>
@@ -231,7 +231,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                     </select>
                     <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
-                    <input type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="editingFtBasePrice.set($event)" />
+                    <input #editingFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="onEditingFtBasePriceInput($event, editingFtPriceEl)" />
                     <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
                     <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
                       <option value="Hours">Hour(s)</option>
@@ -273,7 +273,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
           <div class="ft-add-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr auto;">
             <input type="text" placeholder="Support type name…" [ngModel]="newStName()" (ngModelChange)="newStName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newStDescription()" (ngModelChange)="newStDescription.set($event)" />
-            <input type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="newStFee.set($event)" />
+            <input #newStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="onNewStFeeInput($event, newStFeeEl)" />
             <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="addSupportType()">Add</button>
           </div>
 
@@ -284,7 +284,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   <div class="ft-edit-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr;">
                     <input type="text" [ngModel]="editingStName()" (ngModelChange)="editingStName.set($event)" />
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingStDescription()" (ngModelChange)="editingStDescription.set($event)" />
-                    <input type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="editingStFee()" (ngModelChange)="editingStFee.set($event)" />
+                    <input #editingStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="editingStFee()" (ngModelChange)="onEditingStFeeInput($event, editingStFeeEl)" />
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="saveStEdit(st.id)">Save</button>
@@ -806,16 +806,64 @@ export class SettingsComponent implements OnInit {
    * type/support type is valid and common), but garbage like "12a" or a
    * negative number is rejected rather than silently coerced to 0, since
    * that would let a typo silently zero out a price without the Admin
-   * noticing. Now that the field is plain text (no browser-level number
-   * validation from the removed type="number"), this is the only thing
-   * standing between a typo and an accidentally free support type.
+   * noticing. Strips thousands-separator commas first — see
+   * formatPriceLive, which is what actually put them there.
    */
   private parseBirr(raw: string): number | null {
-    const trimmed = raw.trim();
+    const trimmed = raw.replace(/,/g, '').trim();
     if (trimmed === '') return 0;
     const value = Number(trimmed);
     return Number.isFinite(value) && value >= 0 ? value : null;
   }
+
+  /**
+   * Live-formats a price field's typed value as commas get added: strips
+   * anything that isn't a digit or a decimal point, allows only one
+   * decimal point and at most 2 digits after it (Birr doesn't go finer
+   * than cents), and inserts thousands-separator commas into the
+   * whole-number part — so the field reads "12,500" while typing, not
+   * just after saving. Takes the input element directly (via a template
+   * ref, passed from ngModelChange's handler) so it can restore cursor
+   * position afterward: counts digits typed before the original cursor,
+   * then walks forward that many digits in the reformatted string, so
+   * inserting/removing a comma ahead of the cursor doesn't make it jump
+   * to the end of the field the way naively reassigning .value would.
+   */
+  private formatPriceLive(raw: string, input: HTMLInputElement, setter: (v: string) => void) {
+    const cursorPos = input.selectionStart ?? raw.length;
+    const digitsBeforeCursor = raw.slice(0, cursorPos).replace(/[^\d.]/g, '').length;
+
+    let cleaned = raw.replace(/[^\d.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+      const [whole, frac] = cleaned.split('.');
+      cleaned = frac !== undefined ? `${whole}.${frac.slice(0, 2)}` : whole;
+    }
+
+    const [wholePart, fracPart] = cleaned.split('.');
+    const withCommas = wholePart === '' ? '' : Number(wholePart).toLocaleString('en-US');
+    const formatted = fracPart !== undefined ? `${withCommas}.${fracPart}` : withCommas;
+
+    setter(formatted);
+
+    // Walk forward through the reformatted string counting digits until
+    // we've passed as many as were left of the cursor originally — lands
+    // the cursor in the equivalent spot even though comma positions shifted.
+    queueMicrotask(() => {
+      let seen = 0, pos = 0;
+      while (pos < formatted.length && seen < digitsBeforeCursor) {
+        if (/\d/.test(formatted[pos])) seen++;
+        pos++;
+      }
+      input.setSelectionRange(pos, pos);
+    });
+  }
+
+  onNewFtBasePriceInput(value: string, input: HTMLInputElement) { this.formatPriceLive(value, input, v => this.newFtBasePrice.set(v)); }
+  onEditingFtBasePriceInput(value: string, input: HTMLInputElement) { this.formatPriceLive(value, input, v => this.editingFtBasePrice.set(v)); }
+  onNewStFeeInput(value: string, input: HTMLInputElement) { this.formatPriceLive(value, input, v => this.newStFee.set(v)); }
+  onEditingStFeeInput(value: string, input: HTMLInputElement) { this.formatPriceLive(value, input, v => this.editingStFee.set(v)); }
 
   /** Singular/plural unit word matching the actual duration value — "1 hour" vs "2 hours". */
   durationUnitLabel(value: number, unit: DurationUnit): string {
