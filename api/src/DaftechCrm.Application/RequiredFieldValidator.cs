@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace DaftechCrm.Application;
 
 /// <summary>
@@ -48,5 +50,24 @@ public static class RequiredFieldValidator
     {
         if (!email.Trim().EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase))
             throw new ValidationException("Invalid email — please use a @gmail.com address.");
+    }
+
+    /// <summary>
+    /// A client's IT Support Contact Number must be a valid Ethio Telecom
+    /// (+2519XXXXXXXX) or Safaricom Ethiopia (+2517XXXXXXXX) mobile
+    /// number — see the Angular ItSupportContact field this backs
+    /// (client registration/edit forms) for the matching client-side
+    /// check. Optional field: only validated when a non-blank value is
+    /// supplied, since not every client has a separate IT contact.
+    /// </summary>
+    private static readonly Regex ItSupportContactPattern = new(@"^\+251(9|7)\d{8}$", RegexOptions.Compiled);
+
+    public static void EnsureValidItSupportContact(string? itSupportContact)
+    {
+        if (string.IsNullOrWhiteSpace(itSupportContact)) return;
+
+        if (!ItSupportContactPattern.IsMatch(itSupportContact.Trim()))
+            throw new ValidationException(
+                "Invalid IT Support Contact Number — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).");
     }
 }

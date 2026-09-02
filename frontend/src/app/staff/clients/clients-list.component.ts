@@ -10,6 +10,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
 import { requiredFieldsError } from '../../core/required-fields';
 import { isValidRegistrationEmail } from '../../core/email-validation';
+import { isValidItSupportContact } from '../../core/it-support-contact-validation';
 
 @Component({
   selector: 'app-clients-list',
@@ -73,7 +74,11 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
             </div>
             <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="form.kycType" (ngModelChange)="form.kycType = $event" placeholder="Business License…" /></div>
             <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="form.kycContact" (ngModelChange)="form.kycContact = $event" placeholder="Name — phone/email" /></div>
-            <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" /></div>
+            <div class="field">
+              <label>IT Support Contact (optional)</label>
+              <input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+              @if (!isItSupportContactValid(form.itSupportContact)) { <div class="field-error">Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom)</div> }
+            </div>
           </div>
           @if (registerError()) {
             <p class="register-error" style="margin-top:0.75rem;">{{ registerError() }}</p>
@@ -225,7 +230,11 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                     </div>
                     <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
                     <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
-                    <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" /></div>
+                    <div class="field">
+                      <label>IT Support Contact (optional)</label>
+                      <input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+                      @if (!isItSupportContactValid(editForm.itSupportContact)) { <div class="field-error">Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom)</div> }
+                    </div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(c.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
                       <button class="btn btn-secondary btn-sm" (click)="cancelEdit()">Cancel</button>
@@ -335,6 +344,10 @@ export class ClientsListComponent {
     return isValidRegistrationEmail(email);
   }
 
+  isItSupportContactValid(value: string | null | undefined): boolean {
+    return isValidItSupportContact(value);
+  }
+
   /**
    * Location cascade helpers — form.region/zone/woreda are stored by NAME
    * (not id), matching the client DTO fields, so we resolve the region's/
@@ -413,6 +426,10 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.form.email)) {
       this.registerError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isItSupportContactValid(this.form.itSupportContact)) {
+      this.registerError.set('Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).');
       return;
     }
 
@@ -534,6 +551,10 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.editForm.email)) {
       this.editError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isItSupportContactValid(this.editForm.itSupportContact)) {
+      this.editError.set('Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).');
       return;
     }
 

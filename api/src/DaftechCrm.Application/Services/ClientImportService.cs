@@ -139,6 +139,7 @@ public class ClientImportService
             ("Row's City", row.City),
             ("Row's Woreda", row.Woreda)
         );
+        RequiredFieldValidator.EnsureValidItSupportContact(row.ItSupportContact);
 
         var trainingCompleted = ParseYesNo(row.TrainingCompleted, "TrainingCompleted");
 

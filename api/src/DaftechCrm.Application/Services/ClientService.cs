@@ -42,6 +42,7 @@ public class ClientService : IClientService
             ("KYC Contact", request.KycContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
+        RequiredFieldValidator.EnsureValidItSupportContact(request.ItSupportContact);
 
         var issued = await _credentials.IssueForNameAsync(request.Name, ct);
 
@@ -154,6 +155,7 @@ public class ClientService : IClientService
             ("KYC Contact", request.KycContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
+        RequiredFieldValidator.EnsureValidItSupportContact(request.ItSupportContact);
 
         client.Name = request.Name;
         client.PhoneNumber = request.PhoneNumber;
