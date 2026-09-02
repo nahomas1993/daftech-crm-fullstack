@@ -266,6 +266,33 @@ function describeDashboardError(err: unknown): string {
             <div class="card-value">{{ technicianStats().completedThisWeek }}</div>
           </div>
         </div>
+
+        <div class="chart-grid">
+          <div class="panel panel-pad">
+            <h3 style="margin-bottom:0.9rem;">My Tickets by Status</h3>
+            @if (myStatusSlices().length === 0) {
+              <p class="text-muted" style="font-size:0.85rem;">No tickets assigned yet.</p>
+            } @else {
+              <app-donut-chart [data]="myStatusSlices()" centerLabel="Tickets" centerSuffix="" [centerOverride]="technicianStats().assigned"></app-donut-chart>
+            }
+          </div>
+          <div class="panel panel-pad">
+            <h3 style="margin-bottom:0.9rem;">On-Time vs. Overdue</h3>
+            @if (myTimelinessSlices().length === 0) {
+              <p class="text-muted" style="font-size:0.85rem;">Nothing to compare yet.</p>
+            } @else {
+              <app-donut-chart [data]="myTimelinessSlices()" centerLabel="Open" centerSuffix="" [centerOverride]="technicianStats().open"></app-donut-chart>
+            }
+          </div>
+          <div class="panel panel-pad" style="grid-column: 1 / -1;">
+            <h3 style="margin-bottom:0.9rem;">My Tickets by Category</h3>
+            @if (myCategoryBars().length === 0) {
+              <p class="text-muted" style="font-size:0.85rem;">No tickets assigned yet.</p>
+            } @else {
+              <app-count-bar-chart [chartData]="myCategoryBars()"></app-count-bar-chart>
+            }
+          </div>
+        </div>
       }
 
       @if (isTrainer()) {
@@ -283,6 +310,25 @@ function describeDashboardError(err: unknown): string {
             <div class="card-label">Completed Training Records</div>
             <div class="card-value">{{ trainerRecords().length }}</div>
           </a>
+        </div>
+
+        <div class="chart-grid">
+          <div class="panel panel-pad">
+            <h3 style="margin-bottom:0.9rem;">Assignment Progress</h3>
+            @if (trainerProgressSlices().length === 0) {
+              <p class="text-muted" style="font-size:0.85rem;">No assignments yet.</p>
+            } @else {
+              <app-donut-chart [data]="trainerProgressSlices()" centerLabel="Assigned" centerSuffix="" [centerOverride]="trainerAssignments().length"></app-donut-chart>
+            }
+          </div>
+          <div class="panel panel-pad">
+            <h3 style="margin-bottom:0.9rem;">Completed Trainings by Client</h3>
+            @if (trainerClientBars().length === 0) {
+              <p class="text-muted" style="font-size:0.85rem;">No completed training records yet.</p>
+            } @else {
+              <app-count-bar-chart [chartData]="trainerClientBars()"></app-count-bar-chart>
+            }
+          </div>
         </div>
       }
     }
@@ -481,9 +527,59 @@ export class DashboardComponent {
     return monday;
   }
 
+  /** Donut of this technician's own tickets grouped by status — same color mapping as the admin-wide chart. */
+  myStatusSlices = computed((): DonutSlice[] => {
+    const emp = this.auth.currentEmployee();
+    if (!emp) return [];
+    const myTickets = this.ticketsSvc.forEmployee(emp.id);
+    const counts = new Map<string, number>();
+    for (const t of myTickets) counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    return Array.from(counts.entries())
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => ({ label: status, value: count, color: STATUS_COLORS[status] ?? '#94a3b8' }));
+  });
+
+  /** Donut comparing this technician's currently-open tickets that are on-time vs. overdue against their SLA deadline. */
+  myTimelinessSlices = computed((): DonutSlice[] => {
+    const stats = this.technicianStats();
+    const onTime = Math.max(stats.open - stats.overdue, 0);
+    const slices: DonutSlice[] = [];
+    if (onTime > 0) slices.push({ label: 'On Time', value: onTime, color: '#34d399' });
+    if (stats.overdue > 0) slices.push({ label: 'Overdue', value: stats.overdue, color: '#f87171' });
+    return slices;
+  });
+
+  /** Bar chart of this technician's own tickets grouped by category (Frontend/Backend/Database). */
+  myCategoryBars = computed((): CountBarDatum[] => {
+    const emp = this.auth.currentEmployee();
+    if (!emp) return [];
+    const myTickets = this.ticketsSvc.forEmployee(emp.id);
+    const counts = new Map<string, number>();
+    for (const t of myTickets) counts.set(t.category, (counts.get(t.category) ?? 0) + 1);
+    return Array.from(counts.entries()).map(([label, value]) => ({ label, value }));
+  });
+
   // --- Trainer dashboard state ---
   trainerAssignments = signal<MyTrainingAssignment[]>([]);
   trainerRecords = signal<TrainingRecord[]>([]);
+
+  /** Donut of this trainer's assignments split into submitted vs. pending training checklists. */
+  trainerProgressSlices = computed((): DonutSlice[] => {
+    const total = this.trainerAssignments().length;
+    const pending = this.pendingTrainingSubmissions();
+    const submitted = Math.max(total - pending, 0);
+    const slices: DonutSlice[] = [];
+    if (submitted > 0) slices.push({ label: 'Submitted', value: submitted, color: '#34d399' });
+    if (pending > 0) slices.push({ label: 'Pending', value: pending, color: '#fbbf24' });
+    return slices;
+  });
+
+  /** Bar chart of this trainer's completed training records grouped by client. */
+  trainerClientBars = computed((): CountBarDatum[] => {
+    const counts = new Map<string, number>();
+    for (const r of this.trainerRecords()) counts.set(r.clientName, (counts.get(r.clientName) ?? 0) + 1);
+    return Array.from(counts.entries()).map(([label, value]) => ({ label, value }));
+  });
 
   /** Assignments this trainer has not yet submitted a training checklist for — see SystemProductService.submitTraining / SystemProduct.trainingSubmittedAt. */
   pendingTrainingSubmissions = computed(() =>

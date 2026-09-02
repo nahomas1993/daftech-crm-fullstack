@@ -185,7 +185,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     <div class="panel panel-pad" style="margin-top:1rem;">
       <div class="table-scroll"><table>
-        <thead><tr><th>Ticket #</th><th>System/Product</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
+        <thead><tr><th>Ticket #</th><th>System/Product</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Completed</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
         <tbody>
           @for (t of filteredTickets(); track t.id) {
             <tr>
@@ -198,6 +198,9 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td class="text-muted" style="font-size:0.8rem;">{{ countdownLabel(t) }}</td>
               <td><app-badge [status]="t.status"></app-badge></td>
+              <td class="text-muted" style="font-size:0.8rem;">
+                @if (t.completedAt) { {{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }} } @else { — }
+              </td>
               <td class="text-muted">{{ t.satisfactionStars ? (t.satisfactionStars + '★') : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
@@ -215,7 +218,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
+          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
         </tbody>
       </table></div>
     </div>
