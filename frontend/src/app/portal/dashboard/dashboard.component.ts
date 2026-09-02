@@ -65,16 +65,16 @@ const REFRESH_INTERVAL_MS = 20_000;
               <div class="product-name">{{ p.name }}</div>
               @if (p.description) { <div class="text-muted" style="font-size:0.8rem;">{{ p.description }}</div> }
               <div class="product-expiry">
-                @if (p.expiryDate) {
-                  <span [class.warn]="isExpiringSoon(p.expiryDate)" [class.expired]="isExpired(p.expiryDate)">
-                    @if (isExpired(p.expiryDate)) {
-                      Expired {{ p.expiryDate | date:'mediumDate' }}
+                @if (agreementExpiryFor(p.id); as expiryDate) {
+                  <span [class.warn]="isExpiringSoon(expiryDate)" [class.expired]="isExpired(expiryDate)">
+                    @if (isExpired(expiryDate)) {
+                      Agreement expired {{ expiryDate | date:'mediumDate' }}
                     } @else {
-                      Expires {{ p.expiryDate | date:'mediumDate' }}
+                      Agreement expires {{ expiryDate | date:'mediumDate' }}
                     }
                   </span>
                 } @else {
-                  <span class="text-muted">No expiry date set</span>
+                  <span class="text-muted">No agreement on file</span>
                 }
               </div>
             </div>
@@ -173,6 +173,25 @@ export class PortalDashboardComponent implements OnInit, OnDestroy {
     this.systemProductsSvc.byClient();
     return this.systemProductsSvc.systemProductsFor(client.id);
   });
+
+  /**
+   * The dashboard shows each product's *agreement* expiry date, not the
+   * product's own expiryDate — the agreement is what actually governs
+   * support entitlement/renewal, so that's the date that matters to the
+   * client here. A product can have more than one agreement over time
+   * (renewals); pick the one expiring latest so a renewed agreement
+   * supersedes an older, already-expired one on this card.
+   */
+  agreementExpiryFor(systemProductId: string): string | undefined {
+    const client = this.client();
+    if (!client) return undefined;
+    const agreements = this.agreementsSvc.forClient(client.id)
+      .filter(a => a.systemProductId === systemProductId);
+    if (agreements.length === 0) return undefined;
+    return agreements.reduce((latest, a) =>
+      new Date(a.expiryDate) > new Date(latest.expiryDate) ? a : latest
+    ).expiryDate;
+  }
 
   /** True once a product's expiry date has passed — flagged distinctly on the dashboard so it doesn't read the same as a healthy one. */
   isExpired(expiryDate?: string): boolean {
