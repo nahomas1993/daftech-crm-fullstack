@@ -7,6 +7,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
 import { EmployeeRegisteredResult, EmployeeRole, EMPLOYEE_ROLE_LABELS } from '../../core/models';
 import { requiredFieldsError } from '../../core/required-fields';
 import { isValidRegistrationEmail } from '../../core/email-validation';
+import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/ethiopian-phone-validation';
 
 // ItSupport is retired — Admin absorbs that scope, so it's no longer offered
 // when creating/editing an employee. Kept off this list even though the
@@ -32,7 +33,11 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
         @if (!justRegistered()) {
           <div class="form-grid">
             <div class="field"><label>Full Name <span class="req">*</span></label><input type="text" [ngModel]="form.fullName" (ngModelChange)="form.fullName = $event" /></div>
-            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
+            <div class="field">
+              <label>Phone Number <span class="req">*</span></label>
+              <input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+              @if (!isPhoneValid(form.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
+            </div>
             <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
               @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
             </div>
@@ -160,7 +165,11 @@ const ALL_ROLES: EmployeeRole[] = ['Admin', 'EmployeeTechnician', 'Trainer'];
                     <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
                       @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
                     </div>
-                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field">
+                      <label>Phone Number <span class="req">*</span></label>
+                      <input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+                      @if (!isPhoneValid(editForm.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
+                    </div>
                     <div class="field">
                       <label>Specialization <span class="req">*</span></label>
                       <select [ngModel]="editForm.specialization" (ngModelChange)="editForm.specialization = $event">
@@ -338,6 +347,14 @@ export class EmployeesComponent {
     return isValidRegistrationEmail(email);
   }
 
+  isPhoneValid(value: string | null | undefined): boolean {
+    return isValidEthiopianPhone(value);
+  }
+
+  phoneErrorMessage(label: string): string {
+    return invalidEthiopianPhoneMessage(label);
+  }
+
   async submit() {
     const validationError = requiredFieldsError([
       { label: 'Full Name', value: this.form.fullName },
@@ -351,6 +368,10 @@ export class EmployeesComponent {
     }
     if (!isValidRegistrationEmail(this.form.email)) {
       this.registerError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isPhoneValid(this.form.phoneNumber)) {
+      this.registerError.set(this.phoneErrorMessage('Phone Number'));
       return;
     }
     if (this.form.roles.length === 0) {
@@ -455,6 +476,10 @@ export class EmployeesComponent {
     }
     if (!isValidRegistrationEmail(this.editForm.email)) {
       this.editError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isPhoneValid(this.editForm.phoneNumber)) {
+      this.editError.set(this.phoneErrorMessage('Phone Number'));
       return;
     }
     if (this.editResponsibilities.length === 0) {

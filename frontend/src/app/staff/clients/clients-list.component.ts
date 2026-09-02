@@ -10,7 +10,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
 import { requiredFieldsError } from '../../core/required-fields';
 import { isValidRegistrationEmail } from '../../core/email-validation';
-import { isValidItSupportContact } from '../../core/it-support-contact-validation';
+import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/ethiopian-phone-validation';
 
 @Component({
   selector: 'app-clients-list',
@@ -34,7 +34,11 @@ import { isValidItSupportContact } from '../../core/it-support-contact-validatio
         @if (!justRegistered()) {
           <div class="form-grid">
             <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="form.name" (ngModelChange)="form.name = $event" /></div>
-            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
+            <div class="field">
+              <label>Phone Number <span class="req">*</span></label>
+              <input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+              @if (!isPhoneValid(form.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
+            </div>
             <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
               @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
             </div>
@@ -75,9 +79,9 @@ import { isValidItSupportContact } from '../../core/it-support-contact-validatio
             <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="form.kycType" (ngModelChange)="form.kycType = $event" placeholder="Business License…" /></div>
             <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="form.kycContact" (ngModelChange)="form.kycContact = $event" placeholder="Name — phone/email" /></div>
             <div class="field">
-              <label>IT Support Contact (optional)</label>
+              <label>IT Support Contact <span class="req">*</span></label>
               <input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-              @if (!isItSupportContactValid(form.itSupportContact)) { <div class="field-error">Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom)</div> }
+              @if (!isItSupportContactValid(form.itSupportContact)) { <div class="field-error">{{ phoneErrorMessage('IT Support Contact') }}</div> }
             </div>
           </div>
           @if (registerError()) {
@@ -190,7 +194,11 @@ import { isValidItSupportContact } from '../../core/it-support-contact-validatio
                 <td colspan="8">
                   <div class="edit-form">
                     <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
-                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field">
+                      <label>Phone Number <span class="req">*</span></label>
+                      <input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
+                      @if (!isPhoneValid(editForm.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
+                    </div>
                     <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
                       @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
                     </div>
@@ -231,9 +239,9 @@ import { isValidItSupportContact } from '../../core/it-support-contact-validatio
                     <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
                     <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
                     <div class="field">
-                      <label>IT Support Contact (optional)</label>
+                      <label>IT Support Contact <span class="req">*</span></label>
                       <input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-                      @if (!isItSupportContactValid(editForm.itSupportContact)) { <div class="field-error">Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom)</div> }
+                      @if (!isItSupportContactValid(editForm.itSupportContact)) { <div class="field-error">{{ phoneErrorMessage('IT Support Contact') }}</div> }
                     </div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(c.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
@@ -344,8 +352,16 @@ export class ClientsListComponent {
     return isValidRegistrationEmail(email);
   }
 
+  isPhoneValid(value: string | null | undefined): boolean {
+    return isValidEthiopianPhone(value);
+  }
+
   isItSupportContactValid(value: string | null | undefined): boolean {
-    return isValidItSupportContact(value);
+    return isValidEthiopianPhone(value);
+  }
+
+  phoneErrorMessage(label: string): string {
+    return invalidEthiopianPhoneMessage(label);
   }
 
   /**
@@ -417,8 +433,7 @@ export class ClientsListComponent {
       { label: 'Woreda', value: this.form.woreda },
       { label: 'KYC Type', value: this.form.kycType },
       { label: 'KYC Contact', value: this.form.kycContact },
-      // IT Support Contact is intentionally left out — it's marked
-      // optional on the form.
+      { label: 'IT Support Contact', value: this.form.itSupportContact },
     ]);
     if (validationError) {
       this.registerError.set(validationError);
@@ -428,8 +443,12 @@ export class ClientsListComponent {
       this.registerError.set('Invalid email — please use a @gmail.com address.');
       return;
     }
+    if (!this.isPhoneValid(this.form.phoneNumber)) {
+      this.registerError.set(this.phoneErrorMessage('Phone Number'));
+      return;
+    }
     if (!this.isItSupportContactValid(this.form.itSupportContact)) {
-      this.registerError.set('Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).');
+      this.registerError.set(this.phoneErrorMessage('IT Support Contact'));
       return;
     }
 
@@ -544,6 +563,7 @@ export class ClientsListComponent {
       { label: 'Woreda', value: this.editForm.woreda },
       { label: 'KYC Type', value: this.editForm.kycType },
       { label: 'KYC Contact', value: this.editForm.kycContact },
+      { label: 'IT Support Contact', value: this.editForm.itSupportContact },
     ]);
     if (validationError) {
       this.editError.set(validationError);
@@ -553,8 +573,12 @@ export class ClientsListComponent {
       this.editError.set('Invalid email — please use a @gmail.com address.');
       return;
     }
+    if (!this.isPhoneValid(this.editForm.phoneNumber)) {
+      this.editError.set(this.phoneErrorMessage('Phone Number'));
+      return;
+    }
     if (!this.isItSupportContactValid(this.editForm.itSupportContact)) {
-      this.editError.set('Invalid IT Support Contact — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).');
+      this.editError.set(this.phoneErrorMessage('IT Support Contact'));
       return;
     }
 

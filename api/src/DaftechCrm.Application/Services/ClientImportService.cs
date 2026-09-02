@@ -137,9 +137,11 @@ public class ClientImportService
             ("Row's Region", row.Region),
             ("Row's Zone", row.Zone),
             ("Row's City", row.City),
-            ("Row's Woreda", row.Woreda)
+            ("Row's Woreda", row.Woreda),
+            ("Row's ItSupportContact", row.ItSupportContact)
         );
-        RequiredFieldValidator.EnsureValidItSupportContact(row.ItSupportContact);
+        RequiredFieldValidator.EnsureValidEthiopianPhone(row.PhoneNumber, "Row's PhoneNumber");
+        RequiredFieldValidator.EnsureValidEthiopianPhone(row.ItSupportContact, "Row's ItSupportContact");
 
         var trainingCompleted = ParseYesNo(row.TrainingCompleted, "TrainingCompleted");
 

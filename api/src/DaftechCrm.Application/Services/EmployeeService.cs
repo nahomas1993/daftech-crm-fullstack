@@ -30,6 +30,7 @@ public class EmployeeService : IEmployeeService
             ("Specialization", request.Specialization)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
         if (request.Roles.Count == 0)
             throw new ValidationException("Please assign at least one responsibility.");
         EmployeeRoleValidator.EnsureValidCombination(request.Roles);
@@ -196,6 +197,7 @@ public class EmployeeService : IEmployeeService
             ("Specialization", request.Specialization)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
 
         employee.FullName = request.FullName;
         employee.Email = request.Email;

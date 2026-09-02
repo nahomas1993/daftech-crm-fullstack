@@ -25,9 +25,10 @@ public class ClientService : IClientService
     /// <summary>Admin registers a client directly — Approved, credentialed, and emailed in the same call, no separate approval step.</summary>
     public async Task<ClientRegisteredResult> RegisterAsync(RegisterClientRequest request, CancellationToken ct = default)
     {
-        // ItSupportContact remains optional — not every client has a
-        // separate IT contact. Region/Zone/City/Woreda are required as
-        // of this change (previously optional) — see RequiredFieldValidator.
+        // Region/Zone/City/Woreda are required as of this change
+        // (previously optional) — see RequiredFieldValidator.
+        // IT Support Contact is required as of this change too
+        // (previously optional).
         RequiredFieldValidator.EnsureAllPresent(
             ("Name / Organization", request.Name),
             ("Phone Number", request.PhoneNumber),
@@ -39,10 +40,12 @@ public class ClientService : IClientService
             ("City", request.City),
             ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
-            ("KYC Contact", request.KycContact)
+            ("KYC Contact", request.KycContact),
+            ("IT Support Contact", request.ItSupportContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
-        RequiredFieldValidator.EnsureValidItSupportContact(request.ItSupportContact);
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.ItSupportContact, "IT Support Contact");
 
         var issued = await _credentials.IssueForNameAsync(request.Name, ct);
 
@@ -152,10 +155,12 @@ public class ClientService : IClientService
             ("City", request.City),
             ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
-            ("KYC Contact", request.KycContact)
+            ("KYC Contact", request.KycContact),
+            ("IT Support Contact", request.ItSupportContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
-        RequiredFieldValidator.EnsureValidItSupportContact(request.ItSupportContact);
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
+        RequiredFieldValidator.EnsureValidEthiopianPhone(request.ItSupportContact, "IT Support Contact");
 
         client.Name = request.Name;
         client.PhoneNumber = request.PhoneNumber;
