@@ -50,9 +50,22 @@ export class MaintenanceService {
 
   async create(data: {
     category: string; description: string; performedByEmployeeId: string; status: MaintenanceStatus; remarks?: string;
+    clientId?: string; systemProductId?: string; ticketId?: string;
   }): Promise<MaintenanceRecord> {
     const record = await firstValueFrom(this.http.post<MaintenanceRecord>(`${API_BASE_URL}/maintenance`, data));
     await Promise.all([this.refresh(), this.refreshPaged()]);
     return record;
+  }
+
+  /** A client's maintenance history, newest first — powers the Maintenance History tab on Client Detail. Employee-only per MaintenanceController (a client hitting this endpoint would only ever see their own via the /client/{clientId} ownership check, but this call site is admin-side). */
+  async getForClient(clientId: string): Promise<MaintenanceRecord[]> {
+    const list = await firstValueFrom(this.http.get<MaintenanceRecord[]>(`${API_BASE_URL}/maintenance/client/${clientId}`));
+    return [...list].sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  /** A system/product's maintenance history, newest first — powers the Maintenance History tab on the System/Product panel. Employee-only endpoint (MaintenanceController.GetForSystemProduct). */
+  async getForSystemProduct(systemProductId: string): Promise<MaintenanceRecord[]> {
+    const list = await firstValueFrom(this.http.get<MaintenanceRecord[]>(`${API_BASE_URL}/maintenance/system-product/${systemProductId}`));
+    return [...list].sort((a, b) => b.date.localeCompare(a.date));
   }
 }

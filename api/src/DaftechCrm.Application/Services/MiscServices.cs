@@ -63,6 +63,35 @@ public class MaintenanceService : IMaintenanceService
 
     public async Task<MaintenanceRecordDto> CreateAsync(CreateMaintenanceRecordRequest request, CancellationToken ct = default)
     {
+        if (request.ClientId is null)
+            throw new InvalidOperationException("Client is required.");
+
+        var clientExists = await _db.Clients.AnyAsync(c => c.Id == request.ClientId, ct);
+        if (!clientExists)
+            throw new InvalidOperationException("Client not found.");
+
+        if (request.SystemProductId is Guid systemProductId)
+        {
+            var product = await _db.SystemProducts.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == systemProductId && !s.IsDeleted, ct)
+                ?? throw new InvalidOperationException("Selected system/product was not found.");
+            if (product.ClientId != request.ClientId)
+                throw new InvalidOperationException("Selected system/product does not belong to this client.");
+        }
+
+        if (request.TicketId is Guid ticketId)
+        {
+            var ticket = await _db.Tickets.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+                ?? throw new InvalidOperationException("Selected ticket was not found.");
+            if (ticket.ClientId != request.ClientId)
+                throw new InvalidOperationException("Selected ticket does not belong to this client.");
+        }
+
+        var employeeExists = await _db.Employees.AnyAsync(e => e.Id == request.PerformedByEmployeeId, ct);
+        if (!employeeExists)
+            throw new InvalidOperationException("Performing employee not found.");
+
         var record = new MaintenanceRecord
         {
             Date = DateOnly.FromDateTime(DateTime.UtcNow),
@@ -71,21 +100,25 @@ public class MaintenanceService : IMaintenanceService
             PerformedByEmployeeId = request.PerformedByEmployeeId,
             Status = request.Status,
             Remarks = request.Remarks,
+            ClientId = request.ClientId,
+            SystemProductId = request.SystemProductId,
+            TicketId = request.TicketId,
         };
         _db.Add(record);
         await _db.SaveChangesAsync(ct);
-        return ToDto(record);
+
+        var loaded = await Query().FirstAsync(r => r.Id == record.Id, ct);
+        return ToDto(loaded);
     }
 
     public async Task<IReadOnlyList<MaintenanceRecordDto>> GetAllAsync(CancellationToken ct = default) =>
-        (await _db.MaintenanceRecords.AsNoTracking().OrderByDescending(r => r.Date).ToListAsync(ct)).Select(ToDto).ToList();
+        (await Query().OrderByDescending(r => r.Date).ToListAsync(ct)).Select(ToDto).ToList();
 
     public async Task<PagedResult<MaintenanceRecordDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
     {
         var totalCount = await _db.MaintenanceRecords.CountAsync(ct);
 
-        var items = await _db.MaintenanceRecords
-            .AsNoTracking()
+        var items = await Query()
             .OrderByDescending(r => r.Date)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -94,8 +127,22 @@ public class MaintenanceService : IMaintenanceService
         return new PagedResult<MaintenanceRecordDto>(items.Select(ToDto).ToList(), query.Page, query.PageSize, totalCount);
     }
 
+    public async Task<IReadOnlyList<MaintenanceRecordDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default) =>
+        (await Query().Where(r => r.ClientId == clientId).OrderByDescending(r => r.Date).ToListAsync(ct)).Select(ToDto).ToList();
+
+    public async Task<IReadOnlyList<MaintenanceRecordDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default) =>
+        (await Query().Where(r => r.SystemProductId == systemProductId).OrderByDescending(r => r.Date).ToListAsync(ct)).Select(ToDto).ToList();
+
+    private IQueryable<MaintenanceRecord> Query() =>
+        _db.MaintenanceRecords.AsNoTracking()
+            .Include(r => r.PerformedByEmployee)
+            .Include(r => r.Client)
+            .Include(r => r.SystemProduct);
+
     private static MaintenanceRecordDto ToDto(MaintenanceRecord r) => new(
-        r.Id, r.Date, r.Category, r.Description, r.PerformedByEmployeeId, r.Status, r.Remarks
+        r.Id, r.Date, r.Category, r.Description,
+        r.PerformedByEmployeeId, r.PerformedByEmployee?.FullName ?? "(unknown)", r.Status, r.Remarks,
+        r.ClientId, r.Client?.Name, r.SystemProductId, r.SystemProduct?.Name, r.TicketId
     );
 }
 

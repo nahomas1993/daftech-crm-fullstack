@@ -17,6 +17,10 @@ public record TicketDto(
     string? FailureTypeName,
     Guid? SupportTypeId,
     string? SupportTypeName,
+    /// <summary>Snapshot of the client's IT support contact taken at submission — see Ticket.ItSupportContact.</summary>
+    string? ItSupportContact,
+    /// <summary>Specialty required to work this ticket, resolved once at submission — see Ticket.RequiredSpecialization.</summary>
+    string? RequiredSpecialization,
     DateTimeOffset DateSubmitted,
     Guid? ForwardedByEmployeeId,
     Guid? AssignedEmployeeId,
@@ -39,6 +43,12 @@ public record TicketDto(
     string? AttachmentFileName,
     /// <summary>Original filename of the optional voice-note recording, or null if none was recorded. Fetch/upload via TicketsController's /voice-note endpoints — this DTO only carries the display name, not the audio itself.</summary>
     string? VoiceNoteFileName,
+    /// <summary>Set once, when a technician marked this ticket Resolved — see Ticket.CompletedAt.</summary>
+    DateTimeOffset? CompletedAt,
+    Guid? CompletedByEmployeeId,
+    string? CompletedByEmployeeName,
+    /// <summary>Working minutes from assignment to completion (excludes lunch/off-hours/weekends) — see Ticket.WorkingMinutesToComplete.</summary>
+    int? WorkingMinutesToComplete,
     IReadOnlyList<TicketAuditEntryDto> AuditTrail
 );
 

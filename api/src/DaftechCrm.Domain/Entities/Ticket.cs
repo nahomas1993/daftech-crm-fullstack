@@ -62,6 +62,31 @@ public class Ticket
     public SupportType? SupportType { get; set; }
 
     /// <summary>
+    /// Snapshot of Client.ItSupportContact taken at the moment this ticket
+    /// was submitted (see TicketService.SubmitFromClientAsync). Kept as its
+    /// own column, not read live off Client, so the contact shown on an old
+    /// ticket reflects who to reach out to AT THE TIME the issue was
+    /// reported even if the client's on-file contact has since changed.
+    /// Null for tickets submitted before this field existed, or when the
+    /// client had no IT support contact on file at submission time.
+    /// </summary>
+    public string? ItSupportContact { get; set; }
+
+    /// <summary>
+    /// The specialty required to work this ticket, resolved once at
+    /// submission from FailureType.RequiredSpecialization — falling back to
+    /// the ticket's Category name when no FailureType was chosen or the
+    /// chosen FailureType has no specialty set. Frozen at submission, same
+    /// rationale as ExpectedResolutionMinutes below: a later Admin edit to a
+    /// FailureType's specialty must not retroactively change which
+    /// technician a ticket that's already assigned "should" have gone to.
+    /// Drives specialty-aware auto-assignment (see
+    /// TicketAssignmentService.SelectAssigneeAsync). Null only for tickets
+    /// submitted before this field existed.
+    /// </summary>
+    public string? RequiredSpecialization { get; set; }
+
+    /// <summary>
     /// What the client was quoted in ETB when this ticket was submitted:
     /// FailureType.BasePrice + SupportType.AdditionalFee. Frozen at
     /// submission on purpose — later price changes in Settings must not
@@ -141,6 +166,34 @@ public class Ticket
 
     public ClosureReason? ClosureReason { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
+
+    // --- Completion stamps ---
+
+    /// <summary>
+    /// Set exactly once, from the server clock, the moment a technician
+    /// marks the ticket Resolved (see TicketService.UpdateStatusAsync).
+    /// Distinct from ResolvedAt/ClosedAt: ResolvedAt starts the client's
+    /// confirmation-response clock and ClosedAt marks the end of the whole
+    /// lifecycle (including auto-close or escalation) — CompletedAt marks
+    /// specifically "the technician's work here is done", frozen even if
+    /// the ticket is later escalated or reopened. Null until that happens.
+    /// </summary>
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>Who completed the ticket — the technician who marked it Resolved. SetNull on delete so a removed employee's history doesn't block their own row from being deleted. Null alongside CompletedAt.</summary>
+    public Guid? CompletedByEmployeeId { get; set; }
+    public Employee? CompletedByEmployee { get; set; }
+
+    /// <summary>
+    /// AssignedAt → CompletedAt, measured in working minutes (excludes
+    /// lunch, after-hours, and non-working days — see
+    /// IEthiopianTimeService.WorkingMinutesElapsed), computed once at
+    /// completion and frozen afterward. Distinct from a raw wall-clock
+    /// duration, which would unfairly penalize a ticket that happened to
+    /// sit overnight or over a weekend. Null until CompletedAt is set, or
+    /// if the ticket was never assigned.
+    /// </summary>
+    public int? WorkingMinutesToComplete { get; set; }
 
     /// <summary>
     /// Storage key (per IFileStorageService) for one optional attachment —

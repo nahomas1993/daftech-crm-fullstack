@@ -33,14 +33,23 @@ export class AgreementTypeService {
     return this._types().find(t => t.name === name);
   }
 
-  async create(name: string, description?: string): Promise<AgreementType> {
-    const entry = await firstValueFrom(this.http.post<AgreementType>(`${API_BASE_URL}/agreement-types`, { name, description }));
+  async create(name: string, description?: string, isTrainingItem?: boolean, isRequiredForCompletion?: boolean): Promise<AgreementType> {
+    const entry = await firstValueFrom(this.http.post<AgreementType>(`${API_BASE_URL}/agreement-types`, {
+      name,
+      description,
+      isTrainingItem: isTrainingItem ?? false,
+      isRequiredForCompletion: isTrainingItem ? (isRequiredForCompletion ?? false) : false,
+    }));
     await this.refresh();
     return entry;
   }
 
-  async update(id: string, description?: string): Promise<AgreementType> {
-    const entry = await firstValueFrom(this.http.put<AgreementType>(`${API_BASE_URL}/agreement-types/${id}`, { description }));
+  async update(id: string, description?: string, isTrainingItem?: boolean, isRequiredForCompletion?: boolean): Promise<AgreementType> {
+    const entry = await firstValueFrom(this.http.put<AgreementType>(`${API_BASE_URL}/agreement-types/${id}`, {
+      description,
+      isTrainingItem: isTrainingItem ?? false,
+      isRequiredForCompletion: isTrainingItem ? (isRequiredForCompletion ?? false) : false,
+    }));
     await this.refresh();
     return entry;
   }

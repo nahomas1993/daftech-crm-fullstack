@@ -118,6 +118,8 @@ public class AgreementTypeConfiguration : IEntityTypeConfiguration<AgreementType
         // never let deleting a lookup value silently orphan or cascade-delete
         // real signed agreements.
         b.HasMany(x => x.Agreements).WithOne(a => a.AgreementType).HasForeignKey(a => a.AgreementTypeId).OnDelete(DeleteBehavior.Restrict);
+        b.Property(x => x.IsTrainingItem).HasDefaultValue(false);
+        b.Property(x => x.IsRequiredForCompletion).HasDefaultValue(false);
     }
 }
 
@@ -210,6 +212,8 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.Property(x => x.Description).HasColumnType("text").IsRequired();
         b.Property(x => x.VoiceNoteStorageKey).HasMaxLength(500);
         b.Property(x => x.VoiceNoteFileName).HasMaxLength(300);
+        b.Property(x => x.ItSupportContact).HasMaxLength(200);
+        b.Property(x => x.RequiredSpecialization).HasMaxLength(100);
         b.HasOne(x => x.Agreement).WithMany(a => a.Tickets).HasForeignKey(x => x.AgreementId);
         // SystemProduct is soft-delete only in practice (see
         // SystemProductConfiguration) — SetNull rather than Restrict so a
@@ -221,6 +225,7 @@ public class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.HasOne(x => x.ForwardedByEmployee).WithMany().HasForeignKey(x => x.ForwardedByEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.FailureType).WithMany().HasForeignKey(x => x.FailureTypeId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.SupportType).WithMany().HasForeignKey(x => x.SupportTypeId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(x => x.CompletedByEmployee).WithMany().HasForeignKey(x => x.CompletedByEmployeeId).OnDelete(DeleteBehavior.SetNull);
         b.Property(x => x.ChargeAmount).HasPrecision(12, 2);
         b.HasMany(x => x.AuditTrail).WithOne(a => a.Ticket).HasForeignKey(a => a.TicketId);
         b.HasIndex(x => x.Status);
@@ -348,6 +353,15 @@ public class MaintenanceRecordConfiguration : IEntityTypeConfiguration<Maintenan
         b.Property(x => x.Description).HasColumnType("text").IsRequired();
         b.Property(x => x.Remarks).HasColumnType("text");
         b.HasOne(x => x.PerformedByEmployee).WithMany(e => e.MaintenanceRecords).HasForeignKey(x => x.PerformedByEmployeeId);
+
+        // All three links are optional (nullable FKs) and SetNull on delete —
+        // a maintenance record is a historical log entry; removing the
+        // client/product/ticket it referenced should never cascade-delete or
+        // block on the maintenance history itself.
+        b.HasOne(x => x.Client).WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(x => x.SystemProduct).WithMany().HasForeignKey(x => x.SystemProductId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne(x => x.Ticket).WithMany().HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.SetNull);
+        b.HasIndex(x => new { x.ClientId, x.Date });
     }
 }
 
@@ -476,6 +490,15 @@ public class LocationEntryConfiguration : IEntityTypeConfiguration<LocationEntry
         b.Property(x => x.Type).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.Property(x => x.Name).HasMaxLength(150).IsRequired();
         b.HasIndex(x => new { x.Type, x.Name }).IsUnique();
+
+        // Self-referencing Region -> Zone -> Woreda chain. Cascade so
+        // deleting a Region removes its Zones, which in turn removes their
+        // Woredas — Postgres supports multiple cascade paths through a
+        // self-referencing FK, unlike SQL Server's more restrictive rules.
+        b.HasOne(x => x.Parent)
+            .WithMany()
+            .HasForeignKey(x => x.ParentId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
@@ -491,6 +514,7 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.HasIndex(x => x.Name).IsUnique();
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.Property(x => x.BasePrice).HasPrecision(12, 2);
+        b.Property(x => x.RequiredSpecialization).HasMaxLength(100);
     }
 }
 

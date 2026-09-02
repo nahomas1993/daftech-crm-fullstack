@@ -9,7 +9,9 @@ import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
 import { DashboardService } from '../../core/services/dashboard.service';
 import { LocationService } from '../../core/services/location.service';
-import { NotificationRecipientType, DashboardData, DashboardFilter } from '../../core/models';
+import { TrainingService } from '../../core/services/training.service';
+import { SystemProductService } from '../../core/services/system-product.service';
+import { NotificationRecipientType, DashboardData, DashboardFilter, MyTrainingAssignment, TrainingRecord, Ticket } from '../../core/models';
 import { DecimalPipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TimeoutError } from 'rxjs';
@@ -239,6 +241,50 @@ function describeDashboardError(err: unknown): string {
           <div class="card-value" [class.warn]="myEscalatedTickets() > 0">{{ myEscalatedTickets() }}</div>
         </a>
       </div>
+
+      @if (isTechnician()) {
+        <h3 style="margin: 1.5rem 0 0.9rem;">My Ticket Stats</h3>
+        <div class="cards">
+          <a routerLink="/admin/tickets" class="panel panel-pad card">
+            <div class="card-label">Assigned Tickets</div>
+            <div class="card-value">{{ technicianStats().assigned }}</div>
+          </a>
+          <a routerLink="/admin/tickets" class="panel panel-pad card">
+            <div class="card-label">Open Tickets</div>
+            <div class="card-value">{{ technicianStats().open }}</div>
+          </a>
+          <a routerLink="/admin/tickets" class="panel panel-pad card">
+            <div class="card-label">Overdue Tickets</div>
+            <div class="card-value" [class.warn]="technicianStats().overdue > 0">{{ technicianStats().overdue }}</div>
+          </a>
+          <div class="panel panel-pad card">
+            <div class="card-label">Avg. Working Time to Complete</div>
+            <div class="card-value">{{ technicianStats().avgWorkingMinutes != null ? (technicianStats().avgWorkingMinutes | number:'1.0-0') + ' min' : '—' }}</div>
+          </div>
+          <div class="panel panel-pad card">
+            <div class="card-label">Completed This Week</div>
+            <div class="card-value">{{ technicianStats().completedThisWeek }}</div>
+          </div>
+        </div>
+      }
+
+      @if (isTrainer()) {
+        <h3 style="margin: 1.5rem 0 0.9rem;">My Training Stats</h3>
+        <div class="cards">
+          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
+            <div class="card-label">Assigned Trainings</div>
+            <div class="card-value">{{ trainerAssignments().length }}</div>
+          </a>
+          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
+            <div class="card-label">Pending Training Submissions</div>
+            <div class="card-value" [class.warn]="pendingTrainingSubmissions() > 0">{{ pendingTrainingSubmissions() }}</div>
+          </a>
+          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
+            <div class="card-label">Completed Training Records</div>
+            <div class="card-value">{{ trainerRecords().length }}</div>
+          </a>
+        </div>
+      }
     }
   `,
   styles: [`
@@ -269,6 +315,8 @@ export class DashboardComponent {
     private auth: AuthService,
     private dashboardSvc: DashboardService,
     public locations: LocationService,
+    private trainingSvc: TrainingService,
+    private systemProductsSvc: SystemProductService,
   ) {
     // allowSignalWrites: both effects kick off async loads that write
     // signals (loadDashboard clears dashboardError synchronously, the
@@ -285,6 +333,45 @@ export class DashboardComponent {
       const f = this.filter(); // re-run whenever the filter changes
       void this.loadDashboard(f);
     }, { allowSignalWrites: true });
+
+    // Technician KPI cards need this employee's own ticket data —
+    // pagedTickets() is already server-scoped to the caller for a
+    // non-admin, so a plain refresh is enough (no new endpoint needed).
+    if (this.isTechnician()) {
+      void this.ticketsSvc.refreshPaged();
+    }
+
+    // Trainer KPI cards: the logged-in trainer's own assignments/records —
+    // both endpoints are scoped server-side to the calling trainer.
+    if (this.isTrainer()) {
+      void this.loadTrainerData();
+    }
+  }
+
+  private async loadTrainerData() {
+    try {
+      const [assignments, records] = await Promise.all([
+        this.trainingSvc.getMyAssignments(),
+        this.trainingSvc.getMyRecords(),
+      ]);
+      this.trainerAssignments.set(assignments);
+      this.trainerRecords.set(records);
+
+      // trainingSubmittedAt lives on the SystemProduct, not the assignment
+      // itself, so resolve each assigned system/product to check it —
+      // assignment lists are small (one trainer's own roster).
+      const statuses = await Promise.all(assignments.map(async a => {
+        try {
+          const sp = await this.systemProductsSvc.getById(a.systemProductId);
+          return { systemProductId: a.systemProductId, submitted: !!sp.trainingSubmittedAt };
+        } catch {
+          return { systemProductId: a.systemProductId, submitted: false };
+        }
+      }));
+      this.trainerAssignmentStatus.set(statuses);
+    } catch (err) {
+      console.error('Failed to load trainer dashboard data', err);
+    }
   }
 
   /** Guards against an out-of-order response from a superseded filter overwriting a newer one. */
@@ -342,6 +429,68 @@ export class DashboardComponent {
     if (!emp) return 0;
     return this.ticketsSvc.forEmployee(emp.id).filter(t => t.status === 'Escalated').length;
   });
+
+  isTechnician = computed(() => this.auth.currentEmployee()?.roles.includes('EmployeeTechnician') ?? false);
+  isTrainer = computed(() => this.auth.currentEmployee()?.roles.includes('Trainer') ?? false);
+
+  private static readonly OVERDUE_STATUSES: string[] = ['Submitted', 'Assigned', 'InProgress'];
+
+  /**
+   * Technician dashboard KPIs — assigned/open/overdue counts, average
+   * working minutes to complete, and completions in the current calendar
+   * week — all derived client-side from this technician's own ticket set
+   * (forEmployee() already server-scoped for a non-admin caller), so no
+   * new backend endpoint is required.
+   */
+  technicianStats = computed(() => {
+    const emp = this.auth.currentEmployee();
+    const empty = { assigned: 0, open: 0, overdue: 0, avgWorkingMinutes: null as number | null, completedThisWeek: 0 };
+    if (!emp) return empty;
+
+    const myTickets: Ticket[] = this.ticketsSvc.forEmployee(emp.id);
+    const now = Date.now();
+
+    const assigned = myTickets.length;
+    const open = myTickets.filter(t => ['Assigned', 'InProgress'].includes(t.status)).length;
+    const overdue = myTickets.filter(t =>
+      DashboardComponent.OVERDUE_STATUSES.includes(t.status) &&
+      t.expectedResolutionBy != null &&
+      new Date(t.expectedResolutionBy).getTime() < now
+    ).length;
+
+    const completedWithTimes = myTickets.filter(t => t.workingMinutesToComplete != null);
+    const avgWorkingMinutes = completedWithTimes.length > 0
+      ? completedWithTimes.reduce((sum, t) => sum + (t.workingMinutesToComplete ?? 0), 0) / completedWithTimes.length
+      : null;
+
+    const startOfWeek = DashboardComponent.startOfCurrentWeek();
+    const completedThisWeek = myTickets.filter(t =>
+      t.completedAt != null && new Date(t.completedAt).getTime() >= startOfWeek.getTime()
+    ).length;
+
+    return { assigned, open, overdue, avgWorkingMinutes, completedThisWeek };
+  });
+
+  /** Midnight, this Monday, in local time — the start of "this week" for the technician's completions KPI. */
+  private static startOfCurrentWeek(): Date {
+    const now = new Date();
+    const day = now.getDay(); // 0 = Sunday .. 6 = Saturday
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  }
+
+  // --- Trainer dashboard state ---
+  trainerAssignments = signal<MyTrainingAssignment[]>([]);
+  trainerRecords = signal<TrainingRecord[]>([]);
+
+  /** Assignments this trainer has not yet submitted a training checklist for — see SystemProductService.submitTraining / SystemProduct.trainingSubmittedAt. */
+  pendingTrainingSubmissions = computed(() =>
+    this.trainerAssignmentStatus().filter(a => !a.submitted).length
+  );
+
+  private trainerAssignmentStatus = signal<{ systemProductId: string; submitted: boolean }[]>([]);
 
   private recipientKey = computed((): { type: NotificationRecipientType; id: string } | null => {
     const emp = this.auth.currentEmployee();

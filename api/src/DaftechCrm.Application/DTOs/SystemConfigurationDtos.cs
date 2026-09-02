@@ -10,7 +10,7 @@ public record SystemSettingDto(
     string Category,
     string Label,
     string Description,
-    string ValueType, // "int" | "bool" | "string" — tells the frontend which input control to render
+    string ValueType, // "int" | "bool" | "string" | "time" — tells the frontend which input control to render ("time" renders an HH:mm picker)
     DateTimeOffset? UpdatedAt,
     string? UpdatedByName
 );

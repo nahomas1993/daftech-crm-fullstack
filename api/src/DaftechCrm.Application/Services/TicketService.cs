@@ -65,6 +65,11 @@ public class TicketService : ITicketService
             throw new ValidationException(
                 "Selected system/product does not belong to this client.");
 
+        var client = await _db.Clients
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == request.ClientId, ct)
+            ?? throw new ValidationException("Client not found.");
+
         var agreement = await _db.Agreements
             .AsNoTracking()
             .FirstOrDefaultAsync(
@@ -92,6 +97,7 @@ public class TicketService : ITicketService
             SupportTypeId = request.SupportTypeId,
             Chargeable = chargeable,
             Status = TicketStatus.Submitted,
+            ItSupportContact = client.ItSupportContact,
             VoiceNoteStorageKey = request.VoiceNoteStorageKey,
             VoiceNoteFileName = request.VoiceNoteFileName,
         };
@@ -138,6 +144,16 @@ public class TicketService : ITicketService
                 throw new ValidationException("Selected failure type does not belong to the selected category.");
         }
 
+        // Resolve the specialty this ticket needs once, at submission —
+        // an admin-configured specialty on the chosen FailureType, falling
+        // back to the ticket's Category name when no FailureType was
+        // picked or the chosen one has no specialty set. Frozen on the
+        // ticket from here on (see Ticket.RequiredSpecialization).
+        ticket.RequiredSpecialization =
+            !string.IsNullOrWhiteSpace(failureType?.RequiredSpecialization)
+                ? failureType!.RequiredSpecialization
+                : request.Category.ToString();
+
         SupportType? supportType = null;
         if (request.SupportTypeId is Guid requestedSupportTypeId)
         {
@@ -183,7 +199,7 @@ public class TicketService : ITicketService
         if (canAssignNow)
         {
             assignee =
-                await _assignment.SelectAssigneeAsync(ct);
+                await _assignment.SelectAssigneeAsync(ticket.RequiredSpecialization, ct);
 
             if (assignee is not null)
             {
@@ -374,6 +390,23 @@ public class TicketService : ITicketService
         {
             ticket.Status = TicketStatus.AwaitingClientConfirmation;
             ticket.ResolvedAt = DateTimeOffset.UtcNow;
+
+            // Stamped exactly once — a ticket that's later escalated/reopened
+            // and resolved again must not overwrite the original completion
+            // stamp (see Ticket.CompletedAt).
+            if (ticket.CompletedAt is null)
+            {
+                ticket.CompletedAt = ticket.ResolvedAt;
+                ticket.CompletedByEmployeeId = callerType == SessionAccountType.Employee
+                    ? callerId
+                    : ticket.AssignedEmployeeId;
+
+                if (ticket.AssignedAt is DateTimeOffset assignedAt)
+                {
+                    ticket.WorkingMinutesToComplete =
+                        _officeTime.WorkingMinutesElapsed(assignedAt, ticket.CompletedAt.Value);
+                }
+            }
 
             // A missing/zero/garbage setting used to produce a deadline of
             // "right now", which the 15-minute auto-close sweep then closed
@@ -791,7 +824,7 @@ public class TicketService : ITicketService
             if (!FitsBeforeCloseIfSaturday(now, failureType))
                 continue; // Still queued — will pick up Monday's sweep.
 
-            var assignee = await _assignment.SelectAssigneeAsync(ct);
+            var assignee = await _assignment.SelectAssigneeAsync(ticket.RequiredSpecialization, ct);
             if (assignee is null)
                 break; // No eligible technician at all right now — nothing else in the queue will fare better this tick.
 
@@ -855,6 +888,7 @@ public class TicketService : ITicketService
             .Include(t => t.FailureType)
             .Include(t => t.SupportType)
             .Include(t => t.SystemProduct)
+            .Include(t => t.CompletedByEmployee)
             .OrderByDescending(t => t.DateSubmitted)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -875,6 +909,8 @@ public class TicketService : ITicketService
                     t.FailureType?.Name,
                     t.SupportTypeId,
                     t.SupportType?.Name,
+                    t.ItSupportContact,
+                    t.RequiredSpecialization,
                     t.DateSubmitted,
                     t.ForwardedByEmployeeId,
                     t.AssignedEmployeeId,
@@ -893,6 +929,10 @@ public class TicketService : ITicketService
                     t.ClosureReason,
                     t.AttachmentFileName,
                     t.VoiceNoteFileName,
+                    t.CompletedAt,
+                    t.CompletedByEmployeeId,
+                    t.CompletedByEmployee?.FullName,
+                    t.WorkingMinutesToComplete,
                     t.AuditTrail
                         .OrderBy(a => a.Timestamp)
                         .Select(
@@ -976,6 +1016,7 @@ public class TicketService : ITicketService
             .Include(t => t.FailureType)
             .Include(t => t.SupportType)
             .Include(t => t.SystemProduct)
+            .Include(t => t.CompletedByEmployee)
             .OrderByDescending(t => t.DateSubmitted)
             .ToListAsync(ct);
 
@@ -994,6 +1035,8 @@ public class TicketService : ITicketService
                     t.FailureType?.Name,
                     t.SupportTypeId,
                     t.SupportType?.Name,
+                    t.ItSupportContact,
+                    t.RequiredSpecialization,
                     t.DateSubmitted,
                     t.ForwardedByEmployeeId,
                     t.AssignedEmployeeId,
@@ -1012,6 +1055,10 @@ public class TicketService : ITicketService
                     t.ClosureReason,
                     t.AttachmentFileName,
                     t.VoiceNoteFileName,
+                    t.CompletedAt,
+                    t.CompletedByEmployeeId,
+                    t.CompletedByEmployee?.FullName,
+                    t.WorkingMinutesToComplete,
                     t.AuditTrail
                         .OrderBy(a => a.Timestamp)
                         .Select(

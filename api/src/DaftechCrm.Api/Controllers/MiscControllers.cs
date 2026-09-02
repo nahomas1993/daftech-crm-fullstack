@@ -206,7 +206,8 @@ public class SystemProductsController : ControllerBase
     public async Task<ActionResult<SystemProductDto>> MarkTrainingCompleted(Guid id, CancellationToken ct)
     {
         try { return Ok(await _systemProducts.MarkTrainingCompletedAsync(id, ct)); }
-        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
+        catch (InvalidOperationException ex) when (ex.Message == "System/Product not found.") { return NotFound(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     /// <summary>
@@ -517,25 +518,49 @@ public class AgreementsController : ControllerBase
 
 [ApiController]
 [Route("api/maintenance")]
-[Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+[Authorize(Policy = AuthorizationPolicies.AnyAuthenticated)]
 public class MaintenanceController : ControllerBase
 {
     private readonly IMaintenanceService _maintenance;
     public MaintenanceController(IMaintenanceService maintenance) => _maintenance = maintenance;
 
     [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<IReadOnlyList<MaintenanceRecordDto>>> GetAll(CancellationToken ct) => Ok(await _maintenance.GetAllAsync(ct));
 
     /// <summary>Paged maintenance record listing for the Maintenance table (query: page, pageSize).</summary>
     [HttpGet("paged")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<PagedResult<MaintenanceRecordDto>>> GetAllPaged([FromQuery] PaginationQuery query, CancellationToken ct) =>
         Ok(await _maintenance.GetAllPagedAsync(query, ct));
 
+    /// <summary>A client may only view their own maintenance history; any employee may view any client's.</summary>
+    [HttpGet("client/{clientId:guid}")]
+    public async Task<ActionResult<IReadOnlyList<MaintenanceRecordDto>>> GetForClient(Guid clientId, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType == SessionAccountType.Client && callerId != clientId)
+            return this.ForbidOwnership();
+
+        return Ok(await _maintenance.GetForClientAsync(clientId, ct));
+    }
+
+    /// <summary>Any employee may list a system/product's maintenance history. Ownership is enforced one level up (via the client), so this endpoint is employee-only — the client portal calls GetForClient instead.</summary>
+    [HttpGet("system-product/{systemProductId:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    public async Task<ActionResult<IReadOnlyList<MaintenanceRecordDto>>> GetForSystemProduct(Guid systemProductId, CancellationToken ct) =>
+        Ok(await _maintenance.GetForSystemProductAsync(systemProductId, ct));
+
     [HttpPost]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<MaintenanceRecordDto>> Create([FromBody] CreateMaintenanceRecordRequest request, CancellationToken ct)
     {
-        var r = await _maintenance.CreateAsync(request, ct);
-        return Created($"/api/maintenance/{r.Id}", r);
+        try
+        {
+            var r = await _maintenance.CreateAsync(request, ct);
+            return Created($"/api/maintenance/{r.Id}", r);
+        }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 }
 

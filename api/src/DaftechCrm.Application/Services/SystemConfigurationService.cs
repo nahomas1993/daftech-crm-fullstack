@@ -65,6 +65,34 @@ public class SystemConfigurationService : ISystemConfigurationService
             new("Training.MaxTrainersPerSystemProduct", "Training", "Maximum trainers per system/product",
                 "The ceiling on how many Trainers/Technicians can be assigned to train a client on one system/product — caps both the manual-assignment dropdown and how many Automatic Assignment can pick by workload.",
                 "int", "1"),
+
+            new("Office.WorkdayStart", "Office Hours", "Workday start",
+                "When the working day begins (HH:mm, 24-hour). Used to compute working minutes on tickets.",
+                "time", "08:30"),
+
+            new("Office.WorkdayEnd", "Office Hours", "Workday end",
+                "When the working day ends (HH:mm, 24-hour). Used to compute working minutes on tickets.",
+                "time", "17:30"),
+
+            new("Office.LunchStart", "Office Hours", "Lunch break start",
+                "When the daily lunch break begins (HH:mm, 24-hour) — excluded from working-minutes calculations.",
+                "time", "12:30"),
+
+            new("Office.LunchEnd", "Office Hours", "Lunch break end",
+                "When the daily lunch break ends (HH:mm, 24-hour) — excluded from working-minutes calculations.",
+                "time", "13:30"),
+
+            new("Office.SaturdayOpen", "Office Hours", "Open on Saturday",
+                "Whether the office is open (and tickets' working-minutes clock runs) on Saturdays.",
+                "bool", "true"),
+
+            new("Office.SaturdayEnd", "Office Hours", "Saturday closing time",
+                "When the office closes on Saturday (HH:mm, 24-hour). Only used when Saturday is open.",
+                "time", "13:00"),
+
+            new("Office.SundayOpen", "Office Hours", "Open on Sunday",
+                "Whether the office is open (and tickets' working-minutes clock runs) on Sundays.",
+                "bool", "false"),
         };
     }
 
@@ -156,6 +184,10 @@ public class SystemConfigurationService : ISystemConfigurationService
             case "bool":
                 if (!bool.TryParse(value, out _))
                     throw new InvalidOperationException($"\"{def.Label}\" must be true or false.");
+                break;
+            case "time":
+                if (!TimeOnly.TryParseExact(value, "HH:mm", out _))
+                    throw new InvalidOperationException($"\"{def.Label}\" must be a time in HH:mm format (e.g. 08:30).");
                 break;
         }
     }

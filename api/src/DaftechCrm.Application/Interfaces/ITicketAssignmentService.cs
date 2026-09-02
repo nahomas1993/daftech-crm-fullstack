@@ -11,6 +11,16 @@ namespace DaftechCrm.Application.Interfaces;
 /// </summary>
 public interface ITicketAssignmentService
 {
-    /// <summary>Returns the employee who should receive the next ticket, or null if no eligible employee exists.</summary>
-    Task<Employee?> SelectAssigneeAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Returns the employee who should receive the next ticket, or null if
+    /// no eligible employee exists. When requiredSpecialization is given,
+    /// candidates are first narrowed to active technicians whose
+    /// Specialization matches it (case-insensitive) before applying the
+    /// workload/last-assignment ordering; if no specialist is currently
+    /// active, falls back to ranking every active technician exactly as
+    /// before this parameter existed. Null/blank requiredSpecialization
+    /// skips the filter entirely — unchanged behavior for tickets with no
+    /// resolved specialty (e.g. legacy tickets).
+    /// </summary>
+    Task<Employee?> SelectAssigneeAsync(string? requiredSpecialization = null, CancellationToken ct = default);
 }

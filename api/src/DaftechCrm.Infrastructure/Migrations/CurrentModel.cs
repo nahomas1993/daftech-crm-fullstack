@@ -37,6 +37,8 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<string>("Description").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<bool>("IsSystemDefined").HasColumnType("boolean");
+                b.Property<bool>("IsTrainingItem").HasColumnType("boolean");
+                b.Property<bool>("IsRequiredForCompletion").HasColumnType("boolean");
                 b.Property<string>("Name").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
@@ -238,8 +240,14 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid>("PerformedByEmployeeId").HasColumnType("uuid");
                 b.Property<string>("Remarks").HasColumnType("text");
                 b.Property<int>("Status").HasColumnType("integer");
+                b.Property<Guid?>("ClientId").HasColumnType("uuid");
+                b.Property<Guid?>("SystemProductId").HasColumnType("uuid");
+                b.Property<Guid?>("TicketId").HasColumnType("uuid");
                 b.HasKey("Id");
                 b.HasIndex("PerformedByEmployeeId");
+                b.HasIndex("SystemProductId");
+                b.HasIndex("TicketId");
+                b.HasIndex("ClientId", "Date");
                 b.ToTable("maintenance_records");
             });
 
@@ -332,6 +340,11 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("Priority").HasColumnType("integer");
                 b.Property<string>("VoiceNoteStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<string>("VoiceNoteFileName").HasMaxLength(300).HasColumnType("character varying(300)");
+                b.Property<string>("ItSupportContact").HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<string>("RequiredSpecialization").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<DateTimeOffset?>("CompletedAt").HasColumnType("timestamp with time zone");
+                b.Property<Guid?>("CompletedByEmployeeId").HasColumnType("uuid");
+                b.Property<int?>("WorkingMinutesToComplete").HasColumnType("integer");
                 b.HasKey("Id");
                 b.HasIndex("AgreementId");
                 b.HasIndex("SystemProductId");
@@ -341,6 +354,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.HasIndex("ForwardedByEmployeeId");
                 b.HasIndex("FailureTypeId");
                 b.HasIndex("SupportTypeId");
+                b.HasIndex("CompletedByEmployeeId");
                 b.HasIndex("Status");
                 b.HasIndex("Priority");
                 b.ToTable("tickets");
@@ -408,9 +422,20 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<string>("Type").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
+                b.Property<Guid?>("ParentId").HasColumnType("uuid");
                 b.HasKey("Id");
+                b.HasIndex("ParentId");
                 b.HasIndex("Type", "Name").IsUnique();
                 b.ToTable("location_entries");
+
+                // Self-referencing Region -> Zone -> Woreda chain; Cascade
+                // so removing a Region removes its Zones and, transitively,
+                // their Woredas.
+                b.HasOne("DaftechCrm.Domain.Entities.LocationEntry", "Parent")
+                    .WithMany()
+                    .HasForeignKey("ParentId")
+                    .OnDelete(DeleteBehavior.Cascade);
+                b.Navigation("Parent");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.FailureType", b =>
@@ -422,6 +447,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<decimal>("BasePrice").HasColumnType("numeric(12,2)").HasPrecision(12, 2);
                 b.Property<int>("DurationValue").HasColumnType("integer");
                 b.Property<string>("DurationUnit").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
+                b.Property<string>("RequiredSpecialization").HasMaxLength(100).HasColumnType("character varying(100)");
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
                 b.ToTable("failure_types");
@@ -580,7 +606,22 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .HasForeignKey("PerformedByEmployeeId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                b.HasOne("DaftechCrm.Domain.Entities.Client", "Client")
+                    .WithMany()
+                    .HasForeignKey("ClientId")
+                    .OnDelete(DeleteBehavior.SetNull);
+                b.HasOne("DaftechCrm.Domain.Entities.SystemProduct", "SystemProduct")
+                    .WithMany()
+                    .HasForeignKey("SystemProductId")
+                    .OnDelete(DeleteBehavior.SetNull);
+                b.HasOne("DaftechCrm.Domain.Entities.Ticket", "Ticket")
+                    .WithMany()
+                    .HasForeignKey("TicketId")
+                    .OnDelete(DeleteBehavior.SetNull);
                 b.Navigation("PerformedByEmployee");
+                b.Navigation("Client");
+                b.Navigation("SystemProduct");
+                b.Navigation("Ticket");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.SatisfactionSurvey", b =>
@@ -664,6 +705,10 @@ namespace DaftechCrm.Infrastructure.Migrations
                     .WithMany()
                     .HasForeignKey("SupportTypeId")
                     .OnDelete(DeleteBehavior.SetNull);
+                b.HasOne("DaftechCrm.Domain.Entities.Employee", "CompletedByEmployee")
+                    .WithMany()
+                    .HasForeignKey("CompletedByEmployeeId")
+                    .OnDelete(DeleteBehavior.SetNull);
                 b.Navigation("Agreement");
                 b.Navigation("SystemProduct");
                 b.Navigation("AssignedEmployee");
@@ -671,6 +716,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Navigation("ForwardedByEmployee");
                 b.Navigation("FailureType");
                 b.Navigation("SupportType");
+                b.Navigation("CompletedByEmployee");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.TicketAuditEntry", b =>

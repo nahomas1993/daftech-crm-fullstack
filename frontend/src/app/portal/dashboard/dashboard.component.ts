@@ -159,6 +159,7 @@ export class PortalDashboardComponent implements OnInit, OnDestroy {
     if (client) {
       void this.ticketsSvc.refreshMyTickets(client.id);
       void this.systemProductsSvc.refreshForClient(client.id);
+      void this.agreementsSvc.refreshMyAgreements(client.id);
     }
   }
 
@@ -206,7 +207,7 @@ export class PortalDashboardComponent implements OnInit, OnDestroy {
   expiredAgreements = computed(() => {
     const client = this.client();
     if (!client) return 0;
-    return this.agreementsSvc.agreements().filter(a => a.clientId === client.id && a.status === 'Expired').length;
+    return this.agreementsSvc.forClient(client.id).filter(a => a.status === 'Expired').length;
   });
 
   recentActivity = computed(() => this.myTickets().slice(0, 10));

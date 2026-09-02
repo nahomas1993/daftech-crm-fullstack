@@ -45,5 +45,26 @@ public class AgreementType
     /// </summary>
     public bool IsSystemDefined { get; set; }
 
+    /// <summary>
+    /// True when this AgreementType represents a checklist item a Trainer
+    /// logs a TrainingRecord against (e.g. "Attendance", "System Walkthrough")
+    /// rather than a signed document type like Support. Purely a UI/filtering
+    /// hint — TrainingRecord.AgreementTypeId can reference any AgreementType
+    /// regardless of this flag — but it lets the admin screen and the
+    /// Trainer's checklist show only the relevant subset instead of every
+    /// AgreementType ever defined.
+    /// </summary>
+    public bool IsTrainingItem { get; set; }
+
+    /// <summary>
+    /// True when at least one TrainingRecord against this AgreementType must
+    /// exist on a SystemProduct before that SystemProduct's training can be
+    /// submitted by a Trainer (SystemProductService.SubmitTrainingAsync) or
+    /// marked Completed by an Admin (SystemProductService.MarkTrainingCompletedAsync).
+    /// Only meaningful when IsTrainingItem is true. Admin-toggleable per type
+    /// so the mandatory checklist can grow or shrink without a code change.
+    /// </summary>
+    public bool IsRequiredForCompletion { get; set; }
+
     public ICollection<Agreement> Agreements { get; set; } = new List<Agreement>();
 }

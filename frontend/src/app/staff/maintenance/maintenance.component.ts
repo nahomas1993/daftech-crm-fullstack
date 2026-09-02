@@ -3,6 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { MaintenanceService } from '../../core/services/maintenance.service';
 import { EmployeeService } from '../../core/services/employee.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ClientService } from '../../core/services/client.service';
+import { SystemProductService } from '../../core/services/system-product.service';
+import { TicketService } from '../../core/services/ticket.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { MaintenanceCategory, MaintenanceStatus } from '../../core/models';
@@ -25,6 +28,27 @@ const CATEGORIES: MaintenanceCategory[] = ['SQL/Database error', 'Front-end erro
     @if (showForm()) {
       <div class="panel panel-pad" style="margin-top:1.25rem;">
         <div class="form-grid">
+          <div class="field">
+            <label>Client <span class="req">*</span></label>
+            <select [ngModel]="form.clientId" (ngModelChange)="onClientChange($event)">
+              <option value="">Select a client…</option>
+              @for (c of clients.approvedClients(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+            </select>
+          </div>
+          <div class="field">
+            <label>System/Product (optional)</label>
+            <select [ngModel]="form.systemProductId" (ngModelChange)="form.systemProductId = $event" [disabled]="!form.clientId">
+              <option value="">None / not specific to one system</option>
+              @for (sp of systemProductsForClient(); track sp.id) { <option [value]="sp.id">{{ sp.name }}</option> }
+            </select>
+          </div>
+          <div class="field">
+            <label>Ticket (optional)</label>
+            <select [ngModel]="form.ticketId" (ngModelChange)="form.ticketId = $event" [disabled]="!form.clientId">
+              <option value="">None / not related to a ticket</option>
+              @for (t of ticketsForClient(); track t.id) { <option [value]="t.id">{{ t.id.slice(0,8).toUpperCase() }} — {{ t.description.slice(0,40) }}</option> }
+            </select>
+          </div>
           <div class="field">
             <label>Category</label>
             <select [ngModel]="form.category" (ngModelChange)="form.category = $event">
@@ -58,7 +82,7 @@ const CATEGORIES: MaintenanceCategory[] = ['SQL/Database error', 'Front-end erro
           <label>Remarks (optional)</label>
           <input type="text" [ngModel]="form.remarks" (ngModelChange)="form.remarks = $event" placeholder="Root cause, follow-up needed…" />
         </div>
-        <button class="btn btn-primary" style="margin-top:1rem;" (click)="submit()">Save Record</button>
+        <button class="btn btn-primary" style="margin-top:1rem;" [disabled]="!form.clientId" (click)="submit()">Save Record</button>
       </div>
     }
 
@@ -70,15 +94,16 @@ const CATEGORIES: MaintenanceCategory[] = ['SQL/Database error', 'Front-end erro
         </select>
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Description</th><th>Performed By</th><th>Status</th></tr></thead>
+        <thead><tr><th>ID</th><th>Date</th><th>Client</th><th>Category</th><th>Description</th><th>Performed By</th><th>Status</th></tr></thead>
         <tbody>
           @for (r of displayedRecords(); track r.id) {
             <tr>
               <td class="mono">{{ r.id }}</td>
               <td class="text-muted">{{ r.date }}</td>
+              <td>{{ r.clientName || '—' }}</td>
               <td>{{ r.category }}</td>
               <td>{{ r.description }}</td>
-              <td>{{ employeeName(r.performedByEmployeeId) }}</td>
+              <td>{{ r.performedByEmployeeName || employeeName(r.performedByEmployeeId) }}</td>
               <td><app-badge [status]="r.status"></app-badge></td>
             </tr>
           }
@@ -114,11 +139,22 @@ export class MaintenanceComponent {
   customCategory = '';
   extraCategories = signal<string[]>([]);
 
-  form: { category: MaintenanceCategory; performedByEmployeeId: string; status: MaintenanceStatus; description: string; remarks: string } = {
+  form: {
+    clientId: string; systemProductId: string; ticketId: string;
+    category: MaintenanceCategory; performedByEmployeeId: string; status: MaintenanceStatus; description: string; remarks: string;
+  } = {
+    clientId: '', systemProductId: '', ticketId: '',
     category: 'SQL/Database error', performedByEmployeeId: '', status: 'InProgress', description: '', remarks: '',
   };
 
-  constructor(public maintenance: MaintenanceService, public employees: EmployeeService, private auth: AuthService) {
+  constructor(
+    public maintenance: MaintenanceService,
+    public employees: EmployeeService,
+    public clients: ClientService,
+    public systemProducts: SystemProductService,
+    public tickets: TicketService,
+    private auth: AuthService,
+  ) {
     effect(() => {
       const list = employees.activeEmployees();
       if (list.length > 0 && !this.form.performedByEmployeeId) {
@@ -128,6 +164,19 @@ export class MaintenanceComponent {
   }
 
   categories = computed(() => [...CATEGORIES, ...this.extraCategories()]);
+
+  /** Loaded on demand once a client is selected, since system/products aren't fetched client-wide by default — see SystemProductService.refreshForClient. */
+  systemProductsForClient = computed(() => this.form.clientId ? this.systemProducts.systemProductsFor(this.form.clientId) : []);
+  ticketsForClient = computed(() => this.form.clientId ? this.tickets.forClient(this.form.clientId) : []);
+
+  async onClientChange(clientId: string) {
+    this.form.clientId = clientId;
+    this.form.systemProductId = '';
+    this.form.ticketId = '';
+    if (clientId) {
+      await this.systemProducts.refreshForClient(clientId);
+    }
+  }
 
   filtered = computed(() => {
     const filter = this.categoryFilter();
@@ -142,7 +191,7 @@ export class MaintenanceComponent {
   }
 
   async submit() {
-    if (!this.form.description || !this.form.performedByEmployeeId) return;
+    if (!this.form.clientId || !this.form.description || !this.form.performedByEmployeeId) return;
     const category = this.customCategory.trim() || this.form.category;
     if (this.customCategory.trim()) {
       this.extraCategories.update(list => (list.includes(category) ? list : [...list, category]));
@@ -153,9 +202,15 @@ export class MaintenanceComponent {
       performedByEmployeeId: this.form.performedByEmployeeId,
       status: this.form.status,
       remarks: this.form.remarks || undefined,
+      clientId: this.form.clientId,
+      systemProductId: this.form.systemProductId || undefined,
+      ticketId: this.form.ticketId || undefined,
     });
     this.showForm.set(false);
-    this.form = { category: 'SQL/Database error', performedByEmployeeId: this.employees.activeEmployees()[0]?.id ?? '', status: 'InProgress', description: '', remarks: '' };
+    this.form = {
+      clientId: '', systemProductId: '', ticketId: '',
+      category: 'SQL/Database error', performedByEmployeeId: this.employees.activeEmployees()[0]?.id ?? '', status: 'InProgress', description: '', remarks: '',
+    };
     this.customCategory = '';
   }
 }

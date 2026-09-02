@@ -107,6 +107,9 @@ const REFRESH_INTERVAL_MS = 20_000;
                 @if (t.voiceNoteFileName) {
                   <button class="btn btn-outline btn-sm" (click)="viewVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
                 }
+                @if (hasExtraDetails(t)) {
+                  <button class="btn btn-outline btn-sm" (click)="toggleDetails(t.id)">{{ expandedTicketId() === t.id ? 'Hide Details' : 'Details' }}</button>
+                }
                 @if (canUpdateStatus(t)) {
                   <select
                     style="margin-right:0.3rem;"
@@ -128,8 +131,31 @@ const REFRESH_INTERVAL_MS = 20_000;
                 }
               </td>
             </tr>
+            @if (expandedTicketId() === t.id) {
+              <tr class="details-row">
+                <td colspan="15">
+                  <div class="details-grid">
+                    @if (t.completedAt) {
+                      <div class="detail-item"><span class="detail-label">Completed At</span><span>{{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }}</span></div>
+                    }
+                    @if (t.workingMinutesToComplete != null) {
+                      <div class="detail-item"><span class="detail-label">Working Minutes to Complete</span><span>{{ t.workingMinutesToComplete }}</span></div>
+                    }
+                    @if (t.completedByEmployeeName) {
+                      <div class="detail-item"><span class="detail-label">Completed By</span><span>{{ t.completedByEmployeeName }}</span></div>
+                    }
+                    @if (t.requiredSpecialization) {
+                      <div class="detail-item"><span class="detail-label">Required Specialization</span><span>{{ t.requiredSpecialization }}</span></div>
+                    }
+                    @if (t.itSupportContact) {
+                      <div class="detail-item"><span class="detail-label">IT Support Contact</span><span>{{ t.itSupportContact }}</span></div>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
           }
-          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="15" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -167,6 +193,10 @@ const REFRESH_INTERVAL_MS = 20_000;
     /* SLA countdown emphasis: red once the expected resolution time has run out, amber in the final hour. */
     .sla-overdue { color: var(--red, #b3261e); font-weight: 700; }
     .sla-soon { color: #b06a00; font-weight: 700; }
+    .details-row td { background: var(--slate-50, #f8fafc); padding: 0.75rem 1rem; }
+    .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1.2rem; }
+    .detail-item { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.82rem; }
+    .detail-label { font-size: 0.72rem; font-weight: 600; color: var(--slate-500); }
   `],
 })
 export class TicketsComponent implements OnInit, OnDestroy {
@@ -398,5 +428,24 @@ export class TicketsComponent implements OnInit, OnDestroy {
 
   closePreview() {
     this.previewOpen.set(false);
+  }
+
+  // Expandable "Details" row — surfaces the completion/specialty/contact
+  // fields (Completed At, Working Minutes to Complete, Completed By,
+  // Required Specialization, IT Support Contact) for both Admin and
+  // Technician views. Hidden entirely when a ticket has none of these
+  // set, and each field individually hidden when null/empty so a blank
+  // value never renders as the literal text "null".
+  expandedTicketId = signal<string | null>(null);
+
+  toggleDetails(ticketId: string) {
+    this.expandedTicketId.set(this.expandedTicketId() === ticketId ? null : ticketId);
+  }
+
+  hasExtraDetails(t: {
+    completedAt?: string; workingMinutesToComplete?: number; completedByEmployeeName?: string;
+    requiredSpecialization?: string; itSupportContact?: string;
+  }): boolean {
+    return !!(t.completedAt || t.workingMinutesToComplete != null || t.completedByEmployeeName || t.requiredSpecialization || t.itSupportContact);
   }
 }

@@ -3,9 +3,9 @@ using DaftechCrm.Domain.Enums;
 
 namespace DaftechCrm.Application.DTOs;
 
-public record AgreementTypeDto(Guid Id, string Name, string? Description, bool IsSystemDefined);
-public record CreateAgreementTypeRequest(string Name, string? Description);
-public record UpdateAgreementTypeRequest(string? Description);
+public record AgreementTypeDto(Guid Id, string Name, string? Description, bool IsSystemDefined, bool IsTrainingItem, bool IsRequiredForCompletion);
+public record CreateAgreementTypeRequest(string Name, string? Description, bool IsTrainingItem, bool IsRequiredForCompletion);
+public record UpdateAgreementTypeRequest(string? Description, bool IsTrainingItem, bool IsRequiredForCompletion);
 
 /// <summary>One Trainer/Technician's assignment to train on this system/product — roster entry, no lifecycle of its own. See TrainingAssignment.</summary>
 public record TrainingAssignmentDto(Guid Id, Guid TrainerEmployeeId, string TrainerEmployeeName, DateTimeOffset AssignedAt);
@@ -98,9 +98,13 @@ public record TimeLogDto(Guid Id, Guid EmployeeId, DateOnly Date, DateTimeOffset
 
 public record MaintenanceRecordDto(
     Guid Id, DateOnly Date, string Category, string Description,
-    Guid PerformedByEmployeeId, MaintenanceStatus Status, string? Remarks
+    Guid PerformedByEmployeeId, string PerformedByEmployeeName, MaintenanceStatus Status, string? Remarks,
+    Guid? ClientId, string? ClientName, Guid? SystemProductId, string? SystemProductName, Guid? TicketId
 );
 
-public record CreateMaintenanceRecordRequest(string Category, string Description, Guid PerformedByEmployeeId, MaintenanceStatus Status, string? Remarks);
+public record CreateMaintenanceRecordRequest(
+    string Category, string Description, Guid PerformedByEmployeeId, MaintenanceStatus Status, string? Remarks,
+    Guid? ClientId, Guid? SystemProductId, Guid? TicketId
+);
 
 public record NotificationDto(Guid Id, NotificationRecipientType RecipientType, string RecipientId, string EventType, string Message, DateTimeOffset DateSent, bool ReadStatus);

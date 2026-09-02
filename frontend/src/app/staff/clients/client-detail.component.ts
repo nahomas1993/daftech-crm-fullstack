@@ -9,9 +9,11 @@ import { AgreementService } from '../../core/services/agreement.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { TrainingService } from '../../core/services/training.service';
+import { MaintenanceService } from '../../core/services/maintenance.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload } from '../../core/models';
+import { MaintenanceHistoryListComponent } from '../../shared/maintenance-history-list.component';
+import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload, MaintenanceRecord } from '../../core/models';
 
 /**
  * Client -> System/Product -> Agreement -> Agreement Type. Each
@@ -36,7 +38,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
 @Component({
   selector: 'app-client-detail',
   standalone: true,
-  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule, FilePreviewModalComponent],
+  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule, FilePreviewModalComponent, MaintenanceHistoryListComponent],
   template: `
     @if (client(); as c) {
       <a routerLink="/admin/clients" class="back">← Back to Clients</a>
@@ -325,6 +327,16 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                 }
               </div>
             </div>
+
+            <div class="training-panel">
+              <h5 style="margin:0;">Maintenance History</h5>
+              <p class="text-muted" style="font-size:0.76rem; margin: 0.2rem 0 0.6rem;">Internal maintenance work logged against this system/product, newest first.</p>
+              <app-maintenance-history-list
+                [records]="maintenanceFor(sp.id)"
+                [loading]="maintenanceLoadingFor(sp.id)"
+                emptyMessage="No maintenance records yet for this system/product.">
+              </app-maintenance-history-list>
+            </div>
           </div>
         }
         @empty {
@@ -336,7 +348,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
         <h3>Full Ticket History with DAFTECH</h3>
         <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Used by Admin when assigning new tickets.</p>
         <div class="table-scroll"><table>
-          <thead><tr><th>Ticket</th><th>Category</th><th>Submitted</th><th>Chargeable</th><th>Status</th></tr></thead>
+          <thead><tr><th>Ticket</th><th>Category</th><th>Submitted</th><th>Chargeable</th><th>Status</th><th></th></tr></thead>
           <tbody>
             @for (t of tickets(); track t.id) {
               <tr>
@@ -345,11 +357,49 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                 <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
                 <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
                 <td><app-badge [status]="t.status"></app-badge></td>
+                <td>
+                  @if (hasExtraTicketDetails(t)) {
+                    <button class="btn btn-outline btn-sm" (click)="toggleTicketDetails(t.id)">{{ expandedTicketId() === t.id ? 'Hide Details' : 'Details' }}</button>
+                  }
+                </td>
               </tr>
+              @if (expandedTicketId() === t.id) {
+                <tr class="details-row">
+                  <td colspan="6">
+                    <div class="details-grid">
+                      @if (t.completedAt) {
+                        <div class="detail-item"><span class="detail-label">Completed At</span><span>{{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }}</span></div>
+                      }
+                      @if (t.workingMinutesToComplete != null) {
+                        <div class="detail-item"><span class="detail-label">Working Minutes to Complete</span><span>{{ t.workingMinutesToComplete }}</span></div>
+                      }
+                      @if (t.completedByEmployeeName) {
+                        <div class="detail-item"><span class="detail-label">Completed By</span><span>{{ t.completedByEmployeeName }}</span></div>
+                      }
+                      @if (t.requiredSpecialization) {
+                        <div class="detail-item"><span class="detail-label">Required Specialization</span><span>{{ t.requiredSpecialization }}</span></div>
+                      }
+                      @if (t.itSupportContact) {
+                        <div class="detail-item"><span class="detail-label">IT Support Contact</span><span>{{ t.itSupportContact }}</span></div>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
             }
-            @empty { <tr><td colspan="5" class="text-muted">No tickets submitted yet.</td></tr> }
+            @empty { <tr><td colspan="6" class="text-muted">No tickets submitted yet.</td></tr> }
           </tbody>
         </table></div>
+      </div>
+
+      <div class="panel panel-pad" style="margin-top:1.25rem;">
+        <h3>Maintenance History</h3>
+        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Internal DAFTECH maintenance work logged against this client, across all their systems/products, newest first.</p>
+        <app-maintenance-history-list
+          [records]="clientMaintenanceRecords()"
+          [loading]="clientMaintenanceLoading()"
+          emptyMessage="No maintenance records yet for this client.">
+        </app-maintenance-history-list>
       </div>
     } @else {
       <p class="text-muted">Client not found.</p>
@@ -381,6 +431,10 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
     .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
     .roster-list li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
     .assign-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+    .details-row td { background: var(--slate-50, #f8fafc); padding: 0.75rem 1rem; }
+    .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1.2rem; }
+    .detail-item { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.82rem; }
+    .detail-label { font-size: 0.72rem; font-weight: 600; color: var(--slate-500); }
   `],
 })
 export class ClientDetailComponent {
@@ -426,6 +480,13 @@ export class ClientDetailComponent {
   // Training records fetched per system/product, same keying reasoning.
   private recordsBySystemProduct = signal<Record<string, TrainingRecord[]>>({});
 
+  // Maintenance history fetched per system/product, same keying reasoning,
+  // plus a client-wide list independent of any single system/product.
+  private maintenanceBySystemProduct = signal<Record<string, MaintenanceRecord[]>>({});
+  private maintenanceLoading = signal<Record<string, boolean>>({});
+  clientMaintenanceRecords = signal<MaintenanceRecord[]>([]);
+  clientMaintenanceLoading = signal(false);
+
   trainerWorkloads = signal<TrainerWorkload[]>([]);
   recommendedTrainerId = signal<string | undefined>(undefined);
   manualTrainerSelection: Record<string, string> = {};
@@ -446,6 +507,7 @@ export class ClientDetailComponent {
     public agreementTypesSvc: AgreementTypeService,
     private ticketsSvc: TicketService,
     private trainingSvc: TrainingService,
+    private maintenanceSvc: MaintenanceService,
     private route: ActivatedRoute,
   ) {
     // Load this client's systems/products as soon as the client id is
@@ -453,6 +515,13 @@ export class ClientDetailComponent {
     effect(() => {
       const clientId = this.id();
       if (clientId) void this.refreshSystemProducts(clientId);
+    });
+
+    // Client-wide Maintenance History — independent of the per-system-product
+    // fetches above, which are keyed by systemProductId instead.
+    effect(() => {
+      const clientId = this.id();
+      if (clientId) void this.loadClientMaintenance(clientId);
     });
 
     void this.loadTrainerWorkload();
@@ -488,6 +557,14 @@ export class ClientDetailComponent {
     return this.recordsBySystemProduct()[systemProductId] ?? [];
   }
 
+  maintenanceFor(systemProductId: string): MaintenanceRecord[] {
+    return this.maintenanceBySystemProduct()[systemProductId] ?? [];
+  }
+
+  maintenanceLoadingFor(systemProductId: string): boolean {
+    return this.maintenanceLoading()[systemProductId] ?? false;
+  }
+
   /** Trainers not already on this system/product's roster — the only ones worth showing in the Manual Assign dropdown. */
   availableTrainers(sp: { trainingAssignments: { trainerEmployeeId: string }[] }): TrainerWorkload[] {
     const assignedIds = new Set(sp.trainingAssignments.map(a => a.trainerEmployeeId));
@@ -503,6 +580,22 @@ export class ClientDetailComponent {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
   }
 
+  // Expandable "Details" row on the Full Ticket History table — same
+  // completion/specialty/contact fields as the staff Tickets page (see
+  // TicketsComponent), each individually hidden when null/empty.
+  expandedTicketId = signal<string | null>(null);
+
+  toggleTicketDetails(ticketId: string) {
+    this.expandedTicketId.set(this.expandedTicketId() === ticketId ? null : ticketId);
+  }
+
+  hasExtraTicketDetails(t: {
+    completedAt?: string; workingMinutesToComplete?: number; completedByEmployeeName?: string;
+    requiredSpecialization?: string; itSupportContact?: string;
+  }): boolean {
+    return !!(t.completedAt || t.workingMinutesToComplete != null || t.completedByEmployeeName || t.requiredSpecialization || t.itSupportContact);
+  }
+
   private blankAgreementForm() {
     return {
       agreementTypeId: '', agreementPlace: '', signDate: new Date().toISOString().slice(0, 10),
@@ -512,7 +605,7 @@ export class ClientDetailComponent {
 
   private async refreshSystemProducts(clientId: string) {
     const list = await this.systemProductsSvc.refreshForClient(clientId);
-    await Promise.all(list.map(sp => Promise.all([this.refreshAgreementsFor(sp.id), this.refreshRecordsFor(sp.id)])));
+    await Promise.all(list.map(sp => Promise.all([this.refreshAgreementsFor(sp.id), this.refreshRecordsFor(sp.id), this.refreshMaintenanceFor(sp.id)])));
   }
 
   private async refreshAgreementsFor(systemProductId: string) {
@@ -530,6 +623,29 @@ export class ClientDetailComponent {
       this.recordsBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
     } catch (err) {
       console.error('Failed to load training records for system/product', err);
+    }
+  }
+
+  private async refreshMaintenanceFor(systemProductId: string) {
+    this.maintenanceLoading.update(map => ({ ...map, [systemProductId]: true }));
+    try {
+      const list = await this.maintenanceSvc.getForSystemProduct(systemProductId);
+      this.maintenanceBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
+    } catch (err) {
+      console.error('Failed to load maintenance history for system/product', err);
+    } finally {
+      this.maintenanceLoading.update(map => ({ ...map, [systemProductId]: false }));
+    }
+  }
+
+  private async loadClientMaintenance(clientId: string) {
+    this.clientMaintenanceLoading.set(true);
+    try {
+      this.clientMaintenanceRecords.set(await this.maintenanceSvc.getForClient(clientId));
+    } catch (err) {
+      console.error('Failed to load maintenance history for client', err);
+    } finally {
+      this.clientMaintenanceLoading.set(false);
     }
   }
 

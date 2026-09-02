@@ -19,7 +19,7 @@ public class TicketAssignmentService : ITicketAssignmentService
         _db = db;
     }
 
-    public async Task<Employee?> SelectAssigneeAsync(CancellationToken ct = default)
+    public async Task<Employee?> SelectAssigneeAsync(string? requiredSpecialization = null, CancellationToken ct = default)
     {
         // Roles is stored via a value converter (a delimited string, not a
         // native column type), so .Contains() on it can't translate to SQL —
@@ -32,6 +32,19 @@ public class TicketAssignmentService : ITicketAssignmentService
 
         var candidates = activeEmployees.Where(e => e.Roles.Contains(EmployeeRole.EmployeeTechnician)).ToList();
         if (candidates.Count == 0) return null;
+
+        // Narrow to specialists first when a specialty was asked for —
+        // falling back to the full candidate pool when nobody active
+        // matches, so a ticket never goes unassigned purely for lack of a
+        // specialist.
+        if (!string.IsNullOrWhiteSpace(requiredSpecialization))
+        {
+            var specialists = candidates
+                .Where(e => string.Equals(e.Specialization, requiredSpecialization, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (specialists.Count > 0)
+                candidates = specialists;
+        }
 
         var openCounts = await _db.Tickets
             .Where(t => t.AssignedEmployeeId != null && OpenStatuses.Contains(t.Status))

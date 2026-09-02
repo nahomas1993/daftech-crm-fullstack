@@ -27,6 +27,18 @@ public class FailureType
     public int DurationValue { get; set; }
     public DurationUnit DurationUnit { get; set; }
 
+    /// <summary>
+    /// Optional admin-entered specialty a technician must have (matched
+    /// against Employee.Specialization, case-insensitive) to be eligible for
+    /// auto-assignment of a ticket of this failure type — e.g. "Database" or
+    /// "Networking". Free text, not an enum, same rationale as
+    /// Employee.Specialization: specialties are admin-configurable. Null or
+    /// blank means no specialty restriction — any active technician is
+    /// eligible, same as before this field existed. See
+    /// TicketAssignmentService.SelectAssigneeAsync.
+    /// </summary>
+    public string? RequiredSpecialization { get; set; }
+
     /// <summary>Converts DurationValue/DurationUnit to a single TimeSpan for deadline math. 30 days/month, consistent with how "1 month" is commonly approximated for SLA targets — not calendar-accurate, documented so it isn't mistaken for one.</summary>
     public TimeSpan ToTimeSpan() => DurationUnit switch
     {

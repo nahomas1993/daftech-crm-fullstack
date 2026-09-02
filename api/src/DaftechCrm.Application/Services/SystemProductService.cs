@@ -195,6 +195,8 @@ public class SystemProductService : ISystemProductService
         var entry = await _db.SystemProducts.FirstOrDefaultAsync(s => s.Id == systemProductId && !s.IsDeleted, ct)
             ?? throw new InvalidOperationException("System/Product not found.");
 
+        await EnsureRequiredTrainingItemsCoveredAsync(systemProductId, ct);
+
         entry.TrainingCompletionStatus = TrainingCompletionStatus.Completed;
         _db.Update(entry);
         await _db.SaveChangesAsync(ct);
@@ -217,6 +219,8 @@ public class SystemProductService : ISystemProductService
         if (!hasAnyRecord)
             throw new InvalidOperationException("Log at least one training item before submitting.");
 
+        await EnsureRequiredTrainingItemsCoveredAsync(systemProductId, ct);
+
         entry.TrainingSubmittedAt = DateTimeOffset.UtcNow;
         if (entry.TrainingCompletionStatus == TrainingCompletionStatus.NotStarted)
             entry.TrainingCompletionStatus = TrainingCompletionStatus.InProgress;
@@ -224,6 +228,46 @@ public class SystemProductService : ISystemProductService
         await _db.SaveChangesAsync(ct);
 
         return (await GetByIdAsync(systemProductId, ct))!;
+    }
+
+    /// <summary>
+    /// Every admin-configured AgreementType with IsRequiredForCompletion
+    /// must have at least one matching TrainingRecord logged against this
+    /// SystemProduct before training can be submitted or marked Completed.
+    /// A no-op when no AgreementType is currently flagged required — the
+    /// gate only ever gets stricter by an Admin explicitly opting an item
+    /// in via AgreementTypeService.
+    /// </summary>
+    private async Task EnsureRequiredTrainingItemsCoveredAsync(Guid systemProductId, CancellationToken ct)
+    {
+        var requiredTypeIds = await _db.AgreementTypes
+            .AsNoTracking()
+            .Where(t => t.IsRequiredForCompletion)
+            .Select(t => t.Id)
+            .ToListAsync(ct);
+
+        if (requiredTypeIds.Count == 0)
+            return;
+
+        var coveredTypeIds = await _db.TrainingRecords
+            .AsNoTracking()
+            .Where(r => r.SystemProductId == systemProductId && requiredTypeIds.Contains(r.AgreementTypeId))
+            .Select(r => r.AgreementTypeId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var missingTypeIds = requiredTypeIds.Except(coveredTypeIds).ToList();
+        if (missingTypeIds.Count == 0)
+            return;
+
+        var missingNames = await _db.AgreementTypes
+            .AsNoTracking()
+            .Where(t => missingTypeIds.Contains(t.Id))
+            .Select(t => t.Name)
+            .ToListAsync(ct);
+
+        throw new InvalidOperationException(
+            $"The following required training item(s) have no logged session yet: {string.Join(", ", missingNames)}.");
     }
 
     private IQueryable<SystemProduct> Query() =>

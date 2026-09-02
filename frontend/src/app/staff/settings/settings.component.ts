@@ -9,7 +9,7 @@ import { SupportTypeService } from '../../core/services/support-type.service';
 import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { SurveyQuestionService } from '../../core/services/survey-question.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
-import { LocationType, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
+import { LocationType, LocationEntry, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
 type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'productCatalog' | 'trainingItems' | 'satisfactionSurvey';
@@ -119,6 +119,18 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                         <option value="true">On</option>
                         <option value="false">Off</option>
                       </select>
+                    } @else if (setting.valueType === 'time') {
+                      <input
+                        type="time"
+                        [ngModel]="draft(setting.key)"
+                        (ngModelChange)="setDraft(setting.key, $event)"
+                      />
+                    } @else if (setting.valueType === 'string') {
+                      <input
+                        type="text"
+                        [ngModel]="draft(setting.key)"
+                        (ngModelChange)="setDraft(setting.key, $event)"
+                      />
                     } @else {
                       <input
                         type="number"
@@ -148,6 +160,18 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             <h3>{{ group.label }}</h3>
             <p class="text-muted hint">Options shown in the {{ group.label }} dropdown on {{ group.context }}.</p>
 
+            @if (group.type === 'Zone' || group.type === 'Woreda') {
+              <div class="field" style="margin-bottom:0.6rem;">
+                <label>{{ group.type === 'Zone' ? 'Region' : 'Zone' }}</label>
+                <select [ngModel]="parentFilter(group.type)" (ngModelChange)="setParentFilter(group.type, $event)">
+                  <option value="">Select a {{ group.type === 'Zone' ? 'Region' : 'Zone' }} first…</option>
+                  @for (p of parentOptionsFor(group.type); track p.id) {
+                    <option [value]="p.id">{{ p.name }}</option>
+                  }
+                </select>
+              </div>
+            }
+
             <div class="add-row">
               <input
                 type="text"
@@ -155,9 +179,13 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                 [ngModel]="newEntryName(group.type)"
                 (ngModelChange)="setNewEntryName(group.type, $event)"
                 (keydown.enter)="addEntry(group.type)"
+                [disabled]="needsParent(group.type) && !parentFilter(group.type)"
               />
-              <button class="btn btn-primary btn-sm" [disabled]="savingLocations()" (click)="addEntry(group.type)">Add</button>
+              <button class="btn btn-primary btn-sm" [disabled]="savingLocations() || (needsParent(group.type) && !parentFilter(group.type))" (click)="addEntry(group.type)">Add</button>
             </div>
+            @if (needsParent(group.type) && !parentFilter(group.type)) {
+              <p class="text-muted" style="font-size:0.76rem; margin:0.3rem 0 0;">Select a {{ group.type === 'Zone' ? 'Region' : 'Zone' }} above to add a {{ group.type }}.</p>
+            }
 
             <ul class="entry-list">
               @for (entry of entriesFor(group.type); track entry.id) {
@@ -175,16 +203,25 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                       <button class="btn btn-outline btn-sm" (click)="cancelEdit()">Cancel</button>
                     </div>
                   } @else {
-                    <span class="entry-name">{{ entry.name }}</span>
+                    <span class="entry-name">
+                      {{ entry.name }}
+                      @if (group.type === 'Woreda') {
+                        <span class="text-muted" style="font-size:0.74rem;"> — {{ zoneNameOf(entry) }}</span>
+                      } @else if (group.type === 'Zone') {
+                        <span class="text-muted" style="font-size:0.74rem;"> — {{ regionNameOf(entry) }}</span>
+                      }
+                    </span>
                     <div class="entry-actions">
                       <button class="btn btn-outline btn-sm" (click)="startEdit(entry.id, entry.name)">Edit</button>
-                      <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingLocations()" (click)="deleteEntry(entry.id)">Delete</button>
+                      <button class="btn btn-outline btn-sm btn-danger" [disabled]="savingLocations()" (click)="deleteEntry(entry.id, group.type)">Delete</button>
                     </div>
                   }
                 </li>
               }
               @empty {
-                <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">No {{ group.label.toLowerCase() }} added yet.</li>
+                <li class="text-muted" style="padding: 0.6rem 0; font-size: 0.82rem;">
+                  {{ needsParent(group.type) && !parentFilter(group.type) ? 'Select a parent above to see its ' + group.label.toLowerCase() + '.' : 'No ' + group.label.toLowerCase() + ' added yet.' }}
+                </li>
               }
             </ul>
           </div>
@@ -205,7 +242,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             the support type fee below is added on top.
           </p>
 
-          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr auto;">
+          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1.2fr auto;">
             <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
               @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
             </select>
@@ -218,6 +255,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
               <option value="Days">Day(s)</option>
               <option value="Months">Month(s)</option>
             </select>
+            <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="newFtRequiredSpecialization()" (ngModelChange)="newFtRequiredSpecialization.set($event)" />
             <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="addFailureType()">Add</button>
           </div>
 
@@ -225,7 +263,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             @for (ft of failureTypes.types(); track ft.id) {
               <li class="entry-row">
                 @if (editingFtId() === ft.id) {
-                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr;">
+                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1.2fr;">
                     <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
                       @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
                     </select>
@@ -238,6 +276,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                       <option value="Days">Day(s)</option>
                       <option value="Months">Month(s)</option>
                     </select>
+                    <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="editingFtRequiredSpecialization()" (ngModelChange)="editingFtRequiredSpecialization.set($event)" />
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="saveFtEdit(ft.id)">Save</button>
@@ -247,6 +286,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                   <span class="entry-name">
                     {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ durationUnitLabel(ft.durationValue, ft.durationUnit) }} · {{ formatBirr(ft.basePrice) }} ETB base
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
+                    @if (ft.requiredSpecialization) { <span class="text-muted"> · Requires: {{ ft.requiredSpecialization }}</span> }
                   </span>
                   <div class="entry-actions">
                     <button class="btn btn-outline btn-sm" (click)="startFtEdit(ft)">Edit</button>
@@ -381,9 +421,13 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             by name; items you add here are separate custom checklist entries and can be edited or removed anytime.
           </p>
 
-          <div class="ft-add-row">
+          <div class="ft-add-row" style="grid-template-columns: 1.2fr 1.6fr auto auto auto;">
             <input type="text" placeholder="Training item name…" [ngModel]="newTiName()" (ngModelChange)="newTiName.set($event)" />
             <input type="text" placeholder="Description (optional)…" [ngModel]="newTiDescription()" (ngModelChange)="newTiDescription.set($event)" />
+            <label class="checkbox-label"><input type="checkbox" [ngModel]="newTiIsTrainingItem()" (ngModelChange)="onNewTiTrainingItemChange($event)" /> Is Training Item</label>
+            @if (newTiIsTrainingItem()) {
+              <label class="checkbox-label"><input type="checkbox" [ngModel]="newTiIsRequiredForCompletion()" (ngModelChange)="newTiIsRequiredForCompletion.set($event)" /> Is Required for Completion</label>
+            }
             <button class="btn btn-primary btn-sm" [disabled]="savingTrainingItem()" (click)="addTrainingItem()">Add</button>
           </div>
 
@@ -391,9 +435,13 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             @for (t of agreementTypes.types(); track t.id) {
               <li class="entry-row">
                 @if (editingTiId() === t.id) {
-                  <div class="ft-edit-row">
+                  <div class="ft-edit-row" style="grid-template-columns: 1.2fr 1.6fr auto auto;">
                     <span class="entry-name">{{ t.name }}</span>
                     <input type="text" placeholder="Description (optional)…" [ngModel]="editingTiDescription()" (ngModelChange)="editingTiDescription.set($event)" />
+                    <label class="checkbox-label"><input type="checkbox" [ngModel]="editingTiIsTrainingItem()" (ngModelChange)="onEditingTiTrainingItemChange($event)" /> Is Training Item</label>
+                    @if (editingTiIsTrainingItem()) {
+                      <label class="checkbox-label"><input type="checkbox" [ngModel]="editingTiIsRequiredForCompletion()" (ngModelChange)="editingTiIsRequiredForCompletion.set($event)" /> Is Required for Completion</label>
+                    }
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingTrainingItem()" (click)="saveTiEdit(t.id)">Save</button>
@@ -404,6 +452,8 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                     {{ t.name }}
                     @if (t.isSystemDefined) { <span class="text-muted"> · built-in</span> }
                     @if (t.description) { <span class="text-muted"> · {{ t.description }}</span> }
+                    @if (t.isTrainingItem) { <span class="text-muted"> · Training Item</span> }
+                    @if (t.isTrainingItem && t.isRequiredForCompletion) { <span class="text-muted"> · Required for Completion</span> }
                   </span>
                   <div class="entry-actions">
                     <button class="btn btn-outline btn-sm" (click)="startTiEdit(t)">Edit</button>
@@ -535,6 +585,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
 
     .ft-add-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
     .ft-edit-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
+    .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 0.4rem; font-weight: 500; font-size: 0.82rem; white-space: nowrap; }
     .price-input { padding: 0.62rem 0.75rem; font-size: 0.92rem; }
   `],
 })
@@ -574,6 +625,8 @@ export class SettingsComponent implements OnInit {
   private newEntryNames = signal<Record<LocationType, string>>({ Region: '', Zone: '', City: '', Woreda: '', Specialization: '', CustomRole: '' });
   editingId = signal<string | null>(null);
   editingName = signal('');
+  /** Currently selected Region (to filter/scope the Zone list) or Zone (to filter/scope the Woreda list) — keyed by the CHILD type, since that's what the dropdown lives under. */
+  private parentFilters = signal<Partial<Record<LocationType, string>>>({});
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
@@ -675,14 +728,45 @@ export class SettingsComponent implements OnInit {
 
   // --- Locations tab ---
 
+  needsParent(type: LocationType): boolean {
+    return type === 'Zone' || type === 'Woreda';
+  }
+
+  parentFilter(type: LocationType): string {
+    return this.parentFilters()[type] ?? '';
+  }
+
+  setParentFilter(type: LocationType, value: string) {
+    this.parentFilters.update(m => ({ ...m, [type]: value }));
+  }
+
+  /** Regions (for the Zone panel's parent selector) or Zones (for the Woreda panel's). */
+  parentOptionsFor(type: LocationType) {
+    if (type === 'Zone') return this.locations.options().regions;
+    if (type === 'Woreda') return this.locations.options().zones;
+    return [];
+  }
+
+  regionNameOf(zone: LocationEntry): string {
+    return this.locations.regionName(zone.parentId) ?? '—';
+  }
+
+  zoneNameOf(woreda: LocationEntry): string {
+    return this.locations.zoneName(woreda.parentId) ?? '—';
+  }
+
   entriesFor(type: LocationType) {
     const opts = this.locations.options();
     if (type === 'Region') return opts.regions;
-    if (type === 'Zone') return opts.zones;
     if (type === 'City') return opts.cities;
-    if (type === 'Woreda') return opts.woredas;
     if (type === 'Specialization') return opts.specializations;
-    return opts.customRoles;
+    if (type === 'CustomRole') return opts.customRoles;
+    // Zone/Woreda are scoped to whichever parent is currently selected —
+    // an unfiltered flat list would mix zones from every region together.
+    const parentId = this.parentFilter(type);
+    if (!parentId) return [];
+    if (type === 'Zone') return opts.zones.filter(z => z.parentId === parentId);
+    return opts.woredas.filter(w => w.parentId === parentId);
   }
 
   newEntryName(type: LocationType): string {
@@ -696,11 +780,13 @@ export class SettingsComponent implements OnInit {
   async addEntry(type: LocationType) {
     const name = this.newEntryNames()[type].trim();
     if (!name) return;
+    const parentId = this.needsParent(type) ? this.parentFilter(type) : undefined;
+    if (this.needsParent(type) && !parentId) return;
 
     this.locationsError.set(null);
     this.savingLocations.set(true);
     try {
-      await this.locations.create(type, name);
+      await this.locations.create(type, name, parentId);
       this.setNewEntryName(type, '');
     } catch (e: any) {
       this.locationsError.set(this.extractErrorMessage(e, 'Could not add this entry — it may already exist.'));
@@ -736,7 +822,15 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  async deleteEntry(id: string) {
+  async deleteEntry(id: string, type: LocationType) {
+    // Deleting a Region/Zone cascades to its Zones/Woredas on the server —
+    // confirm first since this can silently remove more than one row.
+    if (type === 'Region' || type === 'Zone') {
+      const childLabel = type === 'Region' ? 'zones (and their woredas)' : 'woredas';
+      const ok = confirm(`Deleting this ${type.toLowerCase()} will also delete all of its ${childLabel}. Continue?`);
+      if (!ok) return;
+    }
+
     this.locationsError.set(null);
     this.savingLocations.set(true);
     try {
@@ -783,6 +877,7 @@ export class SettingsComponent implements OnInit {
   newFtBasePrice = signal<string>('');
   newFtValue = signal<number>(1);
   newFtUnit = signal<DurationUnit>('Days');
+  newFtRequiredSpecialization = signal('');
   savingFailureTypes = signal(false);
   failureTypesError = signal<string | null>(null);
   editingFtId = signal<string | null>(null);
@@ -792,6 +887,7 @@ export class SettingsComponent implements OnInit {
   editingFtBasePrice = signal<string>('');
   editingFtValue = signal<number>(1);
   editingFtUnit = signal<DurationUnit>('Days');
+  editingFtRequiredSpecialization = signal('');
 
   categoryLabel(category: TicketCategory): string { return TICKET_CATEGORY_LABELS[category]; }
 
@@ -884,12 +980,13 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, basePrice);
+      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, basePrice, this.newFtRequiredSpecialization().trim() || undefined);
       this.newFtName.set('');
       this.newFtDescription.set('');
       this.newFtValue.set(1);
       this.newFtUnit.set('Days');
       this.newFtBasePrice.set('');
+      this.newFtRequiredSpecialization.set('');
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not add this failure type — the name may already exist.');
     } finally {
@@ -897,7 +994,7 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; basePrice: number; durationValue: number; durationUnit: DurationUnit }) {
+  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; basePrice: number; durationValue: number; durationUnit: DurationUnit; requiredSpecialization?: string }) {
     this.editingFtId.set(ft.id);
     this.editingFtCategory.set(ft.category);
     this.editingFtName.set(ft.name);
@@ -905,6 +1002,7 @@ export class SettingsComponent implements OnInit {
     this.editingFtBasePrice.set(String(ft.basePrice ?? 0));
     this.editingFtValue.set(ft.durationValue);
     this.editingFtUnit.set(ft.durationUnit);
+    this.editingFtRequiredSpecialization.set(ft.requiredSpecialization ?? '');
     this.failureTypesError.set(null);
   }
 
@@ -925,7 +1023,7 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, basePrice);
+      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, basePrice, this.editingFtRequiredSpecialization().trim() || undefined);
       this.cancelFtEdit();
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');
@@ -1100,10 +1198,25 @@ export class SettingsComponent implements OnInit {
 
   newTiName = signal('');
   newTiDescription = signal('');
+  newTiIsTrainingItem = signal(false);
+  newTiIsRequiredForCompletion = signal(false);
   savingTrainingItem = signal(false);
   trainingItemError = signal<string | null>(null);
   editingTiId = signal<string | null>(null);
   editingTiDescription = signal('');
+  editingTiIsTrainingItem = signal(false);
+  editingTiIsRequiredForCompletion = signal(false);
+
+  /** Turning off "Is Training Item" always clears "Is Required for Completion" too — the latter is only meaningful when the former is set. */
+  onNewTiTrainingItemChange(value: boolean) {
+    this.newTiIsTrainingItem.set(value);
+    if (!value) this.newTiIsRequiredForCompletion.set(false);
+  }
+
+  onEditingTiTrainingItemChange(value: boolean) {
+    this.editingTiIsTrainingItem.set(value);
+    if (!value) this.editingTiIsRequiredForCompletion.set(false);
+  }
 
   async addTrainingItem() {
     const name = this.newTiName().trim();
@@ -1112,9 +1225,16 @@ export class SettingsComponent implements OnInit {
     this.trainingItemError.set(null);
     this.savingTrainingItem.set(true);
     try {
-      await this.agreementTypes.create(name, this.newTiDescription().trim() || undefined);
+      await this.agreementTypes.create(
+        name,
+        this.newTiDescription().trim() || undefined,
+        this.newTiIsTrainingItem(),
+        this.newTiIsRequiredForCompletion(),
+      );
       this.newTiName.set('');
       this.newTiDescription.set('');
+      this.newTiIsTrainingItem.set(false);
+      this.newTiIsRequiredForCompletion.set(false);
     } catch (e: any) {
       this.trainingItemError.set(e?.error ?? 'Could not add this training item — the name may already exist.');
     } finally {
@@ -1122,9 +1242,11 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  startTiEdit(t: { id: string; description?: string }) {
+  startTiEdit(t: { id: string; description?: string; isTrainingItem: boolean; isRequiredForCompletion: boolean }) {
     this.editingTiId.set(t.id);
     this.editingTiDescription.set(t.description ?? '');
+    this.editingTiIsTrainingItem.set(t.isTrainingItem);
+    this.editingTiIsRequiredForCompletion.set(t.isRequiredForCompletion);
     this.trainingItemError.set(null);
   }
 
@@ -1136,7 +1258,12 @@ export class SettingsComponent implements OnInit {
     this.trainingItemError.set(null);
     this.savingTrainingItem.set(true);
     try {
-      await this.agreementTypes.update(id, this.editingTiDescription().trim() || undefined);
+      await this.agreementTypes.update(
+        id,
+        this.editingTiDescription().trim() || undefined,
+        this.editingTiIsTrainingItem(),
+        this.editingTiIsRequiredForCompletion(),
+      );
       this.cancelTiEdit();
     } catch (e: any) {
       this.trainingItemError.set(e?.error ?? 'Could not save this change — please try again.');

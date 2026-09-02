@@ -402,11 +402,18 @@ public interface ITicketReportService
 
 public interface IMaintenanceService
 {
+    /// <summary>Requires ClientId; when SystemProductId/TicketId are given, each must belong to the same client (see MaintenanceService.CreateAsync).</summary>
     Task<MaintenanceRecordDto> CreateAsync(CreateMaintenanceRecordRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<MaintenanceRecordDto>> GetAllAsync(CancellationToken ct = default);
 
     /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Maintenance table UI.</summary>
     Task<PagedResult<MaintenanceRecordDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
+
+    /// <summary>Newest-first maintenance history for one client — powers the client detail view's Maintenance History tab.</summary>
+    Task<IReadOnlyList<MaintenanceRecordDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
+
+    /// <summary>Newest-first maintenance history for one system/product — powers the system/product detail view's Maintenance History tab.</summary>
+    Task<IReadOnlyList<MaintenanceRecordDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
 }
 
 public interface ITimeLogService

@@ -40,7 +40,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
             <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="form.office" (ngModelChange)="form.office = $event" /></div>
             <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="form.location" (ngModelChange)="form.location = $event" /></div>
             <div class="field"><label>Region <span class="req">*</span></label>
-              <select [ngModel]="form.region" (ngModelChange)="form.region = $event">
+              <select [ngModel]="form.region" (ngModelChange)="onRegionChange($event, form)">
                 <option value="">Select region…</option>
                 @for (r of locations.options().regions; track r.id) {
                   <option [value]="r.name">{{ r.name }}</option>
@@ -48,9 +48,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
               </select>
             </div>
             <div class="field"><label>Zone <span class="req">*</span></label>
-              <select [ngModel]="form.zone" (ngModelChange)="form.zone = $event">
+              <select [ngModel]="form.zone" (ngModelChange)="onZoneChange($event, form)" [disabled]="!form.region">
                 <option value="">Select zone…</option>
-                @for (z of locations.options().zones; track z.id) {
+                @for (z of zonesForForm(form); track z.id) {
                   <option [value]="z.name">{{ z.name }}</option>
                 }
               </select>
@@ -64,9 +64,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
               </select>
             </div>
             <div class="field"><label>Woreda <span class="req">*</span></label>
-              <select [ngModel]="form.woreda" (ngModelChange)="form.woreda = $event">
+              <select [ngModel]="form.woreda" (ngModelChange)="form.woreda = $event" [disabled]="!form.zone">
                 <option value="">Select woreda…</option>
-                @for (w of locations.options().woredas; track w.id) {
+                @for (w of woredasForForm(form); track w.id) {
                   <option [value]="w.name">{{ w.name }}</option>
                 }
               </select>
@@ -192,7 +192,7 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                     <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
                     <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
                     <div class="field"><label>Region <span class="req">*</span></label>
-                      <select [ngModel]="editForm.region" (ngModelChange)="editForm.region = $event">
+                      <select [ngModel]="editForm.region" (ngModelChange)="onRegionChange($event, editForm)">
                         <option value="">Select region…</option>
                         @for (r of locations.options().regions; track r.id) {
                           <option [value]="r.name">{{ r.name }}</option>
@@ -200,9 +200,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                       </select>
                     </div>
                     <div class="field"><label>Zone <span class="req">*</span></label>
-                      <select [ngModel]="editForm.zone" (ngModelChange)="editForm.zone = $event">
+                      <select [ngModel]="editForm.zone" (ngModelChange)="onZoneChange($event, editForm)" [disabled]="!editForm.region">
                         <option value="">Select zone…</option>
-                        @for (z of locations.options().zones; track z.id) {
+                        @for (z of zonesForForm(editForm); track z.id) {
                           <option [value]="z.name">{{ z.name }}</option>
                         }
                       </select>
@@ -216,9 +216,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                       </select>
                     </div>
                     <div class="field"><label>Woreda <span class="req">*</span></label>
-                      <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event">
+                      <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event" [disabled]="!editForm.zone">
                         <option value="">Select woreda…</option>
-                        @for (w of locations.options().woredas; track w.id) {
+                        @for (w of woredasForForm(editForm); track w.id) {
                           <option [value]="w.name">{{ w.name }}</option>
                         }
                       </select>
@@ -333,6 +333,43 @@ export class ClientsListComponent {
 
   isEmailValid(email: string | null | undefined): boolean {
     return isValidRegistrationEmail(email);
+  }
+
+  /**
+   * Location cascade helpers — form.region/zone/woreda are stored by NAME
+   * (not id), matching the client DTO fields, so we resolve the region's/
+   * zone's id from its name before delegating to LocationService's
+   * id-based zonesFor()/woredasFor() helpers.
+   */
+  private regionIdByName(name: string | null | undefined): string | undefined {
+    if (!name) return undefined;
+    return this.locations.options().regions.find(r => r.name === name)?.id;
+  }
+
+  private zoneIdByName(name: string | null | undefined): string | undefined {
+    if (!name) return undefined;
+    return this.locations.options().zones.find(z => z.name === name)?.id;
+  }
+
+  zonesForForm(form: { region: string }) {
+    return this.locations.zonesFor(this.regionIdByName(form.region));
+  }
+
+  woredasForForm(form: { zone: string }) {
+    return this.locations.woredasFor(this.zoneIdByName(form.zone));
+  }
+
+  /** Region changed (or cleared) — always drop the now-stale Zone and Woreda. */
+  onRegionChange(value: string, form: { region: string; zone: string; woreda: string }) {
+    form.region = value;
+    form.zone = '';
+    form.woreda = '';
+  }
+
+  /** Zone changed (or cleared) — always drop the now-stale Woreda. */
+  onZoneChange(value: string, form: { zone: string; woreda: string }) {
+    form.zone = value;
+    form.woreda = '';
   }
 
   toggleForm() {
