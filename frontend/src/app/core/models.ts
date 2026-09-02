@@ -571,6 +571,8 @@ export interface FailureType {
   durationUnit: DurationUnit;
   /** Optional free-text specialty (matches the Employee Specialization field) required to work tickets of this failure type. Undefined means no specialty restriction. */
   requiredSpecialization?: string;
+  /** Priority automatically applied to every ticket submitted with this failure type (set once, at submission — see Ticket.priority). Configured here so technicians never choose or change it themselves; it's fixed by the failure type the client picked, so the queue is sorted by priority with no manual step. */
+  defaultPriority: TicketPriority;
 }
 
 /** Admin-defined way support is delivered (remote, on-site, after hours...). Its fee is added to the failure type's base price on chargeable tickets. */

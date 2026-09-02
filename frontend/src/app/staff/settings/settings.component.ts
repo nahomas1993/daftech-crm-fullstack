@@ -9,7 +9,7 @@ import { SupportTypeService } from '../../core/services/support-type.service';
 import { ProductCatalogService } from '../../core/services/product-catalog.service';
 import { SurveyQuestionService } from '../../core/services/survey-question.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
-import { LocationType, LocationEntry, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS } from '../../core/models';
+import { LocationType, LocationEntry, DurationUnit, TicketCategory, TICKET_CATEGORY_LABELS, TicketPriority } from '../../core/models';
 import { PASSWORD_STRENGTH_HINT, passwordStrengthError } from '../../core/password-strength';
 
 type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | 'failureTypes' | 'productCatalog' | 'trainingItems' | 'satisfactionSurvey';
@@ -239,10 +239,12 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             Clients pick one when submitting a ticket; the on-time/late report uses that ticket's own target
             instead of the general Ticket Workflow target above once it's assigned to a technician.
             The base price is what a client pays for that failure once their free support period has ended —
-            the support type fee below is added on top.
+            the support type fee below is added on top. <strong>Priority</strong> is applied automatically to
+            every ticket submitted with this failure type — technicians can't change it themselves, so the
+            queue always reflects the urgency you set here.
           </p>
 
-          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1.2fr auto;">
+          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1fr 1.2fr auto;">
             <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
               @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
             </select>
@@ -255,6 +257,11 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
               <option value="Days">Day(s)</option>
               <option value="Months">Month(s)</option>
             </select>
+            <select [ngModel]="newFtPriority()" (ngModelChange)="newFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
+              <option value="Low">Low priority</option>
+              <option value="Medium">Medium priority</option>
+              <option value="High">High priority</option>
+            </select>
             <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="newFtRequiredSpecialization()" (ngModelChange)="newFtRequiredSpecialization.set($event)" />
             <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="addFailureType()">Add</button>
           </div>
@@ -263,7 +270,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             @for (ft of failureTypes.types(); track ft.id) {
               <li class="entry-row">
                 @if (editingFtId() === ft.id) {
-                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1.2fr;">
+                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1fr 1.2fr;">
                     <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
                       @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
                     </select>
@@ -276,6 +283,11 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                       <option value="Days">Day(s)</option>
                       <option value="Months">Month(s)</option>
                     </select>
+                    <select [ngModel]="editingFtPriority()" (ngModelChange)="editingFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
+                      <option value="Low">Low priority</option>
+                      <option value="Medium">Medium priority</option>
+                      <option value="High">High priority</option>
+                    </select>
                     <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="editingFtRequiredSpecialization()" (ngModelChange)="editingFtRequiredSpecialization.set($event)" />
                   </div>
                   <div class="entry-actions">
@@ -285,6 +297,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
                 } @else {
                   <span class="entry-name">
                     {{ categoryLabel(ft.category) }} · {{ ft.name }} — {{ ft.durationValue }} {{ durationUnitLabel(ft.durationValue, ft.durationUnit) }} · {{ formatBirr(ft.basePrice) }} ETB base
+                    <span [class.priority-tag-high]="ft.defaultPriority === 'High'" class="priority-tag"> · {{ ft.defaultPriority }} priority</span>
                     @if (ft.description) { <span class="text-muted"> · {{ ft.description }}</span> }
                     @if (ft.requiredSpecialization) { <span class="text-muted"> · Requires: {{ ft.requiredSpecialization }}</span> }
                   </span>
@@ -585,6 +598,8 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
 
     .ft-add-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
     .ft-edit-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
+    .priority-tag { font-weight: 600; }
+    .priority-tag-high { color: var(--red, #b3261e); }
     .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 0.4rem; font-weight: 500; font-size: 0.82rem; white-space: nowrap; }
     .price-input { padding: 0.62rem 0.75rem; font-size: 0.92rem; }
   `],
@@ -878,6 +893,7 @@ export class SettingsComponent implements OnInit {
   newFtValue = signal<number>(1);
   newFtUnit = signal<DurationUnit>('Days');
   newFtRequiredSpecialization = signal('');
+  newFtPriority = signal<TicketPriority>('Medium');
   savingFailureTypes = signal(false);
   failureTypesError = signal<string | null>(null);
   editingFtId = signal<string | null>(null);
@@ -888,6 +904,7 @@ export class SettingsComponent implements OnInit {
   editingFtValue = signal<number>(1);
   editingFtUnit = signal<DurationUnit>('Days');
   editingFtRequiredSpecialization = signal('');
+  editingFtPriority = signal<TicketPriority>('Medium');
 
   categoryLabel(category: TicketCategory): string { return TICKET_CATEGORY_LABELS[category]; }
 
@@ -980,13 +997,14 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, basePrice, this.newFtRequiredSpecialization().trim() || undefined);
+      await this.failureTypes.create(this.newFtCategory(), name, this.newFtValue(), this.newFtUnit(), this.newFtDescription().trim() || undefined, basePrice, this.newFtRequiredSpecialization().trim() || undefined, this.newFtPriority());
       this.newFtName.set('');
       this.newFtDescription.set('');
       this.newFtValue.set(1);
       this.newFtUnit.set('Days');
       this.newFtBasePrice.set('');
       this.newFtRequiredSpecialization.set('');
+      this.newFtPriority.set('Medium');
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not add this failure type — the name may already exist.');
     } finally {
@@ -994,7 +1012,7 @@ export class SettingsComponent implements OnInit {
     }
   }
 
-  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; basePrice: number; durationValue: number; durationUnit: DurationUnit; requiredSpecialization?: string }) {
+  startFtEdit(ft: { id: string; category: TicketCategory; name: string; description?: string; basePrice: number; durationValue: number; durationUnit: DurationUnit; requiredSpecialization?: string; defaultPriority: TicketPriority }) {
     this.editingFtId.set(ft.id);
     this.editingFtCategory.set(ft.category);
     this.editingFtName.set(ft.name);
@@ -1003,6 +1021,7 @@ export class SettingsComponent implements OnInit {
     this.editingFtValue.set(ft.durationValue);
     this.editingFtUnit.set(ft.durationUnit);
     this.editingFtRequiredSpecialization.set(ft.requiredSpecialization ?? '');
+    this.editingFtPriority.set(ft.defaultPriority ?? 'Medium');
     this.failureTypesError.set(null);
   }
 
@@ -1023,7 +1042,7 @@ export class SettingsComponent implements OnInit {
     this.failureTypesError.set(null);
     this.savingFailureTypes.set(true);
     try {
-      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, basePrice, this.editingFtRequiredSpecialization().trim() || undefined);
+      await this.failureTypes.update(id, this.editingFtCategory(), name, this.editingFtValue(), this.editingFtUnit(), this.editingFtDescription().trim() || undefined, basePrice, this.editingFtRequiredSpecialization().trim() || undefined, this.editingFtPriority());
       this.cancelFtEdit();
     } catch (e: any) {
       this.failureTypesError.set(e?.error ?? 'Could not save this change — the name may already exist.');

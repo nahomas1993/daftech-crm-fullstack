@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { FailureType, DurationUnit, TicketCategory } from '../models';
+import { FailureType, DurationUnit, TicketCategory, TicketPriority } from '../models';
 import { API_BASE_URL } from './api-base';
 
 /**
@@ -43,14 +43,14 @@ export class FailureTypeService {
     }
   }
 
-  async create(category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0, requiredSpecialization?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { category, name, description, basePrice, durationValue, durationUnit, requiredSpecialization }));
+  async create(category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0, requiredSpecialization?: string, defaultPriority: TicketPriority = 'Medium'): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.post<FailureType>(`${API_BASE_URL}/failure-types`, { category, name, description, basePrice, durationValue, durationUnit, requiredSpecialization, defaultPriority }));
     await this.refresh();
     return entry;
   }
 
-  async update(id: string, category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0, requiredSpecialization?: string): Promise<FailureType> {
-    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { category, name, description, basePrice, durationValue, durationUnit, requiredSpecialization }));
+  async update(id: string, category: TicketCategory, name: string, durationValue: number, durationUnit: DurationUnit, description?: string, basePrice = 0, requiredSpecialization?: string, defaultPriority: TicketPriority = 'Medium'): Promise<FailureType> {
+    const entry = await firstValueFrom(this.http.put<FailureType>(`${API_BASE_URL}/failure-types/${id}`, { category, name, description, basePrice, durationValue, durationUnit, requiredSpecialization, defaultPriority }));
     await this.refresh();
     return entry;
   }

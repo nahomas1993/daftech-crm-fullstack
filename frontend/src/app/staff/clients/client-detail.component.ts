@@ -345,18 +345,39 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
       </div>
 
       <div class="panel panel-pad" style="margin-top:1.25rem;">
-        <h3>Full Ticket History with DAFTECH</h3>
-        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Used by Admin when assigning new tickets.</p>
+        <h3>Maintenance History — {{ c.name }}</h3>
+        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">
+          Complete history of every issue this client has raised, newest first — which technician handled it, when it was assigned and completed, its current status, the work performed, and any attachments or voice notes submitted with it.
+        </p>
         <div class="table-scroll"><table>
-          <thead><tr><th>Ticket</th><th>Category</th><th>Submitted</th><th>Chargeable</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Ticket</th><th>Issue / Problem</th><th>Technician Assigned</th><th>Assigned</th><th>Completed</th><th>Status</th><th>Files</th><th></th></tr></thead>
           <tbody>
-            @for (t of tickets(); track t.id) {
+            @for (t of ticketHistory(); track t.id) {
               <tr>
-                <td class="mono">{{ t.id }}</td>
-                <td>{{ categoryLabel(t.category) }}</td>
-                <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
-                <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
+                <td class="mono">{{ t.id.slice(0,8).toUpperCase() }}</td>
+                <td class="description-cell" [title]="t.description">
+                  {{ t.description }}
+                  <div class="text-muted" style="font-size:0.74rem; margin-top:0.15rem;">
+                    {{ categoryLabel(t.category) }}@if (t.failureTypeName) { · {{ t.failureTypeName }} }@if (t.systemProductName) { · {{ t.systemProductName }} }
+                  </div>
+                </td>
+                <td>{{ t.assignedEmployeeName ?? '—' }}</td>
+                <td class="text-muted" style="font-size:0.8rem;">
+                  @if (t.assignedAt) { {{ t.assignedAt | slice:0:10 }} {{ t.assignedAt | slice:11:16 }} } @else { Not yet assigned }
+                </td>
+                <td class="text-muted" style="font-size:0.8rem;">
+                  @if (t.completedAt) { {{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }} } @else { — }
+                </td>
                 <td><app-badge [status]="t.status"></app-badge></td>
+                <td>
+                  @if (t.attachmentFileName) {
+                    <button class="btn btn-outline btn-sm" (click)="viewTicketAttachment(t.id, t.attachmentFileName)">📎 Attachment</button>
+                  }
+                  @if (t.voiceNoteFileName) {
+                    <button class="btn btn-outline btn-sm" (click)="viewTicketVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
+                  }
+                  @if (!t.attachmentFileName && !t.voiceNoteFileName) { <span class="text-muted">—</span> }
+                </td>
                 <td>
                   @if (hasExtraTicketDetails(t)) {
                     <button class="btn btn-outline btn-sm" (click)="toggleTicketDetails(t.id)">{{ expandedTicketId() === t.id ? 'Hide Details' : 'Details' }}</button>
@@ -365,11 +386,11 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
               </tr>
               @if (expandedTicketId() === t.id) {
                 <tr class="details-row">
-                  <td colspan="6">
+                  <td colspan="8">
                     <div class="details-grid">
-                      @if (t.completedAt) {
-                        <div class="detail-item"><span class="detail-label">Completed At</span><span>{{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }}</span></div>
-                      }
+                      <div class="detail-item"><span class="detail-label">Chargeable</span><span>{{ t.chargeable ? 'Chargeable' : 'Free' }}</span></div>
+                      <div class="detail-item"><span class="detail-label">Priority</span><span>{{ t.priority }}</span></div>
+                      <div class="detail-item"><span class="detail-label">Submitted</span><span>{{ t.dateSubmitted | slice:0:10 }} {{ t.dateSubmitted | slice:11:16 }}</span></div>
                       @if (t.workingMinutesToComplete != null) {
                         <div class="detail-item"><span class="detail-label">Working Minutes to Complete</span><span>{{ t.workingMinutesToComplete }}</span></div>
                       }
@@ -382,23 +403,26 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                       @if (t.itSupportContact) {
                         <div class="detail-item"><span class="detail-label">IT Support Contact</span><span>{{ t.itSupportContact }}</span></div>
                       }
+                      @if (t.satisfactionScore != null) {
+                        <div class="detail-item"><span class="detail-label">Satisfaction</span><span>{{ t.satisfactionScore }}/100</span></div>
+                      }
                     </div>
                   </td>
                 </tr>
               }
             }
-            @empty { <tr><td colspan="6" class="text-muted">No tickets submitted yet.</td></tr> }
+            @empty { <tr><td colspan="8" class="text-muted">No tickets submitted yet for this client.</td></tr> }
           </tbody>
         </table></div>
       </div>
 
       <div class="panel panel-pad" style="margin-top:1.25rem;">
-        <h3>Maintenance History</h3>
-        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Internal DAFTECH maintenance work logged against this client, across all their systems/products, newest first.</p>
+        <h3>Internal Maintenance Log</h3>
+        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Internal DAFTECH maintenance work manually logged against this client (not tied to a client-submitted ticket), across all their systems/products, newest first.</p>
         <app-maintenance-history-list
           [records]="clientMaintenanceRecords()"
           [loading]="clientMaintenanceLoading()"
-          emptyMessage="No maintenance records yet for this client.">
+          emptyMessage="No internal maintenance records logged for this client.">
         </app-maintenance-history-list>
       </div>
     } @else {
@@ -435,6 +459,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
     .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1.2rem; }
     .detail-item { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.82rem; }
     .detail-label { font-size: 0.72rem; font-weight: 600; color: var(--slate-500); }
+    .description-cell { max-width: 280px; font-size: 0.82rem; }
   `],
 })
 export class ClientDetailComponent {
@@ -548,6 +573,8 @@ export class ClientDetailComponent {
   client = computed(() => this.clientsSvc.getById(this.id()));
   systemProducts = computed(() => this.systemProductsSvc.systemProductsFor(this.id()));
   tickets = computed(() => this.ticketsSvc.forClient(this.id()));
+  /** This client's complete ticket history, newest-submitted-first — powers the redesigned Maintenance History table below (technician, assigned/completed timestamps, status, attachments, voice notes), scoped strictly to this client via TicketService.forClient. */
+  ticketHistory = computed(() => [...this.tickets()].sort((a, b) => b.dateSubmitted.localeCompare(a.dateSubmitted)));
 
   agreementsFor(systemProductId: string): Agreement[] {
     return this.agreementsBySystemProduct()[systemProductId] ?? [];
@@ -809,6 +836,22 @@ export class ClientDetailComponent {
     this.previewFileName = r.fileName ?? '';
     this.previewKind = filePreviewKindFor(r.fileName);
     this.previewLoader = () => this.trainingSvc.downloadFile(r.id);
+    this.previewOpen = true;
+  }
+
+  viewTicketAttachment(ticketId: string, fileName: string) {
+    this.previewTitle = 'Ticket Attachment';
+    this.previewFileName = fileName;
+    this.previewKind = filePreviewKindFor(fileName);
+    this.previewLoader = () => this.ticketsSvc.downloadAttachment(ticketId);
+    this.previewOpen = true;
+  }
+
+  viewTicketVoiceNote(ticketId: string, fileName: string) {
+    this.previewTitle = 'Ticket Voice Note';
+    this.previewFileName = fileName;
+    this.previewKind = 'audio';
+    this.previewLoader = () => this.ticketsSvc.downloadVoiceNote(ticketId);
     this.previewOpen = true;
   }
 

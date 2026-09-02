@@ -448,6 +448,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("DurationValue").HasColumnType("integer");
                 b.Property<string>("DurationUnit").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.Property<string>("RequiredSpecialization").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<string>("DefaultPriority").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
                 b.ToTable("failure_types");

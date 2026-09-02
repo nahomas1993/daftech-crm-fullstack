@@ -13,7 +13,7 @@ public class FailureTypeService : IFailureTypeService
     private const string CacheKey = "failure-types:all";
     public FailureTypeService(IAppDbContext db, IMemoryCache cache) { _db = db; _cache = cache; }
 
-    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit, f.RequiredSpecialization);
+    private static FailureTypeDto ToDto(FailureType f) => new(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit, f.RequiredSpecialization, f.DefaultPriority);
 
     public async Task<IReadOnlyList<FailureTypeDto>> GetAllAsync(CancellationToken ct = default)
     {
@@ -21,7 +21,7 @@ public class FailureTypeService : IFailureTypeService
             return cached;
 
         var result = await _db.FailureTypes.AsNoTracking().OrderBy(x => x.Category).ThenBy(x => x.Name)
-            .Select(f => new FailureTypeDto(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit, f.RequiredSpecialization)).ToListAsync(ct);
+            .Select(f => new FailureTypeDto(f.Id, f.Category, f.Name, f.Description, f.BasePrice, f.DurationValue, f.DurationUnit, f.RequiredSpecialization, f.DefaultPriority)).ToListAsync(ct);
         _cache.Set(CacheKey, result, TimeSpan.FromMinutes(10));
         return result;
     }
@@ -43,7 +43,7 @@ public class FailureTypeService : IFailureTypeService
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
         var specialization = string.IsNullOrWhiteSpace(request.RequiredSpecialization) ? null : request.RequiredSpecialization.Trim();
-        var entry = new FailureType { Category = request.Category, Name = name, Description = description, BasePrice = request.BasePrice, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit, RequiredSpecialization = specialization };
+        var entry = new FailureType { Category = request.Category, Name = name, Description = description, BasePrice = request.BasePrice, DurationValue = request.DurationValue, DurationUnit = request.DurationUnit, RequiredSpecialization = specialization, DefaultPriority = request.DefaultPriority };
         _db.Add(entry);
         await _db.SaveChangesAsync(ct);
         _cache.Remove(CacheKey);
@@ -74,6 +74,7 @@ public class FailureTypeService : IFailureTypeService
         entry.DurationValue = request.DurationValue;
         entry.DurationUnit = request.DurationUnit;
         entry.RequiredSpecialization = string.IsNullOrWhiteSpace(request.RequiredSpecialization) ? null : request.RequiredSpecialization.Trim();
+        entry.DefaultPriority = request.DefaultPriority;
         _db.Update(entry);
         await _db.SaveChangesAsync(ct);
         _cache.Remove(CacheKey);

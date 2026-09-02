@@ -515,6 +515,7 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.Property(x => x.BasePrice).HasPrecision(12, 2);
         b.Property(x => x.RequiredSpecialization).HasMaxLength(100);
+        b.Property(x => x.DefaultPriority).HasConversion<string>().HasMaxLength(20).IsRequired();
     }
 }
 

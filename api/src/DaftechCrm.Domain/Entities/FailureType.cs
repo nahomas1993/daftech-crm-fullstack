@@ -39,6 +39,17 @@ public class FailureType
     /// </summary>
     public string? RequiredSpecialization { get; set; }
 
+    /// <summary>
+    /// Priority automatically applied to every ticket submitted with this
+    /// failure type (Ticket.Priority is set from this once, at submission —
+    /// see TicketService.SubmitAsync). Admin-configured here so technicians
+    /// never choose or change a ticket's priority themselves; it is fixed by
+    /// the failure type the client picked, letting technicians work fastest
+    /// tickets first without a decision to make. Defaults to Medium, same
+    /// as Ticket.Priority's own default.
+    /// </summary>
+    public TicketPriority DefaultPriority { get; set; } = TicketPriority.Medium;
+
     /// <summary>Converts DurationValue/DurationUnit to a single TimeSpan for deadline math. 30 days/month, consistent with how "1 month" is commonly approximated for SLA targets — not calendar-accurate, documented so it isn't mistaken for one.</summary>
     public TimeSpan ToTimeSpan() => DurationUnit switch
     {

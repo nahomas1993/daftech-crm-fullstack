@@ -260,9 +260,18 @@ public class TicketsController : ControllerBase
         }
     }
 
-    /// <summary>Sets a ticket's priority (Low/Medium/High) — any employee may set this (not just Admin), since a technician working the ticket is often best placed to judge its urgency. Feeds workload-aware Trainer assignment (see TrainerWorkloadService).</summary>
+    /// <summary>
+    /// Sets a ticket's priority (Low/Medium/High) — Admin-only. Priority is
+    /// now normally fixed automatically at submission from the ticket's
+    /// failure type (see FailureType.DefaultPriority and
+    /// TicketService.SubmitAsync), configured on the Failure Types &amp;
+    /// Pricing settings page. This endpoint remains as an Admin override
+    /// for an individual ticket; technicians no longer see an editable
+    /// priority control on the Tickets page and cannot call this. Feeds
+    /// workload-aware Trainer assignment (see TrainerWorkloadService).
+    /// </summary>
     [HttpPatch("{id:guid}/priority")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<TicketDto>> SetPriority(Guid id, [FromBody] SetTicketPriorityRequest request, CancellationToken ct)
     {
         try { return Ok(await _tickets.SetPriorityAsync(id, request, ct)); }

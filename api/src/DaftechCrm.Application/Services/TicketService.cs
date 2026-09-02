@@ -154,6 +154,15 @@ public class TicketService : ITicketService
                 ? failureType!.RequiredSpecialization
                 : request.Category.ToString();
 
+        // Priority is fixed by the chosen failure type (admin-configured on
+        // the Failure Types & Pricing settings page) rather than left for a
+        // technician to judge afterwards — this lets a technician work
+        // fastest by priority without having to make that call themselves.
+        // Falls back to the ticket's existing Medium default when no
+        // failure type was picked.
+        if (failureType is not null)
+            ticket.Priority = failureType.DefaultPriority;
+
         SupportType? supportType = null;
         if (request.SupportTypeId is Guid requestedSupportTypeId)
         {
