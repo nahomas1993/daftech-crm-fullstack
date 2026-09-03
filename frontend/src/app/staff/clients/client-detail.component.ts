@@ -299,7 +299,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                         <tr>
                           <td>{{ r.trainingDate }}</td>
                           <td>{{ r.agreementTypeName }}</td>
-                          <td>{{ r.trainerEmployeeName }}</td>
+                          <td>{{ r.trainerDisplayName }}</td>
                           <td>{{ r.startDateTime ? (r.startDateTime | slice:11:16) : '—' }}</td>
                           <td>{{ r.endDateTime ? (r.endDateTime | slice:11:16) : '—' }}</td>
                           <td>{{ r.description }}</td>

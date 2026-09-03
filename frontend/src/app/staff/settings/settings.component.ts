@@ -231,7 +231,7 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
     }
 
     @if (tab() === 'failureTypes' && isAdmin()) {
-      <div class="section" style="max-width: 640px;">
+      <div class="section" style="max-width: 980px;">
         <div class="panel panel-pad">
           <h3>Failure Types &amp; Expected Resolution Time</h3>
           <p class="text-muted hint">
@@ -244,51 +244,101 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             queue always reflects the urgency you set here.
           </p>
 
-          <div class="ft-add-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1fr 1.2fr auto;">
-            <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
-              @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
-            </select>
-            <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
-            <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
-            <input #newFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="onNewFtBasePriceInput($event, newFtPriceEl)" />
-            <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
-            <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
-              <option value="Hours">Hour(s)</option>
-              <option value="Days">Day(s)</option>
-              <option value="Months">Month(s)</option>
-            </select>
-            <select [ngModel]="newFtPriority()" (ngModelChange)="newFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
-              <option value="Low">Low priority</option>
-              <option value="Medium">Medium priority</option>
-              <option value="High">High priority</option>
-            </select>
-            <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="newFtRequiredSpecialization()" (ngModelChange)="newFtRequiredSpecialization.set($event)" />
-            <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="addFailureType()">Add</button>
+          <div class="ft-add-row">
+            <div>
+              <label class="field-label">Category</label>
+              <select [ngModel]="newFtCategory()" (ngModelChange)="newFtCategory.set($event)">
+                @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Failure type name</label>
+              <input type="text" placeholder="Failure type name…" [ngModel]="newFtName()" (ngModelChange)="newFtName.set($event)" />
+            </div>
+            <div>
+              <label class="field-label">Description (optional)</label>
+              <input type="text" placeholder="Description (optional)…" [ngModel]="newFtDescription()" (ngModelChange)="newFtDescription.set($event)" />
+            </div>
+            <div>
+              <label class="field-label">Base price (ETB)</label>
+              <input #newFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="newFtBasePrice()" (ngModelChange)="onNewFtBasePriceInput($event, newFtPriceEl)" />
+            </div>
+            <div>
+              <label class="field-label">Duration</label>
+              <input type="number" min="1" placeholder="Duration" [ngModel]="newFtValue()" (ngModelChange)="newFtValue.set($event)" />
+            </div>
+            <div>
+              <label class="field-label">Unit</label>
+              <select [ngModel]="newFtUnit()" (ngModelChange)="newFtUnit.set($event)">
+                <option value="Hours">Hour(s)</option>
+                <option value="Days">Day(s)</option>
+                <option value="Months">Month(s)</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Priority</label>
+              <select [ngModel]="newFtPriority()" (ngModelChange)="newFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
+                <option value="Low">Low priority</option>
+                <option value="Medium">Medium priority</option>
+                <option value="High">High priority</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Required specialization (optional)</label>
+              <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="newFtRequiredSpecialization()" (ngModelChange)="newFtRequiredSpecialization.set($event)" />
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="addFailureType()">Add</button>
+            </div>
           </div>
 
           <ul class="entry-list">
             @for (ft of failureTypes.types(); track ft.id) {
               <li class="entry-row">
                 @if (editingFtId() === ft.id) {
-                  <div class="ft-edit-row" style="grid-template-columns: 1fr 1.4fr 1.6fr 1.1fr 0.8fr 0.8fr 1fr 1.2fr;">
-                    <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
-                      @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
-                    </select>
-                    <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
-                    <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
-                    <input #editingFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="onEditingFtBasePriceInput($event, editingFtPriceEl)" />
-                    <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
-                    <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
-                      <option value="Hours">Hour(s)</option>
-                      <option value="Days">Day(s)</option>
-                      <option value="Months">Month(s)</option>
-                    </select>
-                    <select [ngModel]="editingFtPriority()" (ngModelChange)="editingFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
-                      <option value="Low">Low priority</option>
-                      <option value="Medium">Medium priority</option>
-                      <option value="High">High priority</option>
-                    </select>
-                    <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="editingFtRequiredSpecialization()" (ngModelChange)="editingFtRequiredSpecialization.set($event)" />
+                  <div class="ft-edit-row">
+                    <div>
+                      <label class="field-label">Category</label>
+                      <select [ngModel]="editingFtCategory()" (ngModelChange)="editingFtCategory.set($event)">
+                        @for (c of categories; track c) { <option [value]="c">{{ categoryLabel(c) }}</option> }
+                      </select>
+                    </div>
+                    <div>
+                      <label class="field-label">Failure type name</label>
+                      <input type="text" [ngModel]="editingFtName()" (ngModelChange)="editingFtName.set($event)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Description (optional)</label>
+                      <input type="text" placeholder="Description (optional)…" [ngModel]="editingFtDescription()" (ngModelChange)="editingFtDescription.set($event)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Base price (ETB)</label>
+                      <input #editingFtPriceEl type="text" inputmode="decimal" class="price-input" placeholder="Base price (ETB)" [ngModel]="editingFtBasePrice()" (ngModelChange)="onEditingFtBasePriceInput($event, editingFtPriceEl)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Duration</label>
+                      <input type="number" min="1" [ngModel]="editingFtValue()" (ngModelChange)="editingFtValue.set($event)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Unit</label>
+                      <select [ngModel]="editingFtUnit()" (ngModelChange)="editingFtUnit.set($event)">
+                        <option value="Hours">Hour(s)</option>
+                        <option value="Days">Day(s)</option>
+                        <option value="Months">Month(s)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="field-label">Priority</label>
+                      <select [ngModel]="editingFtPriority()" (ngModelChange)="editingFtPriority.set($event)" title="Priority applied automatically to tickets of this failure type">
+                        <option value="Low">Low priority</option>
+                        <option value="Medium">Medium priority</option>
+                        <option value="High">High priority</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="field-label">Required specialization (optional)</label>
+                      <input type="text" placeholder="Required Specialization (optional)…" [ngModel]="editingFtRequiredSpecialization()" (ngModelChange)="editingFtRequiredSpecialization.set($event)" />
+                    </div>
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingFailureTypes()" (click)="saveFtEdit(ft.id)">Save</button>
@@ -323,21 +373,41 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
             type they chose. A zero fee is fine if a support type costs nothing extra.
           </p>
 
-          <div class="ft-add-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr auto;">
-            <input type="text" placeholder="Support type name…" [ngModel]="newStName()" (ngModelChange)="newStName.set($event)" />
-            <input type="text" placeholder="Description (optional)…" [ngModel]="newStDescription()" (ngModelChange)="newStDescription.set($event)" />
-            <input #newStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="onNewStFeeInput($event, newStFeeEl)" />
-            <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="addSupportType()">Add</button>
+          <div class="ft-add-row">
+            <div>
+              <label class="field-label">Support type name</label>
+              <input type="text" placeholder="Support type name…" [ngModel]="newStName()" (ngModelChange)="newStName.set($event)" />
+            </div>
+            <div>
+              <label class="field-label">Description (optional)</label>
+              <input type="text" placeholder="Description (optional)…" [ngModel]="newStDescription()" (ngModelChange)="newStDescription.set($event)" />
+            </div>
+            <div>
+              <label class="field-label">Additional fee (ETB)</label>
+              <input #newStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="newStFee()" (ngModelChange)="onNewStFeeInput($event, newStFeeEl)" />
+            </div>
+            <div class="field-actions">
+              <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="addSupportType()">Add</button>
+            </div>
           </div>
 
           <ul class="entry-list">
             @for (st of supportTypes.types(); track st.id) {
               <li class="entry-row">
                 @if (editingStId() === st.id) {
-                  <div class="ft-edit-row" style="grid-template-columns: 1.2fr 1.6fr 1.1fr;">
-                    <input type="text" [ngModel]="editingStName()" (ngModelChange)="editingStName.set($event)" />
-                    <input type="text" placeholder="Description (optional)…" [ngModel]="editingStDescription()" (ngModelChange)="editingStDescription.set($event)" />
-                    <input #editingStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="editingStFee()" (ngModelChange)="onEditingStFeeInput($event, editingStFeeEl)" />
+                  <div class="ft-edit-row">
+                    <div>
+                      <label class="field-label">Support type name</label>
+                      <input type="text" [ngModel]="editingStName()" (ngModelChange)="editingStName.set($event)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Description (optional)</label>
+                      <input type="text" placeholder="Description (optional)…" [ngModel]="editingStDescription()" (ngModelChange)="editingStDescription.set($event)" />
+                    </div>
+                    <div>
+                      <label class="field-label">Additional fee (ETB)</label>
+                      <input #editingStFeeEl type="text" inputmode="decimal" class="price-input" placeholder="Additional fee (ETB)" [ngModel]="editingStFee()" (ngModelChange)="onEditingStFeeInput($event, editingStFeeEl)" />
+                    </div>
                   </div>
                   <div class="entry-actions">
                     <button class="btn btn-primary btn-sm" [disabled]="savingSupportTypes()" (click)="saveStEdit(st.id)">Save</button>
@@ -588,20 +658,32 @@ type SettingsTab = 'password' | 'configuration' | 'appearance' | 'locations' | '
     .entry-list { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; }
     .entry-row {
       display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
-      padding: 0.55rem 0; border-top: 1px solid var(--slate-100);
+      padding: 0.55rem 0; border-top: 1px solid var(--slate-100); flex-wrap: wrap;
     }
+    .entry-row:has(.ft-edit-row) { align-items: flex-start; padding: 0.85rem 0; }
     .entry-row:first-of-type { border-top: none; }
     .entry-name { font-size: 0.85rem; color: var(--navy-900); }
     .entry-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
     .edit-input { width: auto; flex: 1; }
     .btn-danger { color: var(--red); border-color: var(--red); }
 
-    .ft-add-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr auto; gap: 0.5rem; margin-bottom: 0.9rem; }
-    .ft-edit-row { display: grid; grid-template-columns: 1fr 1.4fr 1.6fr 0.8fr 0.8fr; gap: 0.4rem; flex: 1; }
+    .ft-add-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem 1rem;
+      margin-bottom: 1.1rem; align-items: end;
+    }
+    .ft-edit-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem 1rem;
+      flex: 1 1 100%; align-items: end;
+    }
+    .ft-add-row > .field-actions, .ft-edit-row > .field-actions { align-self: end; }
+    .field-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--slate-500); margin-bottom: 0.32rem; }
+    .ft-add-row input, .ft-add-row select, .ft-edit-row input, .ft-edit-row select {
+      padding: 0.7rem 0.85rem; font-size: 0.95rem; min-height: 2.6rem;
+    }
     .priority-tag { font-weight: 600; }
     .priority-tag-high { color: var(--red, #b3261e); }
     .checkbox-label { display: flex; flex-direction: row; align-items: center; gap: 0.4rem; font-weight: 500; font-size: 0.82rem; white-space: nowrap; }
-    .price-input { padding: 0.62rem 0.75rem; font-size: 0.92rem; }
+    .price-input { padding: 0.7rem 0.85rem; font-size: 0.95rem; }
   `],
 })
 export class SettingsComponent implements OnInit {

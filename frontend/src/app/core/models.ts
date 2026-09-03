@@ -187,8 +187,11 @@ export interface TrainingRecord {
   systemProductName: string;
   clientId: string;
   clientName: string;
-  trainerEmployeeId: string;
-  trainerEmployeeName: string;
+  /** Null only for a session backfilled via CSV import with no matching Trainer employee — use trainerDisplayName for showing this in the UI. */
+  trainerEmployeeId: string | null;
+  trainerEmployeeName: string | null;
+  /** Always populated — falls back to the CSV's free-text trainer name, then "Unassigned". Use this for display instead of trainerEmployeeName. */
+  trainerDisplayName: string;
   agreementTypeId: string;
   agreementTypeName: string;
   trainingDate: string; // ISO date

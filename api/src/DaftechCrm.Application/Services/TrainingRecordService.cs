@@ -92,7 +92,7 @@ public class TrainingRecordService : ITrainingRecordService
                 r.TrainingDate == request.TrainingDate, ct);
         if (existing is not null)
             throw new InvalidOperationException(
-                $"{agreementType.Name} for {request.TrainingDate:yyyy-MM-dd} was already logged by {existing.TrainerEmployee.FullName}.");
+                $"{agreementType.Name} for {request.TrainingDate:yyyy-MM-dd} was already logged by {existing.TrainerEmployee?.FullName ?? existing.TrainerNameFreeText ?? "an unnamed trainer"}.");
 
         var record = new TrainingRecord
         {
@@ -202,9 +202,10 @@ public class TrainingRecordService : ITrainingRecordService
             .Include(r => r.TrainerEmployee)
             .Include(r => r.AgreementType);
 
-    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee trainer, AgreementType agreementType) => new(
+    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee? trainer, AgreementType agreementType) => new(
         r.Id, r.SystemProductId, systemProduct.Name, systemProduct.ClientId, systemProduct.Client.Name,
-        r.TrainerEmployeeId, trainer.FullName,
+        r.TrainerEmployeeId, trainer?.FullName,
+        trainer?.FullName ?? r.TrainerNameFreeText ?? "Unassigned",
         r.AgreementTypeId, agreementType.Name,
         r.TrainingDate, r.StartDateTime, r.EndDateTime, r.Description, r.FileName, r.CreatedAt
     );

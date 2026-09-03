@@ -49,7 +49,36 @@ public record ClientImportRow(
     string? AgreementDetails,
 
     /// <summary>Free-text pointer back to the physical paper record (folder/box/page number) — purely for audit trail, not used by any logic.</summary>
-    string? PaperReferenceNote
+    string? PaperReferenceNote,
+
+    /// <summary>
+    /// Zero or more historical training sessions for this row's
+    /// SystemProduct, transcribed from paper — see TrainingImportEntry.
+    /// The paper record is normally being entered well after the fact
+    /// (the training already happened), so unlike the live "Log Training
+    /// Session" form, TrainerName is optional here: leave it blank when
+    /// the paper record didn't note who conducted it.
+    /// </summary>
+    IReadOnlyList<TrainingImportEntry> Trainings
+);
+
+/// <summary>
+/// One row's one historical training session, from the repeating
+/// Training1.../Training2... column groups — see CsvImportParser for how
+/// these are gathered off a ClientImportRow. TrainingName must match an
+/// existing AgreementType configured with IsTrainingItem = true (Settings
+/// → Training Items) — it is NOT free text, so a typo is caught as a
+/// per-row import error rather than silently creating an unmatched
+/// record. TrainerName, by contrast, IS free text: it's matched
+/// case-insensitively against an existing Trainer employee's full name
+/// when present, but left blank entirely is fine — see
+/// ClientImportService for the resolution.
+/// </summary>
+public record TrainingImportEntry(
+    string TrainingName,
+    string? TrainerName,
+    string TrainingDate,
+    string Description
 );
 
 /// <summary>Outcome for a single row after ClientImportService processes the file — every row gets exactly one of these, success or failure, so nothing is silently dropped.</summary>

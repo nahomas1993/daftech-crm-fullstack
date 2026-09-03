@@ -70,9 +70,29 @@ public class TrainingRecord
     public Guid AgreementTypeId { get; set; }
     public AgreementType AgreementType { get; set; } = default!;
 
-    /// <summary>Who conducted this specific session — must have been on the SystemProduct's TrainingAssignment roster at the time it was logged (see TrainingRecordService.CreateAsync).</summary>
-    public Guid TrainerEmployeeId { get; set; }
-    public Employee TrainerEmployee { get; set; } = default!;
+    /// <summary>
+    /// Who conducted this specific session — must have been on the
+    /// SystemProduct's TrainingAssignment roster at the time it was logged
+    /// (see TrainingRecordService.CreateAsync). Null only for a session
+    /// backfilled via the CSV bulk import where the paper record didn't
+    /// name a trainer, or named someone who isn't a matching Trainer
+    /// employee — see TrainerNameFreeText for that case, and
+    /// ClientImportService for the import path that leaves this null.
+    /// Every other creation path (CreateAsync, AdminCreateAsync) always
+    /// sets this.
+    /// </summary>
+    public Guid? TrainerEmployeeId { get; set; }
+    public Employee? TrainerEmployee { get; set; }
+
+    /// <summary>
+    /// Free-text trainer name, only ever set by the CSV bulk import when
+    /// TrainerEmployeeId is null — either the paper record left the
+    /// trainer blank, or named someone who didn't match an existing
+    /// Trainer employee by full name. Null whenever TrainerEmployeeId is
+    /// set (the normal case); the two are mutually exclusive, never both
+    /// populated. Purely a display fallback — no logic keys off this.
+    /// </summary>
+    public string? TrainerNameFreeText { get; set; }
 
     public DateOnly TrainingDate { get; set; }
 

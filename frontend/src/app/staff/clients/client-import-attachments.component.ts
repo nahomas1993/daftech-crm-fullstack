@@ -184,7 +184,7 @@ import { Agreement, SystemProduct, TrainingRecord } from '../../core/models';
                   @for (r of recordsFor(sp.id); track r.id) {
                     <li class="entry-row">
                       <span class="entry-name">
-                        {{ r.agreementTypeName }} · {{ r.trainingDate }} · {{ r.trainerEmployeeName }}
+                        {{ r.agreementTypeName }} · {{ r.trainingDate }} · {{ r.trainerDisplayName }}
                         @if (r.fileName) { <span class="ok-tag">✓ {{ r.fileName }}</span> }
                       </span>
                       <div class="entry-actions">

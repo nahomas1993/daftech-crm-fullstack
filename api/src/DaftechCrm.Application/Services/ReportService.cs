@@ -396,7 +396,7 @@ public class ReportService : IReportService
                 sp.TrainingRecords
                     .OrderByDescending(tr => tr.TrainingDate)
                     .Select(tr => new ClientReportTrainingRecordDto(
-                        tr.Id, tr.TrainerEmployee.FullName, tr.TrainingDate, tr.Description, tr.FileName))
+                        tr.Id, tr.TrainerEmployee?.FullName ?? tr.TrainerNameFreeText ?? "Unassigned", tr.TrainingDate, tr.Description, tr.FileName))
                     .ToList()))
             .ToList();
 

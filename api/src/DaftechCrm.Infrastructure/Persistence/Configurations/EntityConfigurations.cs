@@ -176,6 +176,7 @@ public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingReco
         b.Property(x => x.Description).HasColumnType("text").IsRequired();
         b.Property(x => x.FileStorageKey).HasMaxLength(500);
         b.Property(x => x.FileName).HasMaxLength(300);
+        b.Property(x => x.TrainerNameFreeText).HasMaxLength(200);
 
         // Deleting the owning SystemProduct removes its training log too —
         // same reasoning as TrainingAssignmentConfiguration above.
@@ -184,6 +185,8 @@ public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingReco
 
         // Restrict — a training record is a historical fact about who
         // conducted it; deleting that employee must not delete the record.
+        // Optional (see TrainerEmployeeId doc comment) — nullable FK, only
+        // ever left null by the CSV bulk import.
         b.HasOne(x => x.TrainerEmployee).WithMany()
             .HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.Restrict);
 

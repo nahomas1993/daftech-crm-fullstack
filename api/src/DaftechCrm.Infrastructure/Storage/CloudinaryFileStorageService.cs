@@ -20,10 +20,20 @@ namespace DaftechCrm.Infrastructure.Storage;
 /// wiped on every redeploy).
 ///
 /// StorageKey (what callers persist, e.g. Ticket.AttachmentStorageKey) is
-/// Cloudinary's "public_id" — NOT a full URL — so a Cloudinary account
-/// migration or CloudName change doesn't invalidate every stored
-/// reference. Files are uploaded as resource_type "auto" so images and
-/// non-image files (PDF, docx) both work through one code path.
+/// "{resource_type}:{public_id}" — e.g. "video:a1b2c3" for a voice-note
+/// recording — NOT a full URL, so a Cloudinary account migration or
+/// CloudName change doesn't invalidate every stored reference. Files are
+/// uploaded as resource_type "auto" (Cloudinary decides per file: "image"
+/// for images, "video" for both video AND audio since Cloudinary has no
+/// separate audio type, "raw" for everything else) so images and
+/// non-image files (PDF, docx, audio) all work through one upload code
+/// path — but that same auto-detection means a caller can't assume one
+/// fixed resource_type for a given extension. The prefix records exactly
+/// what Cloudinary chose for THIS file, so GetAsync/DeleteAsync never have
+/// to guess it — see GetAsync's doc comment for what used to happen
+/// without it (guessed-wrong resource_type reads as a permanently missing
+/// file on any Cloudinary account with delivery restrictions on some
+/// types), and its fallback path for keys saved before this prefix existed.
 /// </summary>
 public class CloudinaryFileStorageService : IFileStorageService
 {
@@ -110,64 +120,131 @@ public class CloudinaryFileStorageService : IFileStorageService
         var result = await response.Content.ReadFromJsonAsync<CloudinaryUploadResponse>(cancellationToken: ct)
             ?? throw new FileValidationException("Cloudinary returned an unexpected response.");
 
-        _logger.LogInformation("Uploaded file to Cloudinary {PublicId} ({SizeBytes} bytes)", result.PublicId, content.Length);
+        _logger.LogInformation(
+            "Uploaded file to Cloudinary {PublicId} as resource_type {ResourceType} ({SizeBytes} bytes)",
+            result.PublicId, result.ResourceType, content.Length);
 
-        return new StoredFileResult(result.PublicId, result.SecureUrl, originalFileName, content.Length, effectiveContentType);
+        // The StorageKey persisted on the owning row (Ticket, Agreement,
+        // TrainingRecord...) is prefixed with the resource_type Cloudinary
+        // actually assigned this upload ("image", "video" — which also
+        // covers audio, since Cloudinary has no separate audio type — or
+        // "raw"). Auto-detection means the SAME file extension can land
+        // under a different resource_type per upload depending on what
+        // Cloudinary's content sniffing decides, so GetAsync cannot safely
+        // assume one type from the extension alone. Previously GetAsync
+        // guessed by probing raw/image/video in turn; on any Cloudinary
+        // account with delivery restrictions on some resource types (a
+        // default on newer accounts), every probe can 401/403 and the file
+        // reads back as permanently "missing from storage" even though the
+        // upload succeeded — see GetAsync for the prefixed-key fast path
+        // this enables, and its probing fallback for keys saved before
+        // this fix shipped.
+        var storageKey = $"{result.ResourceType}:{result.PublicId}";
+
+        return new StoredFileResult(storageKey, result.SecureUrl, originalFileName, content.Length, effectiveContentType);
     }
 
     public async Task<RetrievedFile?> GetAsync(string storageKey, CancellationToken ct = default)
     {
-        // Files are uploaded with default (public-read) access, so the
-        // secure_url returned at upload time — reconstructed here from the
-        // stored public_id — can be fetched directly without a signed
-        // download URL. Fine for attachments that aren't sensitive
-        // documents (contrast with agreement scans, which stay on
-        // LocalFileStorageService/a private bucket).
-        //
-        // Files are uploaded with resource_type "auto" (see SaveAsync),
-        // which Cloudinary resolves to "image" for images, "video" for
-        // BOTH video AND audio files (Cloudinary has no separate "audio"
-        // resource type), and "raw" for everything else (PDFs, docs).
-        // SaveAsync doesn't currently persist which one Cloudinary chose
-        // (only the public_id is stored on the ticket), so this has to
-        // probe — try "raw" first (the most common case for ticket
-        // attachments), then "image", then "video" (needed for voice-note
-        // recordings, which were previously never tried and always 404'd).
+        // New-format key ("image:abc123", "video:abc123", "raw:abc123" —
+        // see SaveAsync): the resource_type Cloudinary actually assigned
+        // this file at upload time is right there, so fetch it directly
+        // with no guessing.
+        var prefixIndex = storageKey.IndexOf(':');
+        if (prefixIndex > 0)
+        {
+            var knownResourceType = storageKey[..prefixIndex];
+            var publicId = storageKey[(prefixIndex + 1)..];
+            if (knownResourceType is "image" or "video" or "raw")
+            {
+                var direct = await TryDeliver(knownResourceType, publicId, ct);
+                if (direct is not null) return direct;
+
+                // The recorded resource_type didn't deliver (asset since
+                // removed from Cloudinary directly, account delivery
+                // settings changed after upload, etc.) — fall through to
+                // the full probe below rather than giving up on just one
+                // attempt, in case it actually landed under a different
+                // type than what was recorded.
+            }
+        }
+
+        // Old-format key (bare public_id, no prefix — saved before this
+        // fix shipped) or the direct attempt above came back empty: fall
+        // back to probing every resource_type Cloudinary could have
+        // chosen. Files uploaded to an account with delivery restrictions
+        // on raw/video will still 404 here exactly as before — that's a
+        // Cloudinary account setting, not something this app controls;
+        // see the class doc comment.
+        var bareStorageKey = prefixIndex > 0 ? storageKey[(prefixIndex + 1)..] : storageKey;
         foreach (var resourceType in new[] { "raw", "image", "video" })
         {
-            var deliveryUrl = $"https://res.cloudinary.com/{_options.CloudName}/{resourceType}/upload/{storageKey}";
-            var response = await _http.GetAsync(deliveryUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (response.IsSuccessStatusCode)
-            {
-                var stream = await response.Content.ReadAsStreamAsync(ct);
-                var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
-                var originalFileName = Path.GetFileName(storageKey);
-                return new RetrievedFile(stream, contentType, originalFileName);
-            }
+            var found = await TryDeliver(resourceType, bareStorageKey, ct);
+            if (found is not null) return found;
         }
 
         return null;
     }
 
+    private async Task<RetrievedFile?> TryDeliver(string resourceType, string publicId, CancellationToken ct)
+    {
+        var deliveryUrl = $"https://res.cloudinary.com/{_options.CloudName}/{resourceType}/upload/{publicId}";
+        var response = await _http.GetAsync(deliveryUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            // Logged at Warning (not Debug) specifically for this
+            // resource_type/publicId pair, even though GetAsync tries
+            // several — a 401/403 here (vs. 404) is the signature of a
+            // Cloudinary account with delivery restrictions on that
+            // resource type, which reads as "file lost" to the rest of
+            // the app but is actually an account setting, not a missing
+            // file — see the class doc comment. Check Render's logs for
+            // this line's Status the next time a file "goes missing".
+            _logger.LogWarning(
+                "Cloudinary delivery attempt failed for {ResourceType}/{PublicId}: {Status}",
+                resourceType, publicId, response.StatusCode);
+            return null;
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(ct);
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+        var originalFileName = Path.GetFileName(publicId);
+        return new RetrievedFile(stream, contentType, originalFileName);
+    }
+
     public async Task DeleteAsync(string storageKey, CancellationToken ct = default)
     {
+        // Cloudinary's destroy endpoint (unlike upload) requires the
+        // asset's real resource_type in the URL — "auto" is only valid on
+        // /upload. A new-format key ("video:abc123", see SaveAsync) has it
+        // right there; an old-format bare key predates that fix and is
+        // assumed "raw" (the most common ticket-attachment case) since
+        // there's nothing else to go on — a stale image/video asset from
+        // before this fix may need clearing out by hand in the Cloudinary
+        // console if this guess is wrong for it.
+        var prefixIndex = storageKey.IndexOf(':');
+        var resourceType = prefixIndex > 0 && storageKey[..prefixIndex] is "image" or "video" or "raw"
+            ? storageKey[..prefixIndex]
+            : "raw";
+        var publicId = prefixIndex > 0 ? storageKey[(prefixIndex + 1)..] : storageKey;
+
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
         var signature = Sign(new SortedDictionary<string, string>
         {
-            ["public_id"] = storageKey,
+            ["public_id"] = publicId,
             ["timestamp"] = timestamp,
         });
 
         using var form = new MultipartFormDataContent
         {
-            { new StringContent(storageKey), "public_id" },
+            { new StringContent(publicId), "public_id" },
             { new StringContent(timestamp), "timestamp" },
             { new StringContent(_options.ApiKey), "api_key" },
             { new StringContent(signature), "signature" },
         };
 
         var response = await _http.PostAsync(
-            $"https://api.cloudinary.com/v1_1/{_options.CloudName}/auto/destroy", form, ct);
+            $"https://api.cloudinary.com/v1_1/{_options.CloudName}/{resourceType}/destroy", form, ct);
 
         if (response.IsSuccessStatusCode)
             _logger.LogInformation("Deleted Cloudinary file {StorageKey}", storageKey);
@@ -200,5 +277,6 @@ public class CloudinaryFileStorageService : IFileStorageService
 
     private record CloudinaryUploadResponse(
         [property: JsonPropertyName("public_id")] string PublicId,
-        [property: JsonPropertyName("secure_url")] string SecureUrl);
+        [property: JsonPropertyName("secure_url")] string SecureUrl,
+        [property: JsonPropertyName("resource_type")] string ResourceType);
 }

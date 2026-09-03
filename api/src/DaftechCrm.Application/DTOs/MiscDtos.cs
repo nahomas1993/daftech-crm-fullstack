@@ -16,10 +16,17 @@ public record AddTrainingAssignmentRequest(Guid TrainerEmployeeId);
 /// <summary>One system/product the Admin has put this Trainer on the roster for — the only things a Trainer may log training against. See TrainingController.GetMyAssignments.</summary>
 public record MyTrainingAssignmentDto(Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName);
 
-/// <summary>One training session actually conducted and logged — see TrainingRecord.</summary>
+/// <summary>
+/// One training session actually conducted and logged — see
+/// TrainingRecord. TrainerEmployeeId/TrainerEmployeeName are both null
+/// only for a session backfilled via CSV import with no matching Trainer
+/// employee — TrainerDisplayName is always populated (falls back to
+/// TrainerNameFreeText, then "Unassigned") so the UI never needs its own
+/// null-handling.
+/// </summary>
 public record TrainingRecordDto(
     Guid Id, Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName,
-    Guid TrainerEmployeeId, string TrainerEmployeeName,
+    Guid? TrainerEmployeeId, string? TrainerEmployeeName, string TrainerDisplayName,
     Guid AgreementTypeId, string AgreementTypeName,
     DateOnly TrainingDate, DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime,
     string Description, string? FileName, DateTimeOffset CreatedAt

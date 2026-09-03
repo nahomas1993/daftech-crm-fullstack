@@ -102,7 +102,8 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("FileStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<DateTimeOffset?>("StartDateTime").HasColumnType("timestamp with time zone");
                 b.Property<Guid>("SystemProductId").HasColumnType("uuid");
-                b.Property<Guid>("TrainerEmployeeId").HasColumnType("uuid");
+                b.Property<Guid?>("TrainerEmployeeId").HasColumnType("uuid");
+                b.Property<string>("TrainerNameFreeText").HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<DateOnly>("TrainingDate").HasColumnType("date");
                 b.HasKey("Id");
                 b.HasIndex("AgreementTypeId");

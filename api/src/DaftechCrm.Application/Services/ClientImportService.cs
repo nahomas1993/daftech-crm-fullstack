@@ -306,6 +306,15 @@ public class ClientImportService
             agreementId = agreement.Id;
         }
 
+        // --- Log any historical training sessions for this row's SystemProduct ---
+        // Each row can carry several (see CsvImportParser.MaxTrainingSlots)
+        // — an empty Trainings list is the common case (most rows are just
+        // a client/product/agreement), so this loop is a no-op then.
+        foreach (var training in row.Trainings)
+        {
+            await StageTrainingRecordAsync(training, systemProduct.Id, pendingEntitiesThisRow, ct);
+        }
+
         // Single save for everything staged above — see the comment by
         // the Client's _db.Add() call for why this is deferred to here.
         await _db.SaveChangesAsync(ct);
@@ -319,6 +328,92 @@ public class ClientImportService
             createdNewClientThisRow ? row.Zone : null,
             createdNewClientThisRow ? row.City : null,
             createdNewClientThisRow ? row.Woreda : null);
+    }
+
+    /// <summary>
+    /// Stages one TrainingImportEntry as a TrainingRecord against
+    /// systemProductId — mirrors TrainingRecordService.AdminCreateAsync's
+    /// validation (training item must exist and be an actual training
+    /// item, description required, same-item/same-date duplicate check)
+    /// but with two import-specific differences: TrainerName is resolved
+    /// by matching an existing Trainer employee's full name
+    /// case-insensitively when given, and is left entirely unassigned
+    /// (both TrainerEmployeeId and the roster check) when the CSV cell is
+    /// blank or doesn't match anyone — see TrainingRecord.TrainerEmployeeId.
+    /// Not routed through TrainingRecordService itself, same reasoning as
+    /// the Client/SystemProduct/Agreement entities above: this needs to
+    /// stage into pendingEntitiesThisRow and defer to the row's single
+    /// SaveChangesAsync rather than commit its own.
+    /// </summary>
+    private async Task StageTrainingRecordAsync(
+        TrainingImportEntry training, Guid systemProductId, List<object> pendingEntitiesThisRow, CancellationToken ct)
+    {
+        RequiredFieldValidator.EnsureAllPresent(
+            ($"Row's {training.TrainingName} training date", training.TrainingDate),
+            ($"Row's {training.TrainingName} training description", training.Description)
+        );
+
+        var agreementType = await _db.AgreementTypes
+            .FirstOrDefaultAsync(t => t.Name.ToLower() == training.TrainingName.ToLower(), ct)
+            ?? throw new InvalidOperationException(
+                $"Training item \"{training.TrainingName}\" was not found — check Settings for the exact configured Training Item name.");
+
+        if (!agreementType.IsTrainingItem)
+            throw new InvalidOperationException(
+                $"\"{training.TrainingName}\" is a configured agreement type but isn't marked as a Training Item in Settings — either flag it as one, or use a different name for this training column.");
+
+        var trainingDate = ParseRequiredDate(training.TrainingDate, $"{training.TrainingName} training date");
+
+        // Trainer name is optional (see StageTrainingRecordAsync's doc
+        // comment) — only resolved when the cell isn't blank, and even
+        // then a non-match falls back to unassigned rather than failing
+        // the row, since "trainer named on paper no longer matches anyone
+        // in the system" shouldn't block importing the training itself.
+        Guid? trainerEmployeeId = null;
+        string? trainerNameFreeText = null;
+        if (!string.IsNullOrWhiteSpace(training.TrainerName))
+        {
+            var matchedTrainer = await _db.Employees
+                .Where(e => e.Roles.Contains(EmployeeRole.Trainer))
+                .FirstOrDefaultAsync(e => e.FullName.ToLower() == training.TrainerName!.Trim().ToLower(), ct);
+
+            if (matchedTrainer is not null)
+                trainerEmployeeId = matchedTrainer.Id;
+            else
+                trainerNameFreeText = training.TrainerName.Trim();
+        }
+
+        // Same same-item/same-date duplicate guard as
+        // TrainingRecordService.CreateInternalAsync, so re-uploading a
+        // corrected copy of the same file doesn't double-log an already
+        // imported session. Checked against both what's already in the
+        // database AND what this same row has staged so far (two
+        // Training slots on one row naming the same item/date would
+        // otherwise slip past a DB-only check, since neither has been
+        // saved yet).
+        var alreadyLogged = await _db.TrainingRecords.AnyAsync(r =>
+            r.SystemProductId == systemProductId &&
+            r.AgreementTypeId == agreementType.Id &&
+            r.TrainingDate == trainingDate, ct);
+        var duplicateInThisRow = pendingEntitiesThisRow.OfType<TrainingRecord>().Any(r =>
+            r.SystemProductId == systemProductId &&
+            r.AgreementTypeId == agreementType.Id &&
+            r.TrainingDate == trainingDate);
+        if (alreadyLogged || duplicateInThisRow)
+            throw new InvalidOperationException(
+                $"{agreementType.Name} for {trainingDate:yyyy-MM-dd} was already logged for this system/product — remove it from the file if this is a re-import, or use a different date if it's a genuinely separate session.");
+
+        var record = new TrainingRecord
+        {
+            SystemProductId = systemProductId,
+            AgreementTypeId = agreementType.Id,
+            TrainerEmployeeId = trainerEmployeeId,
+            TrainerNameFreeText = trainerNameFreeText,
+            TrainingDate = trainingDate,
+            Description = training.Description.Trim(),
+        };
+        _db.Add(record);
+        pendingEntitiesThisRow.Add(record);
     }
 
     private static bool ParseYesNo(string value, string fieldName)
