@@ -176,7 +176,6 @@ public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingReco
         b.Property(x => x.Description).HasColumnType("text").IsRequired();
         b.Property(x => x.FileStorageKey).HasMaxLength(500);
         b.Property(x => x.FileName).HasMaxLength(300);
-        b.Property(x => x.TrainerNameFreeText).HasMaxLength(200);
 
         // Deleting the owning SystemProduct removes its training log too —
         // same reasoning as TrainingAssignmentConfiguration above.
@@ -185,8 +184,6 @@ public class TrainingRecordConfiguration : IEntityTypeConfiguration<TrainingReco
 
         // Restrict — a training record is a historical fact about who
         // conducted it; deleting that employee must not delete the record.
-        // Optional (see TrainerEmployeeId doc comment) — nullable FK, only
-        // ever left null by the CSV bulk import.
         b.HasOne(x => x.TrainerEmployee).WithMany()
             .HasForeignKey(x => x.TrainerEmployeeId).OnDelete(DeleteBehavior.Restrict);
 
@@ -493,15 +490,6 @@ public class LocationEntryConfiguration : IEntityTypeConfiguration<LocationEntry
         b.Property(x => x.Type).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.Property(x => x.Name).HasMaxLength(150).IsRequired();
         b.HasIndex(x => new { x.Type, x.Name }).IsUnique();
-
-        // Self-referencing Region -> Zone -> Woreda chain. Cascade so
-        // deleting a Region removes its Zones, which in turn removes their
-        // Woredas — Postgres supports multiple cascade paths through a
-        // self-referencing FK, unlike SQL Server's more restrictive rules.
-        b.HasOne(x => x.Parent)
-            .WithMany()
-            .HasForeignKey(x => x.ParentId)
-            .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
@@ -518,7 +506,6 @@ public class FailureTypeConfiguration : IEntityTypeConfiguration<FailureType>
         b.Property(x => x.DurationUnit).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.Property(x => x.BasePrice).HasPrecision(12, 2);
         b.Property(x => x.RequiredSpecialization).HasMaxLength(100);
-        b.Property(x => x.DefaultPriority).HasConversion<string>().HasMaxLength(20).IsRequired();
     }
 }
 

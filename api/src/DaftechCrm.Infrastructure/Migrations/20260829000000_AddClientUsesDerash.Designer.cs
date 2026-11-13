@@ -9,8 +9,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace DaftechCrm.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260829000000_AddLocationHierarchy")]
-    partial class AddLocationHierarchy
+    [Migration("20260829000000_AddClientUsesDerash")]
+    partial class AddClientUsesDerash
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

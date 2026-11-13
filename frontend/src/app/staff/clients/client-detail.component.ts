@@ -9,11 +9,9 @@ import { AgreementService } from '../../core/services/agreement.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { TrainingService } from '../../core/services/training.service';
-import { MaintenanceService } from '../../core/services/maintenance.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { MaintenanceHistoryListComponent } from '../../shared/maintenance-history-list.component';
-import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload, MaintenanceRecord } from '../../core/models';
+import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload } from '../../core/models';
 
 /**
  * Client -> System/Product -> Agreement -> Agreement Type. Each
@@ -38,7 +36,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
 @Component({
   selector: 'app-client-detail',
   standalone: true,
-  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule, FilePreviewModalComponent, MaintenanceHistoryListComponent],
+  imports: [RouterLink, BadgeComponent, SlicePipe, FormsModule, FilePreviewModalComponent],
   template: `
     @if (client(); as c) {
       <a routerLink="/admin/clients" class="back">← Back to Clients</a>
@@ -57,6 +55,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
           <dt>Phone</dt><dd>{{ c.phoneNumber }}</dd>
           <dt>KYC Type</dt><dd>{{ c.kycType }}</dd>
           <dt>KYC Contact</dt><dd>{{ c.kycContact }}</dd>
+          <dt>Uses Derash</dt><dd>{{ c.usesDerash ? 'Yes (always free support)' : 'No' }}</dd>
           @if (c.itSupportContact) { <dt>IT Support Contact</dt><dd>{{ c.itSupportContact }}</dd> }
           <dt>Onboarded</dt><dd>{{ c.onboardingDate }}</dd>
           @if (c.rejectionReason) { <dt>Rejection Reason</dt><dd class="text-muted">{{ c.rejectionReason }}</dd> }
@@ -225,6 +224,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
               </div>
             }
 
+            @if (agreementFileError()) { <p class="upload-error" style="margin-top:0.6rem;">{{ agreementFileError() }}</p> }
             <div class="table-scroll" style="margin-top:0.85rem;"><table>
               <thead><tr><th>Type</th><th>Doc #</th><th>Sign Date</th><th>Expiry</th><th>Tier</th><th>Status</th><th>Document</th></tr></thead>
               <tbody>
@@ -236,10 +236,20 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                     <td>{{ a.expiryDate }}</td>
                     <td>{{ a.billingTier }}</td>
                     <td><app-badge [status]="a.status"></app-badge></td>
-                    <td>
+                    <td style="white-space:nowrap;">
                       @if (a.scannedFileUrl) {
                         <button class="btn btn-outline btn-sm" (click)="viewAgreementFile(a.id, a.scannedFileUrl)">View</button>
-                      } @else { <span class="text-muted">None</span> }
+                        <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === a.id ? 0.5 : 1">
+                          Replace
+                          <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === a.id" (change)="onAgreementFilePicked($event, a.id)" />
+                        </label>
+                        <button class="btn btn-outline btn-sm btn-danger" [disabled]="fileBusyId() === a.id" (click)="removeAgreementFile(a.id)">Delete</button>
+                      } @else {
+                        <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === a.id ? 0.5 : 1">
+                          {{ fileBusyId() === a.id ? 'Uploading…' : 'Upload' }}
+                          <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === a.id" (change)="onAgreementFilePicked($event, a.id)" />
+                        </label>
+                      }
                     </td>
                   </tr>
                 }
@@ -299,7 +309,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                         <tr>
                           <td>{{ r.trainingDate }}</td>
                           <td>{{ r.agreementTypeName }}</td>
-                          <td>{{ r.trainerDisplayName }}</td>
+                          <td>{{ r.trainerEmployeeName }}</td>
                           <td>{{ r.startDateTime ? (r.startDateTime | slice:11:16) : '—' }}</td>
                           <td>{{ r.endDateTime ? (r.endDateTime | slice:11:16) : '—' }}</td>
                           <td>{{ r.description }}</td>
@@ -327,16 +337,6 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                 }
               </div>
             </div>
-
-            <div class="training-panel">
-              <h5 style="margin:0;">Maintenance History</h5>
-              <p class="text-muted" style="font-size:0.76rem; margin: 0.2rem 0 0.6rem;">Internal maintenance work logged against this system/product, newest first.</p>
-              <app-maintenance-history-list
-                [records]="maintenanceFor(sp.id)"
-                [loading]="maintenanceLoadingFor(sp.id)"
-                emptyMessage="No maintenance records yet for this system/product.">
-              </app-maintenance-history-list>
-            </div>
           </div>
         }
         @empty {
@@ -345,85 +345,23 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
       </div>
 
       <div class="panel panel-pad" style="margin-top:1.25rem;">
-        <h3>Maintenance History — {{ c.name }}</h3>
-        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">
-          Complete history of every issue this client has raised, newest first — which technician handled it, when it was assigned and completed, its current status, the work performed, and any attachments or voice notes submitted with it.
-        </p>
+        <h3>Full Ticket History with DAFTECH</h3>
+        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Used by Admin when assigning new tickets.</p>
         <div class="table-scroll"><table>
-          <thead><tr><th>Ticket</th><th>Issue / Problem</th><th>Technician Assigned</th><th>Assigned</th><th>Completed</th><th>Status</th><th>Files</th><th></th></tr></thead>
+          <thead><tr><th>Ticket</th><th>Category</th><th>Submitted</th><th>Chargeable</th><th>Status</th></tr></thead>
           <tbody>
-            @for (t of ticketHistory(); track t.id) {
+            @for (t of tickets(); track t.id) {
               <tr>
-                <td class="mono">{{ t.id.slice(0,8).toUpperCase() }}</td>
-                <td class="description-cell" [title]="t.description">
-                  {{ t.description }}
-                  <div class="text-muted" style="font-size:0.74rem; margin-top:0.15rem;">
-                    {{ categoryLabel(t.category) }}@if (t.failureTypeName) { · {{ t.failureTypeName }} }@if (t.systemProductName) { · {{ t.systemProductName }} }
-                  </div>
-                </td>
-                <td>{{ t.assignedEmployeeName ?? '—' }}</td>
-                <td class="text-muted" style="font-size:0.8rem;">
-                  @if (t.assignedAt) { {{ t.assignedAt | slice:0:10 }} {{ t.assignedAt | slice:11:16 }} } @else { Not yet assigned }
-                </td>
-                <td class="text-muted" style="font-size:0.8rem;">
-                  @if (t.completedAt) { {{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }} } @else { — }
-                </td>
+                <td class="mono">{{ t.id }}</td>
+                <td>{{ categoryLabel(t.category) }}</td>
+                <td class="text-muted">{{ t.dateSubmitted | slice:0:10 }}</td>
+                <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
                 <td><app-badge [status]="t.status"></app-badge></td>
-                <td>
-                  @if (t.attachmentFileName) {
-                    <button class="btn btn-outline btn-sm" (click)="viewTicketAttachment(t.id, t.attachmentFileName)">📎 Attachment</button>
-                  }
-                  @if (t.voiceNoteFileName) {
-                    <button class="btn btn-outline btn-sm" (click)="viewTicketVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
-                  }
-                  @if (!t.attachmentFileName && !t.voiceNoteFileName) { <span class="text-muted">—</span> }
-                </td>
-                <td>
-                  @if (hasExtraTicketDetails(t)) {
-                    <button class="btn btn-outline btn-sm" (click)="toggleTicketDetails(t.id)">{{ expandedTicketId() === t.id ? 'Hide Details' : 'Details' }}</button>
-                  }
-                </td>
               </tr>
-              @if (expandedTicketId() === t.id) {
-                <tr class="details-row">
-                  <td colspan="8">
-                    <div class="details-grid">
-                      <div class="detail-item"><span class="detail-label">Chargeable</span><span>{{ t.chargeable ? 'Chargeable' : 'Free' }}</span></div>
-                      <div class="detail-item"><span class="detail-label">Priority</span><span>{{ t.priority }}</span></div>
-                      <div class="detail-item"><span class="detail-label">Submitted</span><span>{{ t.dateSubmitted | slice:0:10 }} {{ t.dateSubmitted | slice:11:16 }}</span></div>
-                      @if (t.workingMinutesToComplete != null) {
-                        <div class="detail-item"><span class="detail-label">Working Minutes to Complete</span><span>{{ t.workingMinutesToComplete }}</span></div>
-                      }
-                      @if (t.completedByEmployeeName) {
-                        <div class="detail-item"><span class="detail-label">Completed By</span><span>{{ t.completedByEmployeeName }}</span></div>
-                      }
-                      @if (t.requiredSpecialization) {
-                        <div class="detail-item"><span class="detail-label">Required Specialization</span><span>{{ t.requiredSpecialization }}</span></div>
-                      }
-                      @if (t.itSupportContact) {
-                        <div class="detail-item"><span class="detail-label">IT Support Contact</span><span>{{ t.itSupportContact }}</span></div>
-                      }
-                      @if (t.satisfactionScore != null) {
-                        <div class="detail-item"><span class="detail-label">Satisfaction</span><span>{{ t.satisfactionScore }}/100</span></div>
-                      }
-                    </div>
-                  </td>
-                </tr>
-              }
             }
-            @empty { <tr><td colspan="8" class="text-muted">No tickets submitted yet for this client.</td></tr> }
+            @empty { <tr><td colspan="5" class="text-muted">No tickets submitted yet.</td></tr> }
           </tbody>
         </table></div>
-      </div>
-
-      <div class="panel panel-pad" style="margin-top:1.25rem;">
-        <h3>Internal Maintenance Log</h3>
-        <p class="text-muted" style="font-size:0.8rem; margin: 0.2rem 0 0.9rem;">Internal DAFTECH maintenance work manually logged against this client (not tied to a client-submitted ticket), across all their systems/products, newest first.</p>
-        <app-maintenance-history-list
-          [records]="clientMaintenanceRecords()"
-          [loading]="clientMaintenanceLoading()"
-          emptyMessage="No internal maintenance records logged for this client.">
-        </app-maintenance-history-list>
       </div>
     } @else {
       <p class="text-muted">Client not found.</p>
@@ -455,11 +393,6 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
     .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
     .roster-list li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
     .assign-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
-    .details-row td { background: var(--slate-50, #f8fafc); padding: 0.75rem 1rem; }
-    .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1.2rem; }
-    .detail-item { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.82rem; }
-    .detail-label { font-size: 0.72rem; font-weight: 600; color: var(--slate-500); }
-    .description-cell { max-width: 280px; font-size: 0.82rem; }
   `],
 })
 export class ClientDetailComponent {
@@ -505,13 +438,6 @@ export class ClientDetailComponent {
   // Training records fetched per system/product, same keying reasoning.
   private recordsBySystemProduct = signal<Record<string, TrainingRecord[]>>({});
 
-  // Maintenance history fetched per system/product, same keying reasoning,
-  // plus a client-wide list independent of any single system/product.
-  private maintenanceBySystemProduct = signal<Record<string, MaintenanceRecord[]>>({});
-  private maintenanceLoading = signal<Record<string, boolean>>({});
-  clientMaintenanceRecords = signal<MaintenanceRecord[]>([]);
-  clientMaintenanceLoading = signal(false);
-
   trainerWorkloads = signal<TrainerWorkload[]>([]);
   recommendedTrainerId = signal<string | undefined>(undefined);
   manualTrainerSelection: Record<string, string> = {};
@@ -532,7 +458,6 @@ export class ClientDetailComponent {
     public agreementTypesSvc: AgreementTypeService,
     private ticketsSvc: TicketService,
     private trainingSvc: TrainingService,
-    private maintenanceSvc: MaintenanceService,
     private route: ActivatedRoute,
   ) {
     // Load this client's systems/products as soon as the client id is
@@ -540,13 +465,6 @@ export class ClientDetailComponent {
     effect(() => {
       const clientId = this.id();
       if (clientId) void this.refreshSystemProducts(clientId);
-    });
-
-    // Client-wide Maintenance History — independent of the per-system-product
-    // fetches above, which are keyed by systemProductId instead.
-    effect(() => {
-      const clientId = this.id();
-      if (clientId) void this.loadClientMaintenance(clientId);
     });
 
     void this.loadTrainerWorkload();
@@ -573,8 +491,6 @@ export class ClientDetailComponent {
   client = computed(() => this.clientsSvc.getById(this.id()));
   systemProducts = computed(() => this.systemProductsSvc.systemProductsFor(this.id()));
   tickets = computed(() => this.ticketsSvc.forClient(this.id()));
-  /** This client's complete ticket history, newest-submitted-first — powers the redesigned Maintenance History table below (technician, assigned/completed timestamps, status, attachments, voice notes), scoped strictly to this client via TicketService.forClient. */
-  ticketHistory = computed(() => [...this.tickets()].sort((a, b) => b.dateSubmitted.localeCompare(a.dateSubmitted)));
 
   agreementsFor(systemProductId: string): Agreement[] {
     return this.agreementsBySystemProduct()[systemProductId] ?? [];
@@ -582,14 +498,6 @@ export class ClientDetailComponent {
 
   recordsFor(systemProductId: string): TrainingRecord[] {
     return this.recordsBySystemProduct()[systemProductId] ?? [];
-  }
-
-  maintenanceFor(systemProductId: string): MaintenanceRecord[] {
-    return this.maintenanceBySystemProduct()[systemProductId] ?? [];
-  }
-
-  maintenanceLoadingFor(systemProductId: string): boolean {
-    return this.maintenanceLoading()[systemProductId] ?? false;
   }
 
   /** Trainers not already on this system/product's roster — the only ones worth showing in the Manual Assign dropdown. */
@@ -607,22 +515,6 @@ export class ClientDetailComponent {
     return TICKET_CATEGORY_LABELS[c as keyof typeof TICKET_CATEGORY_LABELS] ?? c;
   }
 
-  // Expandable "Details" row on the Full Ticket History table — same
-  // completion/specialty/contact fields as the staff Tickets page (see
-  // TicketsComponent), each individually hidden when null/empty.
-  expandedTicketId = signal<string | null>(null);
-
-  toggleTicketDetails(ticketId: string) {
-    this.expandedTicketId.set(this.expandedTicketId() === ticketId ? null : ticketId);
-  }
-
-  hasExtraTicketDetails(t: {
-    completedAt?: string; workingMinutesToComplete?: number; completedByEmployeeName?: string;
-    requiredSpecialization?: string; itSupportContact?: string;
-  }): boolean {
-    return !!(t.completedAt || t.workingMinutesToComplete != null || t.completedByEmployeeName || t.requiredSpecialization || t.itSupportContact);
-  }
-
   private blankAgreementForm() {
     return {
       agreementTypeId: '', agreementPlace: '', signDate: new Date().toISOString().slice(0, 10),
@@ -632,7 +524,7 @@ export class ClientDetailComponent {
 
   private async refreshSystemProducts(clientId: string) {
     const list = await this.systemProductsSvc.refreshForClient(clientId);
-    await Promise.all(list.map(sp => Promise.all([this.refreshAgreementsFor(sp.id), this.refreshRecordsFor(sp.id), this.refreshMaintenanceFor(sp.id)])));
+    await Promise.all(list.map(sp => Promise.all([this.refreshAgreementsFor(sp.id), this.refreshRecordsFor(sp.id)])));
   }
 
   private async refreshAgreementsFor(systemProductId: string) {
@@ -650,29 +542,6 @@ export class ClientDetailComponent {
       this.recordsBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
     } catch (err) {
       console.error('Failed to load training records for system/product', err);
-    }
-  }
-
-  private async refreshMaintenanceFor(systemProductId: string) {
-    this.maintenanceLoading.update(map => ({ ...map, [systemProductId]: true }));
-    try {
-      const list = await this.maintenanceSvc.getForSystemProduct(systemProductId);
-      this.maintenanceBySystemProduct.update(map => ({ ...map, [systemProductId]: list }));
-    } catch (err) {
-      console.error('Failed to load maintenance history for system/product', err);
-    } finally {
-      this.maintenanceLoading.update(map => ({ ...map, [systemProductId]: false }));
-    }
-  }
-
-  private async loadClientMaintenance(clientId: string) {
-    this.clientMaintenanceLoading.set(true);
-    try {
-      this.clientMaintenanceRecords.set(await this.maintenanceSvc.getForClient(clientId));
-    } catch (err) {
-      console.error('Failed to load maintenance history for client', err);
-    } finally {
-      this.clientMaintenanceLoading.set(false);
     }
   }
 
@@ -823,6 +692,39 @@ export class ClientDetailComponent {
   previewKind: FilePreviewKind = 'other';
   previewLoader?: () => Promise<Blob>;
 
+  fileBusyId = signal<string | null>(null);
+  agreementFileError = signal<string | null>(null);
+
+  /** Adds a document to an agreement that has none, or replaces the existing one. */
+  async onAgreementFilePicked(evt: Event, agreementId: string) {
+    const input = evt.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.agreementFileError.set(null);
+    this.fileBusyId.set(agreementId);
+    try {
+      await this.agreementsSvc.uploadScannedFile(agreementId, file);
+    } catch (err: any) {
+      this.agreementFileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not upload this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
+    }
+  }
+
+  async removeAgreementFile(agreementId: string) {
+    if (!confirm('Delete this scanned document? The agreement itself is kept.')) return;
+    this.agreementFileError.set(null);
+    this.fileBusyId.set(agreementId);
+    try {
+      await this.agreementsSvc.deleteScannedFile(agreementId);
+    } catch (err: any) {
+      this.agreementFileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not delete this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
+    }
+  }
+
   viewAgreementFile(agreementId: string, scannedFileUrl: string) {
     this.previewTitle = 'Scanned Agreement';
     this.previewFileName = scannedFileUrl;
@@ -836,22 +738,6 @@ export class ClientDetailComponent {
     this.previewFileName = r.fileName ?? '';
     this.previewKind = filePreviewKindFor(r.fileName);
     this.previewLoader = () => this.trainingSvc.downloadFile(r.id);
-    this.previewOpen = true;
-  }
-
-  viewTicketAttachment(ticketId: string, fileName: string) {
-    this.previewTitle = 'Ticket Attachment';
-    this.previewFileName = fileName;
-    this.previewKind = filePreviewKindFor(fileName);
-    this.previewLoader = () => this.ticketsSvc.downloadAttachment(ticketId);
-    this.previewOpen = true;
-  }
-
-  viewTicketVoiceNote(ticketId: string, fileName: string) {
-    this.previewTitle = 'Ticket Voice Note';
-    this.previewFileName = fileName;
-    this.previewKind = 'audio';
-    this.previewLoader = () => this.ticketsSvc.downloadVoiceNote(ticketId);
     this.previewOpen = true;
   }
 

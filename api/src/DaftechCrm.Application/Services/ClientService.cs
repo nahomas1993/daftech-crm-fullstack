@@ -25,10 +25,9 @@ public class ClientService : IClientService
     /// <summary>Admin registers a client directly — Approved, credentialed, and emailed in the same call, no separate approval step.</summary>
     public async Task<ClientRegisteredResult> RegisterAsync(RegisterClientRequest request, CancellationToken ct = default)
     {
-        // Region/Zone/City/Woreda are required as of this change
-        // (previously optional) — see RequiredFieldValidator.
-        // IT Support Contact is required as of this change too
-        // (previously optional).
+        // ItSupportContact remains optional — not every client has a
+        // separate IT contact. Region/Zone/City/Woreda are required as
+        // of this change (previously optional) — see RequiredFieldValidator.
         RequiredFieldValidator.EnsureAllPresent(
             ("Name / Organization", request.Name),
             ("Phone Number", request.PhoneNumber),
@@ -40,12 +39,9 @@ public class ClientService : IClientService
             ("City", request.City),
             ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
-            ("KYC Contact", request.KycContact),
-            ("IT Support Contact", request.ItSupportContact)
+            ("KYC Contact", request.KycContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
-        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
-        RequiredFieldValidator.EnsureValidEthiopianPhone(request.ItSupportContact, "IT Support Contact");
 
         var issued = await _credentials.IssueForNameAsync(request.Name, ct);
 
@@ -65,6 +61,7 @@ public class ClientService : IClientService
             KycType = request.KycType,
             KycContact = request.KycContact,
             ItSupportContact = request.ItSupportContact,
+            UsesDerash = request.UsesDerash,
             AccountStatus = ClientAccountStatus.Approved,
             OnboardingDate = DateOnly.FromDateTime(DateTime.UtcNow),
             Username = issued.Username,
@@ -155,12 +152,9 @@ public class ClientService : IClientService
             ("City", request.City),
             ("Woreda", request.Woreda),
             ("KYC Type", request.KycType),
-            ("KYC Contact", request.KycContact),
-            ("IT Support Contact", request.ItSupportContact)
+            ("KYC Contact", request.KycContact)
         );
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
-        RequiredFieldValidator.EnsureValidEthiopianPhone(request.PhoneNumber, "Phone Number");
-        RequiredFieldValidator.EnsureValidEthiopianPhone(request.ItSupportContact, "IT Support Contact");
 
         client.Name = request.Name;
         client.PhoneNumber = request.PhoneNumber;
@@ -174,6 +168,7 @@ public class ClientService : IClientService
         client.KycType = request.KycType;
         client.KycContact = request.KycContact;
         client.ItSupportContact = request.ItSupportContact;
+        client.UsesDerash = request.UsesDerash;
         _db.Update(client);
         await _db.SaveChangesAsync(ct);
         return ToDto(client);
@@ -194,6 +189,6 @@ public class ClientService : IClientService
         c.Id, c.Name, c.IdNumber, c.PhoneNumber, c.Email, c.Office, c.Location,
         c.Region, c.Zone, c.City, c.Woreda,
         c.KycType, c.KycContact, c.ItSupportContact, c.AccountStatus, c.OnboardingDate, c.RejectionReason,
-        c.Username, c.MustChangePassword, c.AccountRefId
+        c.Username, c.MustChangePassword, c.AccountRefId, c.UsesDerash
     );
 }

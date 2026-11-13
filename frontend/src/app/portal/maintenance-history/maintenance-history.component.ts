@@ -106,9 +106,15 @@ const REFRESH_INTERVAL_MS = 20_000;
             <div class="quote-box" [class.chargeable]="q.chargeable" style="margin-top:0.9rem;">
               @if (!q.chargeable) {
                 <strong>Free Support — 0 ETB</strong>
-                <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
-                  Your free support period is still running@if (q.freeSupportEndsOn) { <span> until {{ q.freeSupportEndsOn }}</span> }, so there's nothing to pay for this issue.
-                </p>
+                @if (q.freeBecauseDerash) {
+                  <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
+                    Support is free for your account because you use Derash.
+                  </p>
+                } @else {
+                  <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
+                    Your free support period is still running@if (q.freeSupportEndsOn) { <span> until {{ q.freeSupportEndsOn }}</span> }, so there's nothing to pay for this issue.
+                  </p>
+                }
               } @else {
                 <strong>Chargeable Support — {{ q.total }} ETB</strong>
                 <p class="text-muted" style="font-size:0.78rem; margin:0.3rem 0 0;">
@@ -185,7 +191,7 @@ const REFRESH_INTERVAL_MS = 20_000;
 
     <div class="panel panel-pad" style="margin-top:1rem;">
       <div class="table-scroll"><table>
-        <thead><tr><th>Ticket #</th><th>System/Product</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Completed</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
+        <thead><tr><th>Ticket #</th><th>System/Product</th><th>Category</th><th>Failure Type</th><th>Submitted</th><th>Assigned To</th><th>Chargeable</th><th>Status</th><th>Time Left</th><th>Your Rating</th><th>Attachment</th><th></th></tr></thead>
         <tbody>
           @for (t of filteredTickets(); track t.id) {
             <tr>
@@ -198,9 +204,6 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td class="text-muted" style="font-size:0.8rem;">{{ countdownLabel(t) }}</td>
               <td><app-badge [status]="t.status"></app-badge></td>
-              <td class="text-muted" style="font-size:0.8rem;">
-                @if (t.completedAt) { {{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }} } @else { — }
-              </td>
               <td class="text-muted">{{ t.satisfactionStars ? (t.satisfactionStars + '★') : '—' }}</td>
               <td>
                 @if (t.attachmentFileName) {
@@ -218,7 +221,7 @@ const REFRESH_INTERVAL_MS = 20_000;
               </td>
             </tr>
           }
-          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
+          @empty { <tr><td colspan="12" class="text-muted" style="text-align:center; padding:1.5rem;">No tickets in this view yet.</td></tr> }
         </tbody>
       </table></div>
     </div>

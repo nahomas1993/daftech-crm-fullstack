@@ -95,6 +95,20 @@ public interface ITicketService
     /// </summary>
     Task<FileRetrievalResult> DownloadAttachmentAsync(Guid ticketId, CancellationToken ct = default);
 
+    /// <summary>Removes the ticket's attachment (reference first, then the stored file). A no-op if none is attached. Callers must check CanAccessAttachmentAsync first.</summary>
+    Task<TicketDto> DeleteAttachmentAsync(Guid ticketId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin moves an open ticket to another active technician, e.g. when
+    /// the assigned person is absent or running late. The new assignee gets
+    /// a fresh AssignedAt and SLA deadline, the ticket goes back to
+    /// Assigned (the new technician has not started it), and the move is
+    /// written to the audit trail and notified to the new and previous
+    /// technician. Throws ValidationException for a bad target or a
+    /// ticket that is no longer open, TicketNotFoundException if missing.
+    /// </summary>
+    Task<TicketDto> ReassignAsync(Guid ticketId, ReassignTicketRequest request, Guid actorEmployeeId, CancellationToken ct = default);
+
     /// <summary>
     /// Whether the given caller may view/upload this ticket's attachment:
     /// the client who owns the ticket, or any active Employee holding

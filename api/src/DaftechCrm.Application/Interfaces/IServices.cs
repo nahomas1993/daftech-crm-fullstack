@@ -171,7 +171,7 @@ public interface IAgreementService
     Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default);
 
     /// <summary>Paged variant of <see cref="GetAllAsync"/> for the Agreements table UI.</summary>
-    Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default);
+    Task<PagedResult<AgreementDto>> GetAllPagedAsync(AgreementListQuery query, CancellationToken ct = default);
 
     Task<IReadOnlyList<AgreementDto>> GetForClientAsync(Guid clientId, CancellationToken ct = default);
     Task<IReadOnlyList<AgreementDto>> GetForSystemProductAsync(Guid systemProductId, CancellationToken ct = default);
@@ -185,6 +185,9 @@ public interface IAgreementService
     /// should never destroy the existing file).
     /// </summary>
     Task<AgreementDto> UploadScannedFileAsync(Guid agreementId, Stream content, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>Removes the agreement's scanned file: clears the reference first, then deletes the stored file (best effort). A no-op if none is attached.</summary>
+    Task<AgreementDto> DeleteScannedFileAsync(Guid agreementId, CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves the agreement's attached scanned file. Result.Status
@@ -319,6 +322,9 @@ public interface ITrainingRecordService
 
     /// <summary>Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may replace its file.</summary>
     Task<TrainingRecordDto> UploadFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, Stream content, string fileName, string contentType, CancellationToken ct = default);
+
+    /// <summary>Removes the supporting file from a training record. Same rule as upload: the trainer who logged it, or any Admin.</summary>
+    Task<TrainingRecordDto> DeleteFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves a training record's supporting file. Result.Status

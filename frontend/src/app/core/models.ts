@@ -94,6 +94,8 @@ export interface Client {
   mustChangePassword: boolean;
   /** Permanent display id — "DAF-CLI-####". Set once at creation, never changes. See AccountReferenceIdService. */
   accountRefId: string;
+  /** Uses Derash (the payment system): Yes means support is always free, even after the support window has expired. */
+  usesDerash: boolean;
 }
 
 /** Returned once, immediately after Admin registers a new client. Never retrievable again after this response. */
@@ -151,10 +153,6 @@ export interface AgreementType {
   description?: string;
   /** True for the built-in Support/Training types — the UI hides the delete action for these. */
   isSystemDefined: boolean;
-  /** When true, this type appears as a checklist item in the Trainer's training workflow (see AgreementType.IsTrainingItem on the backend). */
-  isTrainingItem: boolean;
-  /** Only meaningful when isTrainingItem is true — whether logging this item is required before a system/product's training can be marked Completed. */
-  isRequiredForCompletion: boolean;
 }
 
 /** One Trainer/Technician assigned to train a client on a SystemProduct — a roster entry, no lifecycle of its own. Being on this roster is what allows logging a TrainingRecord against this system/product. */
@@ -187,11 +185,8 @@ export interface TrainingRecord {
   systemProductName: string;
   clientId: string;
   clientName: string;
-  /** Null only for a session backfilled via CSV import with no matching Trainer employee — use trainerDisplayName for showing this in the UI. */
-  trainerEmployeeId: string | null;
-  trainerEmployeeName: string | null;
-  /** Always populated — falls back to the CSV's free-text trainer name, then "Unassigned". Use this for display instead of trainerEmployeeName. */
-  trainerDisplayName: string;
+  trainerEmployeeId: string;
+  trainerEmployeeName: string;
   agreementTypeId: string;
   agreementTypeName: string;
   trainingDate: string; // ISO date
@@ -220,6 +215,10 @@ export interface Agreement {
   status: AgreementStatus;
   billingTier: BillingTier;
   details?: string;
+  /** Computed live by the server from expiryDate (never stale). */
+  isExpired: boolean;
+  /** Whole years since it expired; 0 when it expired less than a year ago. */
+  yearsExpired: number;
 }
 
 export interface Ticket {
@@ -260,16 +259,6 @@ export interface Ticket {
   attachmentFileName?: string;
   /** Original filename of the optional voice-note recording, or undefined if none was recorded. Fetch/upload via TicketService's voice note methods — this field is display-only. */
   voiceNoteFileName?: string;
-  /** Snapshot of the client's IT support contact taken at submission. Undefined only for tickets submitted before this field existed. */
-  itSupportContact?: string;
-  /** Specialty required to work this ticket, resolved once at submission. Undefined if no specialty restriction applied. */
-  requiredSpecialization?: string;
-  /** Set once, when a technician marked this ticket Resolved. */
-  completedAt?: string; // ISO datetime
-  completedByEmployeeId?: string;
-  completedByEmployeeName?: string;
-  /** Working minutes from assignment to completion (excludes lunch/off-hours/weekends). Undefined until completed. */
-  workingMinutesToComplete?: number;
   auditTrail: TicketAuditEntry[];
 }
 
@@ -351,15 +340,8 @@ export interface MaintenanceRecord {
   category: MaintenanceCategory;
   description: string;
   performedByEmployeeId: string;
-  performedByEmployeeName: string;
   status: MaintenanceStatus;
   remarks?: string;
-  /** Optional links so a record can show up in a client's or system/product's Maintenance History tab. Undefined on records logged before these links existed. */
-  clientId?: string;
-  clientName?: string;
-  systemProductId?: string;
-  systemProductName?: string;
-  ticketId?: string;
 }
 
 export interface AppNotification {
@@ -502,7 +484,7 @@ export interface SystemSetting {
   category: string;
   label: string;
   description: string;
-  valueType: 'int' | 'bool' | 'string' | 'time';
+  valueType: 'int' | 'bool' | 'string';
   updatedAt?: string;
   updatedByName?: string;
 }
@@ -536,18 +518,11 @@ export interface PasswordResetOtpIssuedResult {
 
 export type LocationType = 'Region' | 'Zone' | 'City' | 'Woreda' | 'Specialization' | 'CustomRole';
 
-/**
- * One admin-managed dropdown/checklist option (Region, Zone, City, Woreda,
- * Specialization, or CustomRole). Region/Zone/Woreda chain through
- * parentId: a Zone's parentId is its owning Region's id, a Woreda's
- * parentId is its owning Zone's id. City/Specialization/CustomRole and
- * top-level Region rows always have parentId undefined.
- */
+/** One admin-managed dropdown/checklist option (Region, City, Woreda, Specialization, or CustomRole). */
 export interface LocationEntry {
   id: string;
   type: LocationType;
   name: string;
-  parentId?: string;
 }
 
 /** All six option lists in one response — see LocationsController.GetAll. */
@@ -572,10 +547,6 @@ export interface FailureType {
   basePrice: number;
   durationValue: number;
   durationUnit: DurationUnit;
-  /** Optional free-text specialty (matches the Employee Specialization field) required to work tickets of this failure type. Undefined means no specialty restriction. */
-  requiredSpecialization?: string;
-  /** Priority automatically applied to every ticket submitted with this failure type (set once, at submission — see Ticket.priority). Configured here so technicians never choose or change it themselves; it's fixed by the failure type the client picked, so the queue is sorted by priority with no manual step. */
-  defaultPriority: TicketPriority;
 }
 
 /** Admin-defined way support is delivered (remote, on-site, after hours...). Its fee is added to the failure type's base price on chargeable tickets. */
@@ -593,6 +564,8 @@ export interface TicketQuote {
   supportFee: number;
   total: number;
   freeSupportEndsOn?: string | null;
+  /** True when support is free only because the client uses Derash (the support window itself has already ended). */
+  freeBecauseDerash?: boolean;
 }
 
 export interface ExpiringClient {

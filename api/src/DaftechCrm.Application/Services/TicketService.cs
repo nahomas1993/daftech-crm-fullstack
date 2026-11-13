@@ -82,9 +82,10 @@ public class TicketService : ITicketService
             throw new ValidationException(
                 "Selected system/product does not match the agreement being used for this ticket.");
 
-        var chargeable =
-            !agreement.IsWithinSupportWindow(
-                DateOnly.FromDateTime(DateTime.UtcNow));
+        var chargeable = IsChargeable(
+            client.UsesDerash,
+            agreement,
+            DateOnly.FromDateTime(DateTime.UtcNow));
 
         var ticket = new Ticket
         {
@@ -153,15 +154,6 @@ public class TicketService : ITicketService
             !string.IsNullOrWhiteSpace(failureType?.RequiredSpecialization)
                 ? failureType!.RequiredSpecialization
                 : request.Category.ToString();
-
-        // Priority is fixed by the chosen failure type (admin-configured on
-        // the Failure Types & Pricing settings page) rather than left for a
-        // technician to judge afterwards — this lets a technician work
-        // fastest by priority without having to make that call themselves.
-        // Falls back to the ticket's existing Medium default when no
-        // failure type was picked.
-        if (failureType is not null)
-            ticket.Priority = failureType.DefaultPriority;
 
         SupportType? supportType = null;
         if (request.SupportTypeId is Guid requestedSupportTypeId)
@@ -1154,6 +1146,114 @@ public class TicketService : ITicketService
         return await LoadDtoAsync(ticketId, ct);
     }
 
+    public async Task<TicketDto> DeleteAttachmentAsync(Guid ticketId, CancellationToken ct = default)
+    {
+        var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+            ?? throw new InvalidOperationException("Ticket not found.");
+
+        var storageKey = ticket.AttachmentStorageKey;
+        if (!string.IsNullOrEmpty(storageKey))
+        {
+            ticket.AttachmentStorageKey = null;
+            ticket.AttachmentFileName = null;
+            ticket.AuditTrail.Add(new TicketAuditEntry
+            {
+                TicketId = ticket.Id,
+                Actor = "Staff",
+                Action = "Removed the ticket attachment"
+            });
+            await _db.SaveChangesAsync(ct);
+
+            try { await _storage.DeleteAsync(storageKey, ct); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Ticket {TicketId}: attachment {StorageKey} could not be deleted from storage; the reference was already cleared.", ticketId, storageKey);
+            }
+        }
+
+        return await LoadDtoAsync(ticketId, ct);
+    }
+
+    public async Task<TicketDto> ReassignAsync(Guid ticketId, ReassignTicketRequest request, Guid actorEmployeeId, CancellationToken ct = default)
+    {
+        var actorName = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == actorEmployeeId).Select(e => e.FullName).FirstOrDefaultAsync(ct);
+
+        var ticket = await _db.Tickets
+            .Include(t => t.FailureType)
+            .FirstOrDefaultAsync(t => t.Id == ticketId, ct)
+            ?? throw new TicketNotFoundException(ticketId);
+
+        // Only work that is still in a technician's hands can be moved.
+        // Resolved/awaiting-confirmation/escalated/closed tickets are
+        // finished from the technician's side.
+        var reassignable = ticket.Status is TicketStatus.Submitted or TicketStatus.Forwarded
+            or TicketStatus.Assigned or TicketStatus.InProgress;
+        if (!reassignable)
+            throw new ValidationException("Only tickets that are still open (not yet resolved or closed) can be reassigned.");
+
+        var target = await _db.Employees.FirstOrDefaultAsync(e => e.Id == request.EmployeeId, ct)
+            ?? throw new ValidationException("The selected employee was not found.");
+
+        if (target.AccountStatus != EmployeeAccountStatus.Active)
+            throw new ValidationException("That employee's account is not active.");
+        if (!target.Roles.Contains(EmployeeRole.EmployeeTechnician))
+            throw new ValidationException("Tickets can only be assigned to a technician.");
+        if (ticket.AssignedEmployeeId == target.Id)
+            throw new ValidationException("This ticket is already assigned to that technician.");
+
+        var previousId = ticket.AssignedEmployeeId;
+        string? previousName = null;
+        if (previousId is Guid prevId)
+            previousName = await _db.Employees.AsNoTracking()
+                .Where(e => e.Id == prevId).Select(e => e.FullName).FirstOrDefaultAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        ticket.AssignedEmployeeId = target.Id;
+        ticket.AssignedAt = now;
+        ticket.Status = TicketStatus.Assigned;
+
+        // The new technician gets a fresh clock, using the same
+        // working-minutes rule as the original assignment.
+        if (ticket.FailureType is not null)
+        {
+            ticket.ExpectedResolutionMinutes = (int)ticket.FailureType.ToTimeSpan().TotalMinutes;
+            ticket.ExpectedResolutionBy = _officeTime.AddWorkingMinutes(now, ticket.ExpectedResolutionMinutes.Value);
+        }
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? "" : $" Reason: {request.Reason.Trim()}";
+        ticket.AuditTrail.Add(new TicketAuditEntry
+        {
+            TicketId = ticket.Id,
+            Actor = string.IsNullOrWhiteSpace(actorName) ? "Admin" : actorName,
+            Action = previousName is null
+                ? $"Assigned to {target.FullName}.{reason}"
+                : $"Reassigned from {previousName} to {target.FullName}.{reason}"
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        // The change is committed; notification problems must not fail it.
+        try
+        {
+            await _notifications.NotifyAsync(NotificationRecipientType.Employee, target.Id.ToString(), "ticket_assigned",
+                $"Ticket {ticket.Id} was reassigned to you.", ct);
+
+            if (previousId is Guid oldId)
+                await _notifications.NotifyAsync(NotificationRecipientType.Employee, oldId.ToString(), "ticket_reassigned",
+                    $"Ticket {ticket.Id} was reassigned to another technician.", ct);
+
+            await _notifications.NotifyAsync(NotificationRecipientType.Client, ticket.ClientId.ToString(), "ticket_assigned",
+                $"Your ticket {ticket.Id} has been assigned to a different technician.", ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ticket {TicketId} was reassigned but a notification failed.", ticketId);
+        }
+
+        return await LoadDtoAsync(ticketId, ct);
+    }
+
     public async Task<FileRetrievalResult> DownloadAttachmentAsync(
         Guid ticketId,
         CancellationToken ct = default)
@@ -1300,11 +1400,13 @@ public class TicketService : ITicketService
     {
         var agreement = await _db.Agreements
             .AsNoTracking()
+            .Include(a => a.SystemProduct).ThenInclude(s => s.Client)
             .FirstOrDefaultAsync(a => a.Id == agreementId, ct)
             ?? throw new InvalidOperationException("Agreement not found.");
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var chargeable = !agreement.IsWithinSupportWindow(today);
+        var usesDerash = agreement.SystemProduct.Client.UsesDerash;
+        var chargeable = IsChargeable(usesDerash, agreement, today);
         var freeSupportEndsOn = agreement.SignDate.AddMonths(agreement.SupportWindowMonths);
 
         var basePrice = 0m;
@@ -1322,6 +1424,18 @@ public class TicketService : ITicketService
             chargeable ? basePrice : 0m,
             chargeable ? supportFee : 0m,
             chargeable ? basePrice + supportFee : 0m,
-            freeSupportEndsOn);
+            freeSupportEndsOn,
+            FreeBecauseDerash: usesDerash && !agreement.IsWithinSupportWindow(today));
     }
+
+    /// <summary>
+    /// The single rule for "is this ticket charged?". A client that uses
+    /// Derash is never charged. Everyone else (including a brand-new client
+    /// whose agreement was just signed) gets free support while the
+    /// agreement's support window is open and is charged once it has
+    /// expired. Used by both the quote and the real submission so the two
+    /// can never disagree.
+    /// </summary>
+    private static bool IsChargeable(bool clientUsesDerash, Agreement agreement, DateOnly today) =>
+        !clientUsesDerash && !agreement.IsWithinSupportWindow(today);
 }

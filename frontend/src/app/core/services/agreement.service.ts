@@ -25,6 +25,14 @@ export class AgreementService {
   private readonly _totalPages = signal(0);
   private readonly _pagedAgreements = signal<Agreement[]>([]);
   readonly pagedAgreements = this._pagedAgreements.asReadonly();
+
+  // Admin's expiry filter on the Agreements table. expiry: 'all' | 'active' | 'expired';
+  // minYearsExpired only applies with 'expired' (0 = any expired agreement, 1 = expired
+  // at least 1 year ago, 2 = at least 2 years, ...).
+  private readonly _expiryFilter = signal<'all' | 'active' | 'expired'>('all');
+  private readonly _minYearsExpired = signal(0);
+  readonly expiryFilter = this._expiryFilter.asReadonly();
+  readonly minYearsExpired = this._minYearsExpired.asReadonly();
   readonly page = this._page.asReadonly();
   readonly pageSize = this._pageSize.asReadonly();
   readonly totalCount = this._totalCount.asReadonly();
@@ -47,7 +55,11 @@ export class AgreementService {
   }
 
   async refreshPaged(page = this._page(), pageSize = this._pageSize()): Promise<void> {
-    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (this._expiryFilter() !== 'all') params = params.set('expiry', this._expiryFilter());
+    if (this._expiryFilter() === 'expired' && this._minYearsExpired() > 0) {
+      params = params.set('minYearsExpired', this._minYearsExpired());
+    }
     const result = await firstValueFrom(
       this.http.get<PagedResult<Agreement>>(`${API_BASE_URL}/agreements/paged`, { params })
     );
@@ -60,6 +72,13 @@ export class AgreementService {
 
   async goToPage(page: number): Promise<void> {
     await this.refreshPaged(page);
+  }
+
+  /** Changes the expiry filter and goes back to page 1 of the filtered results. */
+  async setExpiryFilter(expiry: 'all' | 'active' | 'expired', minYearsExpired = 0): Promise<void> {
+    this._expiryFilter.set(expiry);
+    this._minYearsExpired.set(expiry === 'expired' ? minYearsExpired : 0);
+    await this.refreshPaged(1);
   }
 
   getById(id: string): Agreement | undefined {
@@ -144,6 +163,15 @@ export class AgreementService {
     form.append('file', file, file.name);
     const updated = await firstValueFrom(
       this.http.post<Agreement>(`${API_BASE_URL}/agreements/${agreementId}/scanned-file`, form)
+    );
+    await Promise.all([this.refresh(), this.refreshPaged()]);
+    return updated;
+  }
+
+  /** Removes the scanned document from an agreement (the agreement itself stays). */
+  async deleteScannedFile(agreementId: string): Promise<Agreement> {
+    const updated = await firstValueFrom(
+      this.http.delete<Agreement>(`${API_BASE_URL}/agreements/${agreementId}/scanned-file`)
     );
     await Promise.all([this.refresh(), this.refreshPaged()]);
     return updated;

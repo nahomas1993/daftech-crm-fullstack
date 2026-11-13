@@ -448,6 +448,36 @@ export class TicketService {
     return ticket;
   }
 
+  /** Removes the ticket's attachment. */
+  async deleteAttachment(ticketId: string): Promise<Ticket> {
+    const ticket = await firstValueFrom(
+      this.http.delete<Ticket>(`${API_BASE_URL}/tickets/${ticketId}/attachment`)
+    );
+    if (this.auth.isStaffAuthenticated()) {
+      await Promise.all([this.refresh(), this.refreshPaged()]);
+    } else {
+      await this.refreshMyTickets(ticket.clientId);
+    }
+    return ticket;
+  }
+
+  /** Admin only: moves an open ticket to another technician (absent, late, etc.). */
+  async reassign(ticketId: string, employeeId: string, reason?: string): Promise<Ticket> {
+    try {
+      const ticket = await firstValueFrom(
+        this.http.post<Ticket>(`${API_BASE_URL}/tickets/${ticketId}/reassign`, {
+          employeeId,
+          reason: reason?.trim() || null,
+        })
+      );
+      await Promise.all([this.refresh(), this.refreshPaged()]);
+      return ticket;
+    } catch (err: any) {
+      const body = err?.error;
+      throw new Error(typeof body === 'string' && body ? body : 'Could not reassign this ticket. Please try again.');
+    }
+  }
+
   async downloadAttachment(ticketId: string): Promise<Blob> {
     return firstValueFrom(
       this.http.get(

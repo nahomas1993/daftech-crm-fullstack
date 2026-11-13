@@ -6,7 +6,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
-import { TicketStatus, TICKET_CATEGORY_LABELS } from '../../core/models';
+import { TicketStatus, TicketPriority, TICKET_CATEGORY_LABELS } from '../../core/models';
 import { formatRemaining } from '../../portal/maintenance-history/maintenance-history.component';
 
 /** How often to re-pull the ticket list while this page is open, so a
@@ -56,7 +56,7 @@ const REFRESH_INTERVAL_MS = 20_000;
     <div class="panel panel-pad" style="margin-top:1.25rem;">
       <h3>{{ isAdmin() ? 'All Tickets' : 'My Tickets' }}</h3>
       <div class="table-scroll"><table style="margin-top:0.75rem;">
-        <thead><tr><th>Ticket</th><th>Client</th><th>System/Product</th><th>Category</th><th>Description</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th title="Set automatically from the ticket's Failure Type — see Settings &gt; Failure Types &amp; Pricing">Priority</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Client</th><th>System/Product</th><th>Category</th><th>Description</th><th>Failure Type</th><th>Submitted</th><th>Assigned</th><th>Chargeable</th><th>Status</th><th>Priority</th><th>Expected Resolution</th><th>Time Remaining</th><th>Satisfaction</th><th></th></tr></thead>
         <tbody>
           @for (t of tickets.pagedTickets(); track t.id) {
             <tr
@@ -75,9 +75,17 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td><app-badge [status]="t.status"></app-badge></td>
               <td>
-                <span class="priority-tag" [class.priority-tag-high]="t.priority === 'High'" [class.priority-tag-low]="t.priority === 'Low'">
-                  {{ t.priority }}
-                </span>
+                <select
+                  class="priority-select"
+                  [class.priority-high]="t.priority === 'High'"
+                  [value]="t.priority"
+                  [disabled]="updatingPriorityTicketId() === t.id"
+                  (change)="onPrioritySelect(t.id, $any($event.target).value)"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
               </td>
               <td class="text-muted" style="font-size:0.8rem;">
                 @if (t.expectedResolutionBy) {
@@ -95,12 +103,10 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td>
                 @if (t.attachmentFileName) {
                   <button class="btn btn-outline btn-sm" (click)="viewAttachment(t.id, t.attachmentFileName)">📎 Attachment</button>
+                  <button class="btn btn-outline btn-sm btn-danger" title="Remove attachment" (click)="removeAttachment(t.id)">✕</button>
                 }
                 @if (t.voiceNoteFileName) {
                   <button class="btn btn-outline btn-sm" (click)="viewVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
-                }
-                @if (hasExtraDetails(t)) {
-                  <button class="btn btn-outline btn-sm" (click)="toggleDetails(t.id)">{{ expandedTicketId() === t.id ? 'Hide Details' : 'Details' }}</button>
                 }
                 @if (canUpdateStatus(t)) {
                   <select
@@ -115,6 +121,19 @@ const REFRESH_INTERVAL_MS = 20_000;
                     {{ updatingTicketId() === t.id ? 'Updating…' : 'Update' }}
                   </button>
                 }
+                @if (isAdmin() && canReassign(t)) {
+                  <div class="reassign-row">
+                    <select [value]="reassignTargetFor(t.id)" (change)="onReassignSelect(t.id, $any($event.target).value)">
+                      <option value="">Reassign to…</option>
+                      @for (e of technicianOptions(t.assignedEmployeeId); track e.id) {
+                        <option [value]="e.id">{{ e.fullName }} ({{ e.openTicketCount }} open)</option>
+                      }
+                    </select>
+                    <button class="btn btn-outline btn-sm" [disabled]="!reassignTargetFor(t.id) || reassigningId() === t.id" (click)="reassign(t)">
+                      {{ reassigningId() === t.id ? 'Reassigning…' : 'Reassign' }}
+                    </button>
+                  </div>
+                }
                 @if (statusError(); as err) {
                   @if (err.ticketId === t.id) { <p class="status-error">{{ err.message }}</p> }
                 }
@@ -123,31 +142,8 @@ const REFRESH_INTERVAL_MS = 20_000;
                 }
               </td>
             </tr>
-            @if (expandedTicketId() === t.id) {
-              <tr class="details-row">
-                <td colspan="15">
-                  <div class="details-grid">
-                    @if (t.completedAt) {
-                      <div class="detail-item"><span class="detail-label">Completed At</span><span>{{ t.completedAt | slice:0:10 }} {{ t.completedAt | slice:11:16 }}</span></div>
-                    }
-                    @if (t.workingMinutesToComplete != null) {
-                      <div class="detail-item"><span class="detail-label">Working Minutes to Complete</span><span>{{ t.workingMinutesToComplete }}</span></div>
-                    }
-                    @if (t.completedByEmployeeName) {
-                      <div class="detail-item"><span class="detail-label">Completed By</span><span>{{ t.completedByEmployeeName }}</span></div>
-                    }
-                    @if (t.requiredSpecialization) {
-                      <div class="detail-item"><span class="detail-label">Required Specialization</span><span>{{ t.requiredSpecialization }}</span></div>
-                    }
-                    @if (t.itSupportContact) {
-                      <div class="detail-item"><span class="detail-label">IT Support Contact</span><span>{{ t.itSupportContact }}</span></div>
-                    }
-                  </div>
-                </td>
-              </tr>
-            }
           }
-          @empty { <tr><td colspan="15" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
+          @empty { <tr><td colspan="13" class="text-muted" style="text-align:center; padding:1rem;">No tickets yet.</td></tr> }
         </tbody>
       </table></div>
       <app-pagination
@@ -170,9 +166,10 @@ const REFRESH_INTERVAL_MS = 20_000;
   `,
   styles: [`
     .status-error { color: var(--red); font-size: 0.76rem; margin: 0.35rem 0 0; }
-    .priority-tag { font-size: 0.78rem; padding: 0.2rem 0.5rem; border-radius: 6px; border: 1px solid var(--slate-200); display: inline-block; font-weight: 600; color: var(--slate-500); }
-    .priority-tag-high { border-color: var(--red); color: var(--red); }
-    .priority-tag-low { border-color: var(--slate-200); color: var(--slate-400, #94a3b8); font-weight: 500; }
+    .reassign-row { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.35rem; }
+    .reassign-row select { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--slate-200); max-width: 190px; }
+    .priority-select { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--slate-200); }
+    .priority-select.priority-high { border-color: var(--red); color: var(--red); font-weight: 600; }
     .description-cell { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.82rem; }
     .status-success { color: #0f7b3d; background: rgba(16, 145, 74, 0.1); border: 1px solid rgba(16, 145, 74, 0.28); border-radius: 6px; font-size: 0.78rem; line-height: 1.35; font-weight: 600; margin: 0.4rem 0 0; padding: 0.35rem 0.5rem; }
     .row-faded { opacity: 0.45; filter: grayscale(35%); }
@@ -186,10 +183,6 @@ const REFRESH_INTERVAL_MS = 20_000;
     /* SLA countdown emphasis: red once the expected resolution time has run out, amber in the final hour. */
     .sla-overdue { color: var(--red, #b3261e); font-weight: 700; }
     .sla-soon { color: #b06a00; font-weight: 700; }
-    .details-row td { background: var(--slate-50, #f8fafc); padding: 0.75rem 1rem; }
-    .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1.2rem; }
-    .detail-item { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.82rem; }
-    .detail-label { font-size: 0.72rem; font-weight: 600; color: var(--slate-500); }
   `],
 })
 export class TicketsComponent implements OnInit, OnDestroy {
@@ -212,6 +205,8 @@ export class TicketsComponent implements OnInit, OnDestroy {
     // so it's safe to call unconditionally here rather than branching on isAdmin().
     void this.tickets.refresh();
     void this.tickets.refreshPaged();
+    // Keeps the Reassign dropdown's technician list and open-ticket counts current.
+    if (this.isAdmin()) void this.employees.refresh();
     this.pollHandle = setInterval(() => this.refreshTickets(), REFRESH_INTERVAL_MS);
     this.tickHandle = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
@@ -235,6 +230,20 @@ export class TicketsComponent implements OnInit, OnDestroy {
   statusError = signal<{ ticketId: string; message: string } | null>(null);
   statusSuccess = signal<{ ticketId: string; message: string } | null>(null);
 
+  updatingPriorityTicketId = signal<string | null>(null);
+
+  /** Priority updates immediately on selection — unlike status, it has no business logic gating it (any employee may set it), so a separate confirm step would just add friction. */
+  async onPrioritySelect(ticketId: string, value: string) {
+    this.updatingPriorityTicketId.set(ticketId);
+    try {
+      await this.tickets.setPriority(ticketId, value as TicketPriority);
+    } catch (err) {
+      console.error('Failed to update ticket priority', err);
+    } finally {
+      this.updatingPriorityTicketId.set(null);
+    }
+  }
+
   // The status dropdown only offers InProgress/Resolved as choices, but a
   // ticket's real status can also be Assigned (nothing picked yet). This
   // map holds the technician's in-progress *selection* per ticket,
@@ -256,6 +265,68 @@ export class TicketsComponent implements OnInit, OnDestroy {
     const next = new Map(this.selectedStatus());
     next.set(ticketId, value as 'InProgress' | 'Resolved');
     this.selectedStatus.set(next);
+  }
+
+  // ---- Admin: reassign an open ticket (technician absent or late) ----
+  private reassignTargets = signal<Map<string, string>>(new Map());
+  reassigningId = signal<string | null>(null);
+
+  /** Tickets still in a technician's hands. Matches the server's rule. */
+  canReassign(t: { status: TicketStatus }): boolean {
+    return ['Submitted', 'Forwarded', 'Assigned', 'InProgress'].includes(t.status);
+  }
+
+  /** Active technicians other than the current assignee, least loaded first. */
+  technicianOptions(currentAssigneeId?: string) {
+    return this.employees.activeEmployees()
+      .filter(e => e.roles.includes('EmployeeTechnician') && e.id !== currentAssigneeId)
+      .sort((a, b) => a.openTicketCount - b.openTicketCount || a.fullName.localeCompare(b.fullName));
+  }
+
+  reassignTargetFor(ticketId: string): string {
+    return this.reassignTargets().get(ticketId) ?? '';
+  }
+
+  onReassignSelect(ticketId: string, employeeId: string) {
+    const next = new Map(this.reassignTargets());
+    if (employeeId) next.set(ticketId, employeeId); else next.delete(ticketId);
+    this.reassignTargets.set(next);
+  }
+
+  async reassign(t: { id: string; assignedEmployeeName?: string }) {
+    const employeeId = this.reassignTargetFor(t.id);
+    if (!employeeId || this.reassigningId() === t.id) return;
+
+    const target = this.employees.getById(employeeId);
+    const reason = window.prompt(`Reassign this ticket to ${target?.fullName ?? 'this technician'}.\nReason (optional, e.g. absent today):`, '');
+    if (reason === null) return; // cancelled
+
+    this.statusError.set(null);
+    this.statusSuccess.set(null);
+    this.reassigningId.set(t.id);
+    try {
+      await this.tickets.reassign(t.id, employeeId, reason);
+      const next = new Map(this.reassignTargets());
+      next.delete(t.id);
+      this.reassignTargets.set(next);
+      void this.employees.refreshPaged();
+      this.statusSuccess.set({ ticketId: t.id, message: `✓ Ticket reassigned to ${target?.fullName ?? 'the selected technician'}.` });
+    } catch (err: any) {
+      this.statusError.set({ ticketId: t.id, message: err?.message ?? 'Could not reassign this ticket.' });
+    } finally {
+      this.reassigningId.set(null);
+    }
+  }
+
+  async removeAttachment(ticketId: string) {
+    if (!confirm('Remove this attachment from the ticket?')) return;
+    this.statusError.set(null);
+    try {
+      await this.tickets.deleteAttachment(ticketId);
+    } catch (err) {
+      this.statusError.set({ ticketId, message: 'Could not remove the attachment. Please try again.' });
+      console.error('Failed to remove attachment', err);
+    }
   }
 
   isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
@@ -407,24 +478,5 @@ export class TicketsComponent implements OnInit, OnDestroy {
 
   closePreview() {
     this.previewOpen.set(false);
-  }
-
-  // Expandable "Details" row — surfaces the completion/specialty/contact
-  // fields (Completed At, Working Minutes to Complete, Completed By,
-  // Required Specialization, IT Support Contact) for both Admin and
-  // Technician views. Hidden entirely when a ticket has none of these
-  // set, and each field individually hidden when null/empty so a blank
-  // value never renders as the literal text "null".
-  expandedTicketId = signal<string | null>(null);
-
-  toggleDetails(ticketId: string) {
-    this.expandedTicketId.set(this.expandedTicketId() === ticketId ? null : ticketId);
-  }
-
-  hasExtraDetails(t: {
-    completedAt?: string; workingMinutesToComplete?: number; completedByEmployeeName?: string;
-    requiredSpecialization?: string; itSupportContact?: string;
-  }): boolean {
-    return !!(t.completedAt || t.workingMinutesToComplete != null || t.completedByEmployeeName || t.requiredSpecialization || t.itSupportContact);
   }
 }

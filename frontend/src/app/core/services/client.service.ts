@@ -76,7 +76,7 @@ export class ClientService {
   async registerClient(data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
     region: string; zone: string; city: string; woreda: string;
-    kycType: string; kycContact: string; itSupportContact?: string;
+    kycType: string; kycContact: string; itSupportContact?: string; usesDerash?: boolean;
   }): Promise<ClientRegisteredResult> {
     const result = await firstValueFrom(this.http.post<ClientRegisteredResult>(`${API_BASE_URL}/clients/register`, data));
     await Promise.all([this.refresh(), this.refreshPaged()]);
@@ -91,7 +91,7 @@ export class ClientService {
   async updateClient(id: string, data: {
     name: string; phoneNumber: string; email: string; office: string; location: string;
     region: string; zone: string; city: string; woreda: string;
-    kycType: string; kycContact: string; itSupportContact?: string;
+    kycType: string; kycContact: string; itSupportContact?: string; usesDerash?: boolean;
   }): Promise<void> {
     await firstValueFrom(this.http.put<Client>(`${API_BASE_URL}/clients/${id}`, data));
     await Promise.all([this.refresh(), this.refreshPaged()]);

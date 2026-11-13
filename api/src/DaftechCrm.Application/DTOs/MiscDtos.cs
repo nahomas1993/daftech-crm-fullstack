@@ -16,17 +16,10 @@ public record AddTrainingAssignmentRequest(Guid TrainerEmployeeId);
 /// <summary>One system/product the Admin has put this Trainer on the roster for — the only things a Trainer may log training against. See TrainingController.GetMyAssignments.</summary>
 public record MyTrainingAssignmentDto(Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName);
 
-/// <summary>
-/// One training session actually conducted and logged — see
-/// TrainingRecord. TrainerEmployeeId/TrainerEmployeeName are both null
-/// only for a session backfilled via CSV import with no matching Trainer
-/// employee — TrainerDisplayName is always populated (falls back to
-/// TrainerNameFreeText, then "Unassigned") so the UI never needs its own
-/// null-handling.
-/// </summary>
+/// <summary>One training session actually conducted and logged — see TrainingRecord.</summary>
 public record TrainingRecordDto(
     Guid Id, Guid SystemProductId, string SystemProductName, Guid ClientId, string ClientName,
-    Guid? TrainerEmployeeId, string? TrainerEmployeeName, string TrainerDisplayName,
+    Guid TrainerEmployeeId, string TrainerEmployeeName,
     Guid AgreementTypeId, string AgreementTypeName,
     DateOnly TrainingDate, DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime,
     string Description, string? FileName, DateTimeOffset CreatedAt
@@ -81,7 +74,11 @@ public record AgreementDto(
     Guid AgreementTypeId, string AgreementTypeName,
     string DocumentNumber, string? ScannedFileUrl, string AgreementPlace,
     DateOnly SignDate, DateOnly ExpiryDate, int SupportWindowMonths, AgreementStatus Status, BillingTier BillingTier,
-    string? Details
+    string? Details,
+    /// <summary>True when ExpiryDate is before today. Computed live on every read, never stored, so it can't go stale the way a manually-set Status can.</summary>
+    bool IsExpired = false,
+    /// <summary>Whole years since the agreement expired (0 when it expired less than a year ago, or hasn't expired).</summary>
+    int YearsExpired = 0
 );
 
 /// <summary>

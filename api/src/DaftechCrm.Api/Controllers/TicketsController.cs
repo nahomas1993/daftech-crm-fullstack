@@ -260,18 +260,9 @@ public class TicketsController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Sets a ticket's priority (Low/Medium/High) — Admin-only. Priority is
-    /// now normally fixed automatically at submission from the ticket's
-    /// failure type (see FailureType.DefaultPriority and
-    /// TicketService.SubmitAsync), configured on the Failure Types &amp;
-    /// Pricing settings page. This endpoint remains as an Admin override
-    /// for an individual ticket; technicians no longer see an editable
-    /// priority control on the Tickets page and cannot call this. Feeds
-    /// workload-aware Trainer assignment (see TrainerWorkloadService).
-    /// </summary>
+    /// <summary>Sets a ticket's priority (Low/Medium/High) — any employee may set this (not just Admin), since a technician working the ticket is often best placed to judge its urgency. Feeds workload-aware Trainer assignment (see TrainerWorkloadService).</summary>
     [HttpPatch("{id:guid}/priority")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<TicketDto>> SetPriority(Guid id, [FromBody] SetTicketPriorityRequest request, CancellationToken ct)
     {
         try { return Ok(await _tickets.SetPriorityAsync(id, request, ct)); }
@@ -366,6 +357,60 @@ public class TicketsController : ControllerBase
             return NotFound(ex.Message);
         }
         catch (FileValidationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Removes the ticket's attachment. Same access rule as uploading:
+    /// the client who owns the ticket, or an active technician/admin.
+    /// </summary>
+    [HttpDelete("{id:guid}/attachment")]
+    public async Task<ActionResult<TicketDto>> DeleteAttachment(
+        Guid id,
+        CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+
+        var access = await _tickets.CanAccessAttachmentAsync(id, callerType, callerId, ct);
+        if (access == AttachmentAccessResult.Forbidden)
+            return this.ForbidOwnership();
+        if (access != AttachmentAccessResult.Granted)
+            return NotFound();
+
+        try
+        {
+            return Ok(await _tickets.DeleteAttachmentAsync(id, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Admin moves an open ticket to another technician (e.g. the
+    /// assigned person is absent or running late).
+    /// </summary>
+    [HttpPost("{id:guid}/reassign")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<TicketDto>> Reassign(
+        Guid id,
+        [FromBody] ReassignTicketRequest request,
+        CancellationToken ct)
+    {
+        var (_, callerId) = CallerIdentity.Resolve(User);
+
+        try
+        {
+            return Ok(await _tickets.ReassignAsync(id, request, callerId, ct));
+        }
+        catch (TicketNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Application.ValidationException ex)
         {
             return BadRequest(ex.Message);
         }

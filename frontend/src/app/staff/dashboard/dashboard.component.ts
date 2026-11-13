@@ -9,9 +9,7 @@ import { NotificationService } from '../../core/services/notification.service';
 import { AuthService } from '../../core/services/auth.service';
 import { DashboardService } from '../../core/services/dashboard.service';
 import { LocationService } from '../../core/services/location.service';
-import { TrainingService } from '../../core/services/training.service';
-import { SystemProductService } from '../../core/services/system-product.service';
-import { NotificationRecipientType, DashboardData, DashboardFilter, MyTrainingAssignment, TrainingRecord, Ticket } from '../../core/models';
+import { NotificationRecipientType, DashboardData, DashboardFilter } from '../../core/models';
 import { DecimalPipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TimeoutError } from 'rxjs';
@@ -241,96 +239,6 @@ function describeDashboardError(err: unknown): string {
           <div class="card-value" [class.warn]="myEscalatedTickets() > 0">{{ myEscalatedTickets() }}</div>
         </a>
       </div>
-
-      @if (isTechnician()) {
-        <h3 style="margin: 1.5rem 0 0.9rem;">My Ticket Stats</h3>
-        <div class="cards">
-          <a routerLink="/admin/tickets" class="panel panel-pad card">
-            <div class="card-label">Assigned Tickets</div>
-            <div class="card-value">{{ technicianStats().assigned }}</div>
-          </a>
-          <a routerLink="/admin/tickets" class="panel panel-pad card">
-            <div class="card-label">Open Tickets</div>
-            <div class="card-value">{{ technicianStats().open }}</div>
-          </a>
-          <a routerLink="/admin/tickets" class="panel panel-pad card">
-            <div class="card-label">Overdue Tickets</div>
-            <div class="card-value" [class.warn]="technicianStats().overdue > 0">{{ technicianStats().overdue }}</div>
-          </a>
-          <div class="panel panel-pad card">
-            <div class="card-label">Avg. Working Time to Complete</div>
-            <div class="card-value">{{ technicianStats().avgWorkingMinutes != null ? (technicianStats().avgWorkingMinutes | number:'1.0-0') + ' min' : '—' }}</div>
-          </div>
-          <div class="panel panel-pad card">
-            <div class="card-label">Completed This Week</div>
-            <div class="card-value">{{ technicianStats().completedThisWeek }}</div>
-          </div>
-        </div>
-
-        <div class="chart-grid">
-          <div class="panel panel-pad">
-            <h3 style="margin-bottom:0.9rem;">My Tickets by Status</h3>
-            @if (myStatusSlices().length === 0) {
-              <p class="text-muted" style="font-size:0.85rem;">No tickets assigned yet.</p>
-            } @else {
-              <app-donut-chart [data]="myStatusSlices()" centerLabel="Tickets" centerSuffix="" [centerOverride]="technicianStats().assigned"></app-donut-chart>
-            }
-          </div>
-          <div class="panel panel-pad">
-            <h3 style="margin-bottom:0.9rem;">On-Time vs. Overdue</h3>
-            @if (myTimelinessSlices().length === 0) {
-              <p class="text-muted" style="font-size:0.85rem;">Nothing to compare yet.</p>
-            } @else {
-              <app-donut-chart [data]="myTimelinessSlices()" centerLabel="Open" centerSuffix="" [centerOverride]="technicianStats().open"></app-donut-chart>
-            }
-          </div>
-          <div class="panel panel-pad" style="grid-column: 1 / -1;">
-            <h3 style="margin-bottom:0.9rem;">My Tickets by Category</h3>
-            @if (myCategoryBars().length === 0) {
-              <p class="text-muted" style="font-size:0.85rem;">No tickets assigned yet.</p>
-            } @else {
-              <app-count-bar-chart [chartData]="myCategoryBars()"></app-count-bar-chart>
-            }
-          </div>
-        </div>
-      }
-
-      @if (isTrainer()) {
-        <h3 style="margin: 1.5rem 0 0.9rem;">My Training Stats</h3>
-        <div class="cards">
-          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
-            <div class="card-label">Assigned Trainings</div>
-            <div class="card-value">{{ trainerAssignments().length }}</div>
-          </a>
-          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
-            <div class="card-label">Pending Training Submissions</div>
-            <div class="card-value" [class.warn]="pendingTrainingSubmissions() > 0">{{ pendingTrainingSubmissions() }}</div>
-          </a>
-          <a routerLink="/admin/my-trainings" class="panel panel-pad card">
-            <div class="card-label">Completed Training Records</div>
-            <div class="card-value">{{ trainerRecords().length }}</div>
-          </a>
-        </div>
-
-        <div class="chart-grid">
-          <div class="panel panel-pad">
-            <h3 style="margin-bottom:0.9rem;">Assignment Progress</h3>
-            @if (trainerProgressSlices().length === 0) {
-              <p class="text-muted" style="font-size:0.85rem;">No assignments yet.</p>
-            } @else {
-              <app-donut-chart [data]="trainerProgressSlices()" centerLabel="Assigned" centerSuffix="" [centerOverride]="trainerAssignments().length"></app-donut-chart>
-            }
-          </div>
-          <div class="panel panel-pad">
-            <h3 style="margin-bottom:0.9rem;">Completed Trainings by Client</h3>
-            @if (trainerClientBars().length === 0) {
-              <p class="text-muted" style="font-size:0.85rem;">No completed training records yet.</p>
-            } @else {
-              <app-count-bar-chart [chartData]="trainerClientBars()"></app-count-bar-chart>
-            }
-          </div>
-        </div>
-      }
     }
   `,
   styles: [`
@@ -361,8 +269,6 @@ export class DashboardComponent {
     private auth: AuthService,
     private dashboardSvc: DashboardService,
     public locations: LocationService,
-    private trainingSvc: TrainingService,
-    private systemProductsSvc: SystemProductService,
   ) {
     // allowSignalWrites: both effects kick off async loads that write
     // signals (loadDashboard clears dashboardError synchronously, the
@@ -379,45 +285,6 @@ export class DashboardComponent {
       const f = this.filter(); // re-run whenever the filter changes
       void this.loadDashboard(f);
     }, { allowSignalWrites: true });
-
-    // Technician KPI cards need this employee's own ticket data —
-    // pagedTickets() is already server-scoped to the caller for a
-    // non-admin, so a plain refresh is enough (no new endpoint needed).
-    if (this.isTechnician()) {
-      void this.ticketsSvc.refreshPaged();
-    }
-
-    // Trainer KPI cards: the logged-in trainer's own assignments/records —
-    // both endpoints are scoped server-side to the calling trainer.
-    if (this.isTrainer()) {
-      void this.loadTrainerData();
-    }
-  }
-
-  private async loadTrainerData() {
-    try {
-      const [assignments, records] = await Promise.all([
-        this.trainingSvc.getMyAssignments(),
-        this.trainingSvc.getMyRecords(),
-      ]);
-      this.trainerAssignments.set(assignments);
-      this.trainerRecords.set(records);
-
-      // trainingSubmittedAt lives on the SystemProduct, not the assignment
-      // itself, so resolve each assigned system/product to check it —
-      // assignment lists are small (one trainer's own roster).
-      const statuses = await Promise.all(assignments.map(async a => {
-        try {
-          const sp = await this.systemProductsSvc.getById(a.systemProductId);
-          return { systemProductId: a.systemProductId, submitted: !!sp.trainingSubmittedAt };
-        } catch {
-          return { systemProductId: a.systemProductId, submitted: false };
-        }
-      }));
-      this.trainerAssignmentStatus.set(statuses);
-    } catch (err) {
-      console.error('Failed to load trainer dashboard data', err);
-    }
   }
 
   /** Guards against an out-of-order response from a superseded filter overwriting a newer one. */
@@ -475,118 +342,6 @@ export class DashboardComponent {
     if (!emp) return 0;
     return this.ticketsSvc.forEmployee(emp.id).filter(t => t.status === 'Escalated').length;
   });
-
-  isTechnician = computed(() => this.auth.currentEmployee()?.roles.includes('EmployeeTechnician') ?? false);
-  isTrainer = computed(() => this.auth.currentEmployee()?.roles.includes('Trainer') ?? false);
-
-  private static readonly OVERDUE_STATUSES: string[] = ['Submitted', 'Assigned', 'InProgress'];
-
-  /**
-   * Technician dashboard KPIs — assigned/open/overdue counts, average
-   * working minutes to complete, and completions in the current calendar
-   * week — all derived client-side from this technician's own ticket set
-   * (forEmployee() already server-scoped for a non-admin caller), so no
-   * new backend endpoint is required.
-   */
-  technicianStats = computed(() => {
-    const emp = this.auth.currentEmployee();
-    const empty = { assigned: 0, open: 0, overdue: 0, avgWorkingMinutes: null as number | null, completedThisWeek: 0 };
-    if (!emp) return empty;
-
-    const myTickets: Ticket[] = this.ticketsSvc.forEmployee(emp.id);
-    const now = Date.now();
-
-    const assigned = myTickets.length;
-    const open = myTickets.filter(t => ['Assigned', 'InProgress'].includes(t.status)).length;
-    const overdue = myTickets.filter(t =>
-      DashboardComponent.OVERDUE_STATUSES.includes(t.status) &&
-      t.expectedResolutionBy != null &&
-      new Date(t.expectedResolutionBy).getTime() < now
-    ).length;
-
-    const completedWithTimes = myTickets.filter(t => t.workingMinutesToComplete != null);
-    const avgWorkingMinutes = completedWithTimes.length > 0
-      ? completedWithTimes.reduce((sum, t) => sum + (t.workingMinutesToComplete ?? 0), 0) / completedWithTimes.length
-      : null;
-
-    const startOfWeek = DashboardComponent.startOfCurrentWeek();
-    const completedThisWeek = myTickets.filter(t =>
-      t.completedAt != null && new Date(t.completedAt).getTime() >= startOfWeek.getTime()
-    ).length;
-
-    return { assigned, open, overdue, avgWorkingMinutes, completedThisWeek };
-  });
-
-  /** Midnight, this Monday, in local time — the start of "this week" for the technician's completions KPI. */
-  private static startOfCurrentWeek(): Date {
-    const now = new Date();
-    const day = now.getDay(); // 0 = Sunday .. 6 = Saturday
-    const diffToMonday = day === 0 ? 6 : day - 1;
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
-    monday.setHours(0, 0, 0, 0);
-    return monday;
-  }
-
-  /** Donut of this technician's own tickets grouped by status — same color mapping as the admin-wide chart. */
-  myStatusSlices = computed((): DonutSlice[] => {
-    const emp = this.auth.currentEmployee();
-    if (!emp) return [];
-    const myTickets = this.ticketsSvc.forEmployee(emp.id);
-    const counts = new Map<string, number>();
-    for (const t of myTickets) counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
-    return Array.from(counts.entries())
-      .filter(([, count]) => count > 0)
-      .map(([status, count]) => ({ label: status, value: count, color: STATUS_COLORS[status] ?? '#94a3b8' }));
-  });
-
-  /** Donut comparing this technician's currently-open tickets that are on-time vs. overdue against their SLA deadline. */
-  myTimelinessSlices = computed((): DonutSlice[] => {
-    const stats = this.technicianStats();
-    const onTime = Math.max(stats.open - stats.overdue, 0);
-    const slices: DonutSlice[] = [];
-    if (onTime > 0) slices.push({ label: 'On Time', value: onTime, color: '#34d399' });
-    if (stats.overdue > 0) slices.push({ label: 'Overdue', value: stats.overdue, color: '#f87171' });
-    return slices;
-  });
-
-  /** Bar chart of this technician's own tickets grouped by category (Frontend/Backend/Database). */
-  myCategoryBars = computed((): CountBarDatum[] => {
-    const emp = this.auth.currentEmployee();
-    if (!emp) return [];
-    const myTickets = this.ticketsSvc.forEmployee(emp.id);
-    const counts = new Map<string, number>();
-    for (const t of myTickets) counts.set(t.category, (counts.get(t.category) ?? 0) + 1);
-    return Array.from(counts.entries()).map(([label, value]) => ({ label, value }));
-  });
-
-  // --- Trainer dashboard state ---
-  trainerAssignments = signal<MyTrainingAssignment[]>([]);
-  trainerRecords = signal<TrainingRecord[]>([]);
-
-  /** Donut of this trainer's assignments split into submitted vs. pending training checklists. */
-  trainerProgressSlices = computed((): DonutSlice[] => {
-    const total = this.trainerAssignments().length;
-    const pending = this.pendingTrainingSubmissions();
-    const submitted = Math.max(total - pending, 0);
-    const slices: DonutSlice[] = [];
-    if (submitted > 0) slices.push({ label: 'Submitted', value: submitted, color: '#34d399' });
-    if (pending > 0) slices.push({ label: 'Pending', value: pending, color: '#fbbf24' });
-    return slices;
-  });
-
-  /** Bar chart of this trainer's completed training records grouped by client. */
-  trainerClientBars = computed((): CountBarDatum[] => {
-    const counts = new Map<string, number>();
-    for (const r of this.trainerRecords()) counts.set(r.clientName, (counts.get(r.clientName) ?? 0) + 1);
-    return Array.from(counts.entries()).map(([label, value]) => ({ label, value }));
-  });
-
-  /** Assignments this trainer has not yet submitted a training checklist for — see SystemProductService.submitTraining / SystemProduct.trainingSubmittedAt. */
-  pendingTrainingSubmissions = computed(() =>
-    this.trainerAssignmentStatus().filter(a => !a.submitted).length
-  );
-
-  private trainerAssignmentStatus = signal<{ systemProductId: string; submitted: boolean }[]>([]);
 
   private recipientKey = computed((): { type: NotificationRecipientType; id: string } | null => {
     const emp = this.auth.currentEmployee();

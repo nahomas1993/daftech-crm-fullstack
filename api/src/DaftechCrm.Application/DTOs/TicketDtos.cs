@@ -85,9 +85,12 @@ public record SubmitTicketRequest(
 /// recalculated on submit, so a tampered client can't talk its way into a
 /// cheaper ticket.
 /// </summary>
-public record TicketQuoteDto(bool Chargeable, decimal BasePrice, decimal SupportFee, decimal Total, DateOnly? FreeSupportEndsOn);
+public record TicketQuoteDto(bool Chargeable, decimal BasePrice, decimal SupportFee, decimal Total, DateOnly? FreeSupportEndsOn, bool FreeBecauseDerash = false);
 
 public record UpdateTicketStatusRequest(TicketStatus Status, string ActorName);
+
+/// <summary>Admin reassigns a ticket to another technician. Reason is optional free text (e.g. "absent today") and is written to the audit trail.</summary>
+public record ReassignTicketRequest(Guid EmployeeId, string? Reason);
 
 /// <summary>Admin or an assigned technician can set/change a ticket's priority at any time — used by workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService).</summary>
 public record SetTicketPriorityRequest(TicketPriority Priority);

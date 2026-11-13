@@ -76,6 +76,11 @@ export class TrainingService {
     return firstValueFrom(this.http.get<TrainingRecord[]>(`${API_BASE_URL}/training/system-product/${systemProductId}`));
   }
 
+  /** Removes the supporting file from a training record. Only the trainer who logged it, or an Admin. */
+  async deleteFile(recordId: string): Promise<TrainingRecord> {
+    return firstValueFrom(this.http.delete<TrainingRecord>(`${API_BASE_URL}/training/${recordId}/file`));
+  }
+
   /** Uploads (or replaces) the supporting file for one training record. Only the trainer who logged it may attach/replace its file. */
   async uploadFile(recordId: string, file: File): Promise<TrainingRecord> {
     const form = new FormData();

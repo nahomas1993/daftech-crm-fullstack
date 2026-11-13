@@ -7,14 +7,14 @@ public record ClientDto(
     string? Region, string? Zone, string? City, string? Woreda,
     string KycType, string KycContact, string? ItSupportContact,
     ClientAccountStatus AccountStatus, DateOnly OnboardingDate, string? RejectionReason,
-    string? Username, bool MustChangePassword, string AccountRefId
+    string? Username, bool MustChangePassword, string AccountRefId, bool UsesDerash = false
 );
 
 /// <summary>Admin registers a client directly — Approved immediately, with credentials issued and emailed in the same request. IdNumber is system-generated, not entered by the Admin.</summary>
 public record RegisterClientRequest(
     string Name, string PhoneNumber, string Email, string Office, string Location,
     string? Region, string? Zone, string? City, string? Woreda,
-    string KycType, string KycContact, string? ItSupportContact
+    string KycType, string KycContact, string? ItSupportContact, bool UsesDerash = false
 );
 
 public record ClientRegisteredResult(ClientDto Client, string Username, string OneTimePassword, bool EmailSent, string? EmailError);
@@ -23,7 +23,7 @@ public record ClientRegisteredResult(ClientDto Client, string Username, string O
 public record UpdateClientRequest(
     string Name, string PhoneNumber, string Email, string Office, string Location,
     string? Region, string? Zone, string? City, string? Woreda,
-    string KycType, string KycContact, string? ItSupportContact
+    string KycType, string KycContact, string? ItSupportContact, bool UsesDerash = false
 );
 
 /// <summary>Client logs in with the system-issued username and their current password.</summary>

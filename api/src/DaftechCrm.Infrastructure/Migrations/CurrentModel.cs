@@ -102,8 +102,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("FileStorageKey").HasMaxLength(500).HasColumnType("character varying(500)");
                 b.Property<DateTimeOffset?>("StartDateTime").HasColumnType("timestamp with time zone");
                 b.Property<Guid>("SystemProductId").HasColumnType("uuid");
-                b.Property<Guid?>("TrainerEmployeeId").HasColumnType("uuid");
-                b.Property<string>("TrainerNameFreeText").HasMaxLength(200).HasColumnType("character varying(200)");
+                b.Property<Guid>("TrainerEmployeeId").HasColumnType("uuid");
                 b.Property<DateOnly>("TrainingDate").HasColumnType("date");
                 b.HasKey("Id");
                 b.HasIndex("AgreementTypeId");
@@ -137,6 +136,7 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<string>("IdNumber").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
                 b.Property<bool>("IsDeleted").HasColumnType("boolean");
                 b.Property<string>("ItSupportContact").HasColumnType("text");
+                b.Property<bool>("UsesDerash").HasColumnType("boolean");
                 b.Property<string>("KycContact").HasMaxLength(200).HasColumnType("character varying(200)");
                 b.Property<string>("KycType").HasMaxLength(100).HasColumnType("character varying(100)");
                 b.Property<string>("Location").HasMaxLength(200).HasColumnType("character varying(200)");
@@ -423,20 +423,9 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<Guid>("Id").HasColumnType("uuid");
                 b.Property<string>("Type").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.Property<string>("Name").IsRequired().HasMaxLength(150).HasColumnType("character varying(150)");
-                b.Property<Guid?>("ParentId").HasColumnType("uuid");
                 b.HasKey("Id");
-                b.HasIndex("ParentId");
                 b.HasIndex("Type", "Name").IsUnique();
                 b.ToTable("location_entries");
-
-                // Self-referencing Region -> Zone -> Woreda chain; Cascade
-                // so removing a Region removes its Zones and, transitively,
-                // their Woredas.
-                b.HasOne("DaftechCrm.Domain.Entities.LocationEntry", "Parent")
-                    .WithMany()
-                    .HasForeignKey("ParentId")
-                    .OnDelete(DeleteBehavior.Cascade);
-                b.Navigation("Parent");
             });
 
             modelBuilder.Entity("DaftechCrm.Domain.Entities.FailureType", b =>
@@ -449,7 +438,6 @@ namespace DaftechCrm.Infrastructure.Migrations
                 b.Property<int>("DurationValue").HasColumnType("integer");
                 b.Property<string>("DurationUnit").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.Property<string>("RequiredSpecialization").HasMaxLength(100).HasColumnType("character varying(100)");
-                b.Property<string>("DefaultPriority").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
                 b.HasKey("Id");
                 b.HasIndex("Name").IsUnique();
                 b.ToTable("failure_types");

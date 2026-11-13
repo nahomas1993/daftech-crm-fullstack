@@ -92,7 +92,7 @@ public class TrainingRecordService : ITrainingRecordService
                 r.TrainingDate == request.TrainingDate, ct);
         if (existing is not null)
             throw new InvalidOperationException(
-                $"{agreementType.Name} for {request.TrainingDate:yyyy-MM-dd} was already logged by {existing.TrainerEmployee?.FullName ?? existing.TrainerNameFreeText ?? "an unnamed trainer"}.");
+                $"{agreementType.Name} for {request.TrainingDate:yyyy-MM-dd} was already logged by {existing.TrainerEmployee.FullName}.");
 
         var record = new TrainingRecord
         {
@@ -171,6 +171,35 @@ public class TrainingRecordService : ITrainingRecordService
         return ToDto(record, record.SystemProduct, record.TrainerEmployee, record.AgreementType);
     }
 
+    public async Task<TrainingRecordDto> DeleteFileAsync(Guid recordId, Guid callerEmployeeId, bool callerIsAdmin, CancellationToken ct = default)
+    {
+        var record = await _db.TrainingRecords.Include(r => r.SystemProduct).ThenInclude(s => s.Client)
+            .Include(r => r.TrainerEmployee)
+            .Include(r => r.AgreementType)
+            .FirstOrDefaultAsync(r => r.Id == recordId, ct)
+            ?? throw new InvalidOperationException("Training record not found.");
+
+        if (record.TrainerEmployeeId != callerEmployeeId && !callerIsAdmin)
+            throw new InvalidOperationException("You can only remove the file from your own training record.");
+
+        var storageKey = record.FileStorageKey;
+        if (!string.IsNullOrEmpty(storageKey))
+        {
+            record.FileStorageKey = null;
+            record.FileName = null;
+            _db.Update(record);
+            await _db.SaveChangesAsync(ct);
+
+            try { await _storage.DeleteAsync(storageKey, ct); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Training record {RecordId}: file {StorageKey} could not be deleted from storage; the reference was already cleared.", recordId, storageKey);
+            }
+        }
+
+        return ToDto(record, record.SystemProduct, record.TrainerEmployee, record.AgreementType);
+    }
+
     /// <summary>
     /// Retrieves the training record's supporting file. Result.Status
     /// distinguishes a record with nothing attached (NoFileAttached) from
@@ -202,10 +231,9 @@ public class TrainingRecordService : ITrainingRecordService
             .Include(r => r.TrainerEmployee)
             .Include(r => r.AgreementType);
 
-    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee? trainer, AgreementType agreementType) => new(
+    private static TrainingRecordDto ToDto(TrainingRecord r, SystemProduct systemProduct, Employee trainer, AgreementType agreementType) => new(
         r.Id, r.SystemProductId, systemProduct.Name, systemProduct.ClientId, systemProduct.Client.Name,
-        r.TrainerEmployeeId, trainer?.FullName,
-        trainer?.FullName ?? r.TrainerNameFreeText ?? "Unassigned",
+        r.TrainerEmployeeId, trainer.FullName,
         r.AgreementTypeId, agreementType.Name,
         r.TrainingDate, r.StartDateTime, r.EndDateTime, r.Description, r.FileName, r.CreatedAt
     );

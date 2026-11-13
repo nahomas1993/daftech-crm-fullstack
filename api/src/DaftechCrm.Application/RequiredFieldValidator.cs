@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace DaftechCrm.Application;
 
 /// <summary>
@@ -50,29 +48,5 @@ public static class RequiredFieldValidator
     {
         if (!email.Trim().EndsWith("@gmail.com", StringComparison.OrdinalIgnoreCase))
             throw new ValidationException("Invalid email — please use a @gmail.com address.");
-    }
-
-    /// <summary>
-    /// Every phone-number field in the system (Client "Phone Number",
-    /// Employee "Phone Number", and the Client "IT Support Contact"
-    /// field) must be a valid Ethio Telecom (+2519XXXXXXXX) or Safaricom
-    /// Ethiopia (+2517XXXXXXXX) mobile number — see
-    /// core/ethiopian-phone-validation.ts on the Angular side for the
-    /// matching client-side check shared by all three fields. All three
-    /// are required fields — call EnsureAllPresent first so a blank
-    /// value reports as "required" rather than "invalid" — but this
-    /// method itself still treats a blank value as valid so it can be
-    /// called safely from anywhere the required check isn't already
-    /// certain to have run first.
-    /// </summary>
-    private static readonly Regex EthiopianPhonePattern = new(@"^\+251(9|7)\d{8}$", RegexOptions.Compiled);
-
-    public static void EnsureValidEthiopianPhone(string? phoneNumber, string label)
-    {
-        if (string.IsNullOrWhiteSpace(phoneNumber)) return;
-
-        if (!EthiopianPhonePattern.IsMatch(phoneNumber.Trim()))
-            throw new ValidationException(
-                $"Invalid {label} — use +2519XXXXXXXX (Ethio Telecom) or +2517XXXXXXXX (Safaricom).");
     }
 }

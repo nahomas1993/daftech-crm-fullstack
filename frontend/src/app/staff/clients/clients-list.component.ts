@@ -10,7 +10,6 @@ import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
 import { requiredFieldsError } from '../../core/required-fields';
 import { isValidRegistrationEmail } from '../../core/email-validation';
-import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/ethiopian-phone-validation';
 
 @Component({
   selector: 'app-clients-list',
@@ -34,18 +33,14 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
         @if (!justRegistered()) {
           <div class="form-grid">
             <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="form.name" (ngModelChange)="form.name = $event" /></div>
-            <div class="field">
-              <label>Phone Number <span class="req">*</span></label>
-              <input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-              @if (!isPhoneValid(form.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
-            </div>
+            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
             <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
               @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
             </div>
             <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="form.office" (ngModelChange)="form.office = $event" /></div>
             <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="form.location" (ngModelChange)="form.location = $event" /></div>
             <div class="field"><label>Region <span class="req">*</span></label>
-              <select [ngModel]="form.region" (ngModelChange)="onRegionChange($event, form)">
+              <select [ngModel]="form.region" (ngModelChange)="form.region = $event">
                 <option value="">Select region…</option>
                 @for (r of locations.options().regions; track r.id) {
                   <option [value]="r.name">{{ r.name }}</option>
@@ -53,9 +48,9 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
               </select>
             </div>
             <div class="field"><label>Zone <span class="req">*</span></label>
-              <select [ngModel]="form.zone" (ngModelChange)="onZoneChange($event, form)" [disabled]="!form.region">
+              <select [ngModel]="form.zone" (ngModelChange)="form.zone = $event">
                 <option value="">Select zone…</option>
-                @for (z of zonesForForm(form); track z.id) {
+                @for (z of locations.options().zones; track z.id) {
                   <option [value]="z.name">{{ z.name }}</option>
                 }
               </select>
@@ -69,19 +64,21 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
               </select>
             </div>
             <div class="field"><label>Woreda <span class="req">*</span></label>
-              <select [ngModel]="form.woreda" (ngModelChange)="form.woreda = $event" [disabled]="!form.zone">
+              <select [ngModel]="form.woreda" (ngModelChange)="form.woreda = $event">
                 <option value="">Select woreda…</option>
-                @for (w of woredasForForm(form); track w.id) {
+                @for (w of locations.options().woredas; track w.id) {
                   <option [value]="w.name">{{ w.name }}</option>
                 }
               </select>
             </div>
             <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="form.kycType" (ngModelChange)="form.kycType = $event" placeholder="Business License…" /></div>
             <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="form.kycContact" (ngModelChange)="form.kycContact = $event" placeholder="Name — phone/email" /></div>
-            <div class="field">
-              <label>IT Support Contact <span class="req">*</span></label>
-              <input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-              @if (!isItSupportContactValid(form.itSupportContact)) { <div class="field-error">{{ phoneErrorMessage('IT Support Contact') }}</div> }
+            <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="form.itSupportContact" (ngModelChange)="form.itSupportContact = $event" /></div>
+            <div class="field"><label>Uses Derash?</label>
+              <select [ngModel]="form.usesDerash ? 'yes' : 'no'" (ngModelChange)="form.usesDerash = $event === 'yes'">
+                <option value="no">No - charged after the free support period</option>
+                <option value="yes">Yes - always free support</option>
+              </select>
             </div>
           </div>
           @if (registerError()) {
@@ -169,7 +166,7 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
 
       <div class="table-scroll"><table>
         <thead>
-          <tr><th>Account ID</th><th>Name</th><th>ID Number</th><th>Office</th><th>Location</th><th>Status</th><th>Onboarded</th><th></th></tr>
+          <tr><th>Account ID</th><th>Name</th><th>ID Number</th><th>Office</th><th>Location</th><th>Derash</th><th>Status</th><th>Onboarded</th><th></th></tr>
         </thead>
         <tbody>
           @for (c of displayedClients(); track c.id) {
@@ -179,6 +176,7 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
               <td class="mono text-muted">{{ c.idNumber }}</td>
               <td>{{ c.office }}</td>
               <td>{{ c.location }}</td>
+              <td>{{ c.usesDerash ? 'Yes' : 'No' }}</td>
               <td><app-badge [status]="c.accountStatus"></app-badge></td>
               <td class="text-muted">{{ c.onboardingDate }}</td>
               <td class="actions-cell">
@@ -191,21 +189,17 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
             </tr>
             @if (editingId() === c.id) {
               <tr class="edit-row">
-                <td colspan="8">
+                <td colspan="9">
                   <div class="edit-form">
                     <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
-                    <div class="field">
-                      <label>Phone Number <span class="req">*</span></label>
-                      <input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-                      @if (!isPhoneValid(editForm.phoneNumber)) { <div class="field-error">{{ phoneErrorMessage('Phone Number') }}</div> }
-                    </div>
+                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
                     <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
                       @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
                     </div>
                     <div class="field"><label>Office <span class="req">*</span></label><input type="text" [ngModel]="editForm.office" (ngModelChange)="editForm.office = $event" /></div>
                     <div class="field"><label>Location <span class="req">*</span></label><input type="text" [ngModel]="editForm.location" (ngModelChange)="editForm.location = $event" /></div>
                     <div class="field"><label>Region <span class="req">*</span></label>
-                      <select [ngModel]="editForm.region" (ngModelChange)="onRegionChange($event, editForm)">
+                      <select [ngModel]="editForm.region" (ngModelChange)="editForm.region = $event">
                         <option value="">Select region…</option>
                         @for (r of locations.options().regions; track r.id) {
                           <option [value]="r.name">{{ r.name }}</option>
@@ -213,9 +207,9 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
                       </select>
                     </div>
                     <div class="field"><label>Zone <span class="req">*</span></label>
-                      <select [ngModel]="editForm.zone" (ngModelChange)="onZoneChange($event, editForm)" [disabled]="!editForm.region">
+                      <select [ngModel]="editForm.zone" (ngModelChange)="editForm.zone = $event">
                         <option value="">Select zone…</option>
-                        @for (z of zonesForForm(editForm); track z.id) {
+                        @for (z of locations.options().zones; track z.id) {
                           <option [value]="z.name">{{ z.name }}</option>
                         }
                       </select>
@@ -229,19 +223,21 @@ import { isValidEthiopianPhone, invalidEthiopianPhoneMessage } from '../../core/
                       </select>
                     </div>
                     <div class="field"><label>Woreda <span class="req">*</span></label>
-                      <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event" [disabled]="!editForm.zone">
+                      <select [ngModel]="editForm.woreda" (ngModelChange)="editForm.woreda = $event">
                         <option value="">Select woreda…</option>
-                        @for (w of woredasForForm(editForm); track w.id) {
+                        @for (w of locations.options().woredas; track w.id) {
                           <option [value]="w.name">{{ w.name }}</option>
                         }
                       </select>
                     </div>
                     <div class="field"><label>KYC Type <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycType" (ngModelChange)="editForm.kycType = $event" /></div>
                     <div class="field"><label>KYC Contact <span class="req">*</span></label><input type="text" [ngModel]="editForm.kycContact" (ngModelChange)="editForm.kycContact = $event" /></div>
-                    <div class="field">
-                      <label>IT Support Contact <span class="req">*</span></label>
-                      <input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" placeholder="+2519XXXXXXXX or +2517XXXXXXXX" />
-                      @if (!isItSupportContactValid(editForm.itSupportContact)) { <div class="field-error">{{ phoneErrorMessage('IT Support Contact') }}</div> }
+                    <div class="field"><label>IT Support Contact (optional)</label><input type="text" [ngModel]="editForm.itSupportContact" (ngModelChange)="editForm.itSupportContact = $event" /></div>
+                    <div class="field"><label>Uses Derash?</label>
+                      <select [ngModel]="editForm.usesDerash ? 'yes' : 'no'" (ngModelChange)="editForm.usesDerash = $event === 'yes'">
+                        <option value="no">No - charged after the free support period</option>
+                        <option value="yes">Yes - always free support</option>
+                      </select>
                     </div>
                     <div class="edit-actions">
                       <button class="btn btn-primary btn-sm" [disabled]="savingEdit()" (click)="saveEdit(c.id)">{{ savingEdit() ? 'Saving…' : 'Save' }}</button>
@@ -320,9 +316,9 @@ export class ClientsListComponent {
   savingEdit = signal(false);
   editError = signal('');
   deleting = signal<string | null>(null);
-  editForm = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+  editForm = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '', usesDerash: false };
 
-  form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+  form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '', usesDerash: false };
 
   constructor(
     public clients: ClientService,
@@ -350,55 +346,6 @@ export class ClientsListComponent {
 
   isEmailValid(email: string | null | undefined): boolean {
     return isValidRegistrationEmail(email);
-  }
-
-  isPhoneValid(value: string | null | undefined): boolean {
-    return isValidEthiopianPhone(value);
-  }
-
-  isItSupportContactValid(value: string | null | undefined): boolean {
-    return isValidEthiopianPhone(value);
-  }
-
-  phoneErrorMessage(label: string): string {
-    return invalidEthiopianPhoneMessage(label);
-  }
-
-  /**
-   * Location cascade helpers — form.region/zone/woreda are stored by NAME
-   * (not id), matching the client DTO fields, so we resolve the region's/
-   * zone's id from its name before delegating to LocationService's
-   * id-based zonesFor()/woredasFor() helpers.
-   */
-  private regionIdByName(name: string | null | undefined): string | undefined {
-    if (!name) return undefined;
-    return this.locations.options().regions.find(r => r.name === name)?.id;
-  }
-
-  private zoneIdByName(name: string | null | undefined): string | undefined {
-    if (!name) return undefined;
-    return this.locations.options().zones.find(z => z.name === name)?.id;
-  }
-
-  zonesForForm(form: { region: string }) {
-    return this.locations.zonesFor(this.regionIdByName(form.region));
-  }
-
-  woredasForForm(form: { zone: string }) {
-    return this.locations.woredasFor(this.zoneIdByName(form.zone));
-  }
-
-  /** Region changed (or cleared) — always drop the now-stale Zone and Woreda. */
-  onRegionChange(value: string, form: { region: string; zone: string; woreda: string }) {
-    form.region = value;
-    form.zone = '';
-    form.woreda = '';
-  }
-
-  /** Zone changed (or cleared) — always drop the now-stale Woreda. */
-  onZoneChange(value: string, form: { zone: string; woreda: string }) {
-    form.zone = value;
-    form.woreda = '';
   }
 
   toggleForm() {
@@ -433,7 +380,8 @@ export class ClientsListComponent {
       { label: 'Woreda', value: this.form.woreda },
       { label: 'KYC Type', value: this.form.kycType },
       { label: 'KYC Contact', value: this.form.kycContact },
-      { label: 'IT Support Contact', value: this.form.itSupportContact },
+      // IT Support Contact is intentionally left out — it's marked
+      // optional on the form.
     ]);
     if (validationError) {
       this.registerError.set(validationError);
@@ -441,14 +389,6 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.form.email)) {
       this.registerError.set('Invalid email — please use a @gmail.com address.');
-      return;
-    }
-    if (!this.isPhoneValid(this.form.phoneNumber)) {
-      this.registerError.set(this.phoneErrorMessage('Phone Number'));
-      return;
-    }
-    if (!this.isItSupportContactValid(this.form.itSupportContact)) {
-      this.registerError.set(this.phoneErrorMessage('IT Support Contact'));
       return;
     }
 
@@ -460,7 +400,7 @@ export class ClientsListComponent {
         itSupportContact: this.form.itSupportContact || undefined,
       });
       this.justRegistered.set(result);
-      this.form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '' };
+      this.form = { name: '', phoneNumber: '', email: '', office: '', location: '', region: '', zone: '', city: '', woreda: '', kycType: '', kycContact: '', itSupportContact: '', usesDerash: false };
     } catch (err: any) {
       this.registerError.set(err?.error?.error ?? err?.error ?? 'Registration failed — please check the details and try again.');
     } finally {
@@ -534,7 +474,7 @@ export class ClientsListComponent {
 
   startEdit(c: {
     id: string; name: string; phoneNumber: string; email: string; office: string; location: string;
-    region?: string; zone?: string; city?: string; woreda?: string; kycType: string; kycContact: string; itSupportContact?: string;
+    region?: string; zone?: string; city?: string; woreda?: string; kycType: string; kycContact: string; itSupportContact?: string; usesDerash?: boolean;
   }) {
     this.editingId.set(c.id);
     this.editError.set('');
@@ -542,6 +482,7 @@ export class ClientsListComponent {
       name: c.name, phoneNumber: c.phoneNumber, email: c.email, office: c.office, location: c.location,
       region: c.region ?? '', zone: c.zone ?? '', city: c.city ?? '', woreda: c.woreda ?? '',
       kycType: c.kycType, kycContact: c.kycContact, itSupportContact: c.itSupportContact ?? '',
+      usesDerash: c.usesDerash ?? false,
     };
   }
 
@@ -563,7 +504,6 @@ export class ClientsListComponent {
       { label: 'Woreda', value: this.editForm.woreda },
       { label: 'KYC Type', value: this.editForm.kycType },
       { label: 'KYC Contact', value: this.editForm.kycContact },
-      { label: 'IT Support Contact', value: this.editForm.itSupportContact },
     ]);
     if (validationError) {
       this.editError.set(validationError);
@@ -571,14 +511,6 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.editForm.email)) {
       this.editError.set('Invalid email — please use a @gmail.com address.');
-      return;
-    }
-    if (!this.isPhoneValid(this.editForm.phoneNumber)) {
-      this.editError.set(this.phoneErrorMessage('Phone Number'));
-      return;
-    }
-    if (!this.isItSupportContactValid(this.editForm.itSupportContact)) {
-      this.editError.set(this.phoneErrorMessage('IT Support Contact'));
       return;
     }
 

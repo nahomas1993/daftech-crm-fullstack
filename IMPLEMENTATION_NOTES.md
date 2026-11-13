@@ -152,3 +152,12 @@ maintenance link columns + index.
 - `dotnet test` — integration + security tests, plus new tests for office-hours
   calculations, specialty assignment and location validation.
 - `npm run build` (frontend) — clean.
+
+---
+
+## Four follow-up changes
+
+1. **Agreement expiry filter** - `GET /api/agreements/paged?expiry=all|active|expired&minYearsExpired=N`. `AgreementDto` now carries `IsExpired` and `YearsExpired`, computed live from `ExpiryDate`; `Status` reads `Expired` when the date has passed. Agreements page has the filter and an "Expired N years ago" note.
+2. **Derash** - new `clients.UsesDerash` (migration `20260829000000_AddClientUsesDerash`, default false). Rule in `TicketService.IsChargeable`: charged only when the client does NOT use Derash AND the agreement's support window has ended. Used by both the quote and the real submission. Admin sets Yes/No on the register and edit client forms; the Clients list shows a Derash column.
+3. **File add / replace / delete** - `DELETE /api/agreements/{id}/scanned-file`, `DELETE /api/training/{id}/file`, `DELETE /api/tickets/{id}/attachment`. Reference is cleared first, then the stored file is removed. UI: Upload / Replace / Delete on the Agreements page and on Client Detail; remove button on ticket attachments.
+4. **Reassign ticket** - `POST /api/tickets/{id}/reassign` (Admin only, body `{ employeeId, reason }`). Open tickets only; target must be an active technician. Resets `AssignedAt` and the SLA deadline, sets status back to Assigned, writes an audit entry and notifies the new technician, the previous one and the client. UI: dropdown + Reassign button on the Tickets page.

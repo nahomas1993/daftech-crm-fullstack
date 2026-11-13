@@ -332,6 +332,28 @@ public class TrainingController : ControllerBase
         }
     }
 
+    /// <summary>Removes a training record's supporting file. Allowed for the trainer who logged it, or any Admin.</summary>
+    [HttpDelete("{id:guid}/file")]
+    public async Task<ActionResult<TrainingRecordDto>> DeleteFile(Guid id, CancellationToken ct)
+    {
+        var (callerType, callerId) = CallerIdentity.Resolve(User);
+        if (callerType != SessionAccountType.Employee) return this.ForbidOwnership();
+
+        try
+        {
+            var callerIsAdmin = User.IsInRole(nameof(EmployeeRole.Admin));
+            return Ok(await _training.DeleteFileAsync(id, callerId, callerIsAdmin, ct));
+        }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("You can only"))
+        {
+            return this.ForbidOwnership();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(ex.Message);
+        }
+    }
+
     /// <summary>Streams a training record's supporting file back to the caller.</summary>
     [HttpGet("{id:guid}/file")]
     public async Task<IActionResult> DownloadFile(Guid id, CancellationToken ct)
@@ -394,10 +416,10 @@ public class AgreementsController : ControllerBase
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
     public async Task<ActionResult<IReadOnlyList<AgreementDto>>> GetAll(CancellationToken ct) => Ok(await _agreements.GetAllAsync(ct));
 
-    /// <summary>Paged agreement listing for the Agreements table (query: page, pageSize).</summary>
+    /// <summary>Paged agreement listing for the Agreements table (query: page, pageSize, expiry = all|active|expired, minYearsExpired = 1, 2, 3, ...).</summary>
     [HttpGet("paged")]
     [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
-    public async Task<ActionResult<PagedResult<AgreementDto>>> GetAllPaged([FromQuery] PaginationQuery query, CancellationToken ct) =>
+    public async Task<ActionResult<PagedResult<AgreementDto>>> GetAllPaged([FromQuery] AgreementListQuery query, CancellationToken ct) =>
         Ok(await _agreements.GetAllPagedAsync(query, ct));
 
     /// <summary>A client may only list their own agreements; any employee may list any client's.</summary>
@@ -490,6 +512,15 @@ public class AgreementsController : ControllerBase
         {
             return BadRequest(ex.Message);
         }
+    }
+
+    /// <summary>Removes the agreement's scanned file (the agreement itself is untouched). Upload again at any time to attach a new one.</summary>
+    [HttpDelete("{id:guid}/scanned-file")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrItSupport)]
+    public async Task<ActionResult<AgreementDto>> DeleteScannedFile(Guid id, CancellationToken ct)
+    {
+        try { return Ok(await _agreements.DeleteScannedFileAsync(id, ct)); }
+        catch (InvalidOperationException ex) { return NotFound(ex.Message); }
     }
 
     /// <summary>Streams the agreement's scanned file back to the caller with its original content type. A client may only download their own agreement's file.</summary>

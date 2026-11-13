@@ -32,18 +32,6 @@ public static class CsvImportParser
         "PaperReferenceNote",
     ];
 
-    /// <summary>
-    /// How many repeated Training{N}... column groups CsvImportTemplate.cs
-    /// generates and this parser will look for (Training1Name through
-    /// Training{MaxTrainingSlots}Name, etc.) — see ReadTrainingEntries.
-    /// Not a hard cap on trainings per client: a client whose paper record
-    /// has more sessions than this simply gets a second CSV row for the
-    /// same SystemProductName with the remaining Training columns filled
-    /// in and every other column repeated, same as the existing multi-row
-    /// pattern for a client with several systems/products.
-    /// </summary>
-    public const int MaxTrainingSlots = 5;
-
     public static List<ClientImportRow> Parse(Stream csvStream)
     {
         using var reader = new StreamReader(csvStream);
@@ -64,7 +52,7 @@ public static class CsvImportParser
 
         string? Get(List<string> fields, string column)
         {
-            if (!columnIndex.TryGetValue(column, out var idx)) return null; // optional column (e.g. a TrainingN group) simply absent from this file
+            var idx = columnIndex[column];
             if (idx >= fields.Count) return null;
             var value = fields[idx].Trim();
             return value.Length == 0 ? null : value;
@@ -103,43 +91,11 @@ public static class CsvImportParser
                 Get(fields, "SupportWindowMonths"),
                 Get(fields, "BillingTier"),
                 Get(fields, "AgreementDetails"),
-                Get(fields, "PaperReferenceNote"),
-                ReadTrainingEntries(fields, Get)
+                Get(fields, "PaperReferenceNote")
             ));
         }
 
         return rows;
-    }
-
-    /// <summary>
-    /// Gathers this row's Training1Name/Training1TrainerName/Training1Date/
-    /// Training1Description through Training{MaxTrainingSlots}... into a
-    /// list — see TrainingImportEntry. A slot only produces an entry when
-    /// its Name column is filled in; TrainerName, Date, and Description
-    /// within a used slot are validated by ClientImportService, not here
-    /// (same division of labor as every other field: this parser only
-    /// reads cells, the service applies business rules row by row so one
-    /// bad slot's error names the specific row and training number).
-    /// Slots don't need to be contiguous — Training1 and Training3 filled
-    /// in with Training2 blank still reads two entries — so deleting a
-    /// row's middle training later doesn't require renumbering the rest.
-    /// </summary>
-    private static List<TrainingImportEntry> ReadTrainingEntries(List<string> fields, Func<List<string>, string, string?> get)
-    {
-        var entries = new List<TrainingImportEntry>();
-        for (var slot = 1; slot <= MaxTrainingSlots; slot++)
-        {
-            var name = get(fields, $"Training{slot}Name");
-            if (name is null) continue; // empty slot — not every row uses all MaxTrainingSlots
-
-            entries.Add(new TrainingImportEntry(
-                name,
-                get(fields, $"Training{slot}TrainerName"),
-                get(fields, $"Training{slot}Date") ?? "",
-                get(fields, $"Training{slot}Description") ?? ""
-            ));
-        }
-        return entries;
     }
 
     /// <summary>

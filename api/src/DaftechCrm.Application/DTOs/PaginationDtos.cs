@@ -33,6 +33,18 @@ public class PaginationQuery
 }
 
 /// <summary>
+/// Paging plus the admin's expiry filter for the Agreements table.
+/// Expiry: "all" (default), "active" (not expired) or "expired".
+/// MinYearsExpired: with Expiry="expired", only agreements that expired at
+/// least this many years ago (1, 2, 3, ...). Null or 0 means any expired.
+/// </summary>
+public class AgreementListQuery : PaginationQuery
+{
+    public string? Expiry { get; set; }
+    public int? MinYearsExpired { get; set; }
+}
+
+/// <summary>
 /// A single page of results plus enough metadata for the client to render
 /// pager controls without a second round trip.
 /// </summary>

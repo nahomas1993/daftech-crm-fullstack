@@ -30,6 +30,15 @@ public class Client
     public string KycType { get; set; } = default!;
     public string KycContact { get; set; } = default!;
     public string? ItSupportContact { get; set; }
+
+    /// <summary>
+    /// Whether this client uses Derash (the payment system). A Derash client
+    /// always receives free support, even after the support window of its
+    /// agreement has expired. A client that does NOT use Derash is free only
+    /// while the agreement's support window is open and is charged afterward
+    /// (see TicketService.IsChargeable).
+    /// </summary>
+    public bool UsesDerash { get; set; }
     public ClientAccountStatus AccountStatus { get; set; } = ClientAccountStatus.Pending;
     public DateOnly OnboardingDate { get; set; }
     public string? RejectionReason { get; set; }

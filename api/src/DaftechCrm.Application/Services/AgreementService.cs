@@ -86,11 +86,30 @@ public class AgreementService : IAgreementService
     public async Task<IReadOnlyList<AgreementDto>> GetAllAsync(CancellationToken ct = default) =>
         (await AgreementQuery().ToListAsync(ct)).Select(ToDto).ToList();
 
-    public async Task<PagedResult<AgreementDto>> GetAllPagedAsync(PaginationQuery query, CancellationToken ct = default)
+    public async Task<PagedResult<AgreementDto>> GetAllPagedAsync(AgreementListQuery query, CancellationToken ct = default)
     {
-        var totalCount = await _db.Agreements.CountAsync(ct);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var agreements = await AgreementQuery()
+        var filtered = _db.Agreements.AsQueryable();
+        switch ((query.Expiry ?? "all").Trim().ToLowerInvariant())
+        {
+            case "active":
+                filtered = filtered.Where(a => a.ExpiryDate >= today);
+                break;
+            case "expired":
+                filtered = filtered.Where(a => a.ExpiryDate < today);
+                // "Expired for at least N years": expiry on or before today minus N years.
+                if (query.MinYearsExpired is int years && years > 0)
+                {
+                    var cutoff = today.AddYears(-years);
+                    filtered = filtered.Where(a => a.ExpiryDate <= cutoff);
+                }
+                break;
+        }
+
+        var totalCount = await filtered.CountAsync(ct);
+
+        var agreements = await AgreementQuery(filtered)
             .OrderByDescending(a => a.ExpiryDate)
             .Skip(query.Skip)
             .Take(query.PageSize)
@@ -191,16 +210,57 @@ public class AgreementService : IAgreementService
             : AttachmentAccessResult.Forbidden;
     }
 
-    private IQueryable<Agreement> AgreementQuery() =>
-        _db.Agreements.AsNoTracking()
+    private IQueryable<Agreement> AgreementQuery(IQueryable<Agreement>? source = null) =>
+        (source ?? _db.Agreements).AsNoTracking()
             .Include(a => a.SystemProduct).ThenInclude(s => s.Client)
             .Include(a => a.AgreementType);
 
-    private static AgreementDto ToDto(Agreement a) => new(
-        a.Id, a.SystemProductId, a.SystemProduct.ClientId, a.SystemProduct.Client.Name, a.SystemProduct.Name,
-        a.AgreementTypeId, a.AgreementType.Name,
-        a.DocumentNumber, a.ScannedFileUrl, a.AgreementPlace,
-        a.SignDate, a.ExpiryDate, a.SupportWindowMonths, a.Status, a.BillingTier,
-        a.Details
-    );
+    private static AgreementDto ToDto(Agreement a)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var expired = a.ExpiryDate < today;
+
+        // Whole years since expiry: 0 until a full year has passed.
+        var years = 0;
+        if (expired)
+        {
+            while (a.ExpiryDate.AddYears(years + 1) <= today) years++;
+        }
+
+        return new AgreementDto(
+            a.Id, a.SystemProductId, a.SystemProduct.ClientId, a.SystemProduct.Client.Name, a.SystemProduct.Name,
+            a.AgreementTypeId, a.AgreementType.Name,
+            a.DocumentNumber, a.ScannedFileUrl, a.AgreementPlace,
+            a.SignDate, a.ExpiryDate, a.SupportWindowMonths,
+            // The stored Status is never advanced automatically, so derive "Expired" from the date.
+            expired ? AgreementStatus.Expired : a.Status,
+            a.BillingTier, a.Details, expired, years);
+    }
+
+    public async Task<AgreementDto> DeleteScannedFileAsync(Guid agreementId, CancellationToken ct = default)
+    {
+        var agreement = await _db.Agreements
+            .Include(a => a.SystemProduct).ThenInclude(s => s.Client)
+            .Include(a => a.AgreementType)
+            .FirstOrDefaultAsync(a => a.Id == agreementId, ct)
+            ?? throw new InvalidOperationException("Agreement not found.");
+
+        var storageKey = agreement.ScannedFileUrl;
+        if (string.IsNullOrEmpty(storageKey))
+            return ToDto(agreement);
+
+        // Clear the reference first, then delete the file: if the storage
+        // delete fails we are left with an orphan blob, never an agreement
+        // pointing at a missing file.
+        agreement.ScannedFileUrl = null;
+        await _db.SaveChangesAsync(ct);
+
+        try { await _storage.DeleteAsync(storageKey, ct); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Agreement {AgreementId}: scanned file {StorageKey} could not be deleted from storage; the reference was already cleared.", agreementId, storageKey);
+        }
+
+        return ToDto(agreement);
+    }
 }
