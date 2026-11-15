@@ -226,11 +226,35 @@ public static class DependencyInjection
             // (TrainingAssignment/TrainingRecord key off SystemProductId,
             // not off any Agreement) — seeded independently of Agreements
             // below.
+            //
+            // Every TrainingRecord and Agreement has a required foreign key
+            // to an AgreementType. The seed rows used to leave
+            // TrainingRecord.AgreementTypeId unset (an all-zero Guid), which
+            // crashed startup with FK_training_records_agreement_types_AgreementTypeId
+            // on any empty database. Resolve the ids from the database BY
+            // NAME (EnsureCoreAgreementTypesAsync above guarantees both
+            // exist) so this also holds if a type already existed under a
+            // different id.
+            var trainingTypeId = await db.AgreementTypesSet
+                .Where(t => t.Name == DaftechCrm.Domain.Entities.AgreementTypeNames.Training)
+                .Select(t => t.Id).FirstAsync();
+            var supportTypeId = await db.AgreementTypesSet
+                .Where(t => t.Name == DaftechCrm.Domain.Entities.AgreementTypeNames.Support)
+                .Select(t => t.Id).FirstAsync();
+
+            var trainingRecords = SeedData.TrainingRecords().ToList();
+            foreach (var record in trainingRecords)
+                record.AgreementTypeId = trainingTypeId;
+
             db.TrainingAssignmentsSet.AddRange(SeedData.TrainingAssignments());
-            db.TrainingRecordsSet.AddRange(SeedData.TrainingRecords());
+            db.TrainingRecordsSet.AddRange(trainingRecords);
             await db.SaveChangesAsync();
 
-            db.AgreementsSet.AddRange(SeedData.Agreements());
+            var agreements = SeedData.Agreements().ToList();
+            foreach (var agreement in agreements)
+                agreement.AgreementTypeId = supportTypeId;
+
+            db.AgreementsSet.AddRange(agreements);
             await db.SaveChangesAsync();
         }
 
