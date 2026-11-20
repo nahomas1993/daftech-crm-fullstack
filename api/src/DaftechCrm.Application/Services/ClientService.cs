@@ -50,7 +50,7 @@ public class ClientService : IClientService
             Name = request.Name,
             IdNumber = await _referenceNumbers.GenerateClientIdNumberAsync(ct),
             AccountRefId = await _accountRefIds.GenerateForClientAsync(ct),
-            PhoneNumber = request.PhoneNumber,
+            PhoneNumber = PhoneNumberValidator.Normalize(request.PhoneNumber),
             Email = request.Email,
             Office = request.Office,
             Location = request.Location,
@@ -113,10 +113,14 @@ public class ClientService : IClientService
             // the SQL level on Postgres regardless, so behavior here is
             // unchanged.
             var term = query.Search.Trim();
+            // Phone numbers are stored as +251XXXXXXXXX, so a search typed in
+            // the local form (0911...) is also tried in the stored form.
+            var phoneTerm = PhoneNumberValidator.TryNormalize(term) ?? term;
             baseQuery = baseQuery.Where(c =>
                 c.Name.Contains(term) ||
                 c.Email.Contains(term) ||
-                c.PhoneNumber.Contains(term));
+                c.PhoneNumber.Contains(term) ||
+                c.PhoneNumber.Contains(phoneTerm));
         }
 
         var totalCount = await baseQuery.CountAsync(ct);
@@ -157,7 +161,7 @@ public class ClientService : IClientService
         RequiredFieldValidator.EnsureGmailAddress(request.Email);
 
         client.Name = request.Name;
-        client.PhoneNumber = request.PhoneNumber;
+        client.PhoneNumber = PhoneNumberValidator.Normalize(request.PhoneNumber);
         client.Email = request.Email;
         client.Office = request.Office;
         client.Location = request.Location;

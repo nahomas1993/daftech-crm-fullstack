@@ -1146,6 +1146,9 @@ public class TicketService : ITicketService
         return await LoadDtoAsync(ticketId, ct);
     }
 
+    public Task<bool> HasAttachmentAsync(Guid ticketId, CancellationToken ct = default) =>
+        _db.Tickets.AsNoTracking().AnyAsync(t => t.Id == ticketId && t.AttachmentStorageKey != null, ct);
+
     public async Task<TicketDto> DeleteAttachmentAsync(Guid ticketId, CancellationToken ct = default)
     {
         var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == ticketId, ct)

@@ -32,6 +32,14 @@ public static class CsvImportParser
         "PaperReferenceNote",
     ];
 
+    /// <summary>
+    /// Columns that are read if present but NOT required, so CSV files
+    /// made from an older template (before the column existed) still
+    /// import. The template generator includes them after
+    /// ExpectedColumns.
+    /// </summary>
+    public static readonly string[] OptionalColumns = ["UsesDerash"];
+
     public static List<ClientImportRow> Parse(Stream csvStream)
     {
         using var reader = new StreamReader(csvStream);
@@ -91,7 +99,8 @@ public static class CsvImportParser
                 Get(fields, "SupportWindowMonths"),
                 Get(fields, "BillingTier"),
                 Get(fields, "AgreementDetails"),
-                Get(fields, "PaperReferenceNote")
+                Get(fields, "PaperReferenceNote"),
+                columnIndex.ContainsKey("UsesDerash") ? Get(fields, "UsesDerash") : null
             ));
         }
 

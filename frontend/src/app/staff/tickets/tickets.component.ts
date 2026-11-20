@@ -75,17 +75,22 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td><app-badge [status]="t.chargeable ? 'Chargeable' : 'Free'"></app-badge></td>
               <td><app-badge [status]="t.status"></app-badge></td>
               <td>
-                <select
-                  class="priority-select"
-                  [class.priority-high]="t.priority === 'High'"
-                  [value]="t.priority"
-                  [disabled]="updatingPriorityTicketId() === t.id"
-                  (change)="onPrioritySelect(t.id, $any($event.target).value)"
-                >
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                </select>
+                @if (isAdmin()) {
+                  <select
+                    class="priority-select"
+                    [class.priority-high]="t.priority === 'High'"
+                    [value]="t.priority"
+                    [disabled]="updatingPriorityTicketId() === t.id"
+                    (change)="onPrioritySelect(t.id, $any($event.target).value)"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                } @else {
+                  <!-- Read-only for technicians: they can see the priority but not change it. -->
+                  <span class="priority-readonly" [class.priority-high]="t.priority === 'High'">{{ t.priority }}</span>
+                }
               </td>
               <td class="text-muted" style="font-size:0.8rem;">
                 @if (t.expectedResolutionBy) {
@@ -103,7 +108,9 @@ const REFRESH_INTERVAL_MS = 20_000;
               <td>
                 @if (t.attachmentFileName) {
                   <button class="btn btn-outline btn-sm" (click)="viewAttachment(t.id, t.attachmentFileName)">📎 Attachment</button>
-                  <button class="btn btn-outline btn-sm btn-danger" title="Remove attachment" (click)="removeAttachment(t.id)">✕</button>
+                  @if (isAdmin()) {
+                    <button class="btn btn-outline btn-sm btn-danger" title="Remove attachment" (click)="removeAttachment(t.id)">✕</button>
+                  }
                 }
                 @if (t.voiceNoteFileName) {
                   <button class="btn btn-outline btn-sm" (click)="viewVoiceNote(t.id, t.voiceNoteFileName)">🎤 Voice note</button>
@@ -170,6 +177,8 @@ const REFRESH_INTERVAL_MS = 20_000;
     .reassign-row select { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--slate-200); max-width: 190px; }
     .priority-select { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: 6px; border: 1px solid var(--slate-200); }
     .priority-select.priority-high { border-color: var(--red); color: var(--red); font-weight: 600; }
+    .priority-readonly { font-size: 0.82rem; }
+    .priority-readonly.priority-high { color: var(--red); font-weight: 600; }
     .description-cell { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.82rem; }
     .status-success { color: #0f7b3d; background: rgba(16, 145, 74, 0.1); border: 1px solid rgba(16, 145, 74, 0.28); border-radius: 6px; font-size: 0.78rem; line-height: 1.35; font-weight: 600; margin: 0.4rem 0 0; padding: 0.35rem 0.5rem; }
     .row-faded { opacity: 0.45; filter: grayscale(35%); }
@@ -232,7 +241,7 @@ export class TicketsComponent implements OnInit, OnDestroy {
 
   updatingPriorityTicketId = signal<string | null>(null);
 
-  /** Priority updates immediately on selection — unlike status, it has no business logic gating it (any employee may set it), so a separate confirm step would just add friction. */
+  /** Priority updates immediately on selection — unlike status, it has no business logic gating it (Admin only), so a separate confirm step would just add friction. */
   async onPrioritySelect(ticketId: string, value: string) {
     this.updatingPriorityTicketId.set(ticketId);
     try {

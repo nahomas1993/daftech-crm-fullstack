@@ -49,7 +49,10 @@ public record ClientImportRow(
     string? AgreementDetails,
 
     /// <summary>Free-text pointer back to the physical paper record (folder/box/page number) — purely for audit trail, not used by any logic.</summary>
-    string? PaperReferenceNote
+    string? PaperReferenceNote,
+
+    /// <summary>Optional "Yes"/"No" column: whether this client uses Derash (always free support). Blank or missing column means No. Only read from the row that CREATES the client; later rows for the same client don't change it.</summary>
+    string? UsesDerash = null
 );
 
 /// <summary>Outcome for a single row after ClientImportService processes the file — every row gets exactly one of these, success or failure, so nothing is silently dropped.</summary>

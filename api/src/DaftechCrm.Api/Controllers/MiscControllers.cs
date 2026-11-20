@@ -300,7 +300,7 @@ public class TrainingController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<TrainingRecordDto>>> GetForSystemProduct(Guid systemProductId, CancellationToken ct) =>
         Ok(await _training.GetForSystemProductAsync(systemProductId, ct));
 
-    /// <summary>Uploads (or replaces) the supporting file for one training record. Allowed for the trainer who logged it, or any Admin (e.g. reconciling scanned attendance sheets from a CSV import).</summary>
+    /// <summary>Attaches the supporting file for one training record. The trainer who logged it may add the first file; replacing an existing file is Admin only (as is attaching to someone else's record, e.g. reconciling scanned attendance sheets from a CSV import).</summary>
     [HttpPost("{id:guid}/file")]
     [RequestSizeLimit(20 * 1024 * 1024)]
     public async Task<ActionResult<TrainingRecordDto>> UploadFile(Guid id, IFormFile file, CancellationToken ct)
@@ -332,8 +332,9 @@ public class TrainingController : ControllerBase
         }
     }
 
-    /// <summary>Removes a training record's supporting file. Allowed for the trainer who logged it, or any Admin.</summary>
+    /// <summary>Removes a training record's supporting file. Admin only.</summary>
     [HttpDelete("{id:guid}/file")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<TrainingRecordDto>> DeleteFile(Guid id, CancellationToken ct)
     {
         var (callerType, callerId) = CallerIdentity.Resolve(User);

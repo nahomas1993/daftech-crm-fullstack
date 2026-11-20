@@ -142,6 +142,12 @@ public class ClientImportService
 
         var trainingCompleted = ParseYesNo(row.TrainingCompleted, "TrainingCompleted");
 
+        // Optional column: blank (or no such column in an older file) means No.
+        var usesDerash = !string.IsNullOrWhiteSpace(row.UsesDerash) && ParseYesNo(row.UsesDerash, "UsesDerash");
+
+        // Same Ethiopian-number rule as the client form; a bad number fails just this row.
+        var phoneNumber = PhoneNumberValidator.Normalize(row.PhoneNumber, "PhoneNumber");
+
         // --- Resolve or create the Client ---
         Guid clientId;
         string? username;
@@ -185,7 +191,7 @@ public class ClientImportService
                 Name = row.ClientName,
                 IdNumber = await _referenceNumbers.GenerateClientIdNumberAsync(ct),
                 AccountRefId = await _accountRefIds.GenerateForClientAsync(ct),
-                PhoneNumber = row.PhoneNumber,
+                PhoneNumber = phoneNumber,
                 Email = row.Email,
                 Office = row.Office,
                 Location = row.Location,
@@ -196,6 +202,7 @@ public class ClientImportService
                 KycType = row.KycType,
                 KycContact = row.KycContact,
                 ItSupportContact = string.IsNullOrWhiteSpace(row.ItSupportContact) ? null : row.ItSupportContact,
+                UsesDerash = usesDerash,
                 AccountStatus = ClientAccountStatus.Approved,
                 OnboardingDate = DateOnly.FromDateTime(DateTime.UtcNow),
                 Username = issued.Username,

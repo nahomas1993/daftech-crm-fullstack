@@ -10,6 +10,7 @@ import { PaginationComponent } from '../../shared/pagination.component';
 import { ClientRegisteredResult } from '../../core/models';
 import { requiredFieldsError } from '../../core/required-fields';
 import { isValidRegistrationEmail } from '../../core/email-validation';
+import { isValidEthiopianPhone, PHONE_ERROR } from '../../core/phone-validation';
 
 @Component({
   selector: 'app-clients-list',
@@ -33,7 +34,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
         @if (!justRegistered()) {
           <div class="form-grid">
             <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="form.name" (ngModelChange)="form.name = $event" /></div>
-            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" /></div>
+            <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="form.phoneNumber" (ngModelChange)="form.phoneNumber = $event" placeholder="e.g. 0911223344 or +251111136187" />
+              @if (!isPhoneValid(form.phoneNumber)) { <div class="field-error">Invalid phone number</div> }
+            </div>
             <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="form.email" (ngModelChange)="form.email = $event" placeholder="used to send login credentials" />
               @if (!isEmailValid(form.email)) { <div class="field-error">Invalid email</div> }
             </div>
@@ -192,7 +195,9 @@ import { isValidRegistrationEmail } from '../../core/email-validation';
                 <td colspan="9">
                   <div class="edit-form">
                     <div class="field"><label>Name / Organization <span class="req">*</span></label><input type="text" [ngModel]="editForm.name" (ngModelChange)="editForm.name = $event" /></div>
-                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" /></div>
+                    <div class="field"><label>Phone Number <span class="req">*</span></label><input type="text" [ngModel]="editForm.phoneNumber" (ngModelChange)="editForm.phoneNumber = $event" placeholder="e.g. 0911223344 or +251111136187" />
+              @if (!isPhoneValid(editForm.phoneNumber)) { <div class="field-error">Invalid phone number</div> }
+            </div>
                     <div class="field"><label>Email <span class="req">*</span></label><input type="email" [ngModel]="editForm.email" (ngModelChange)="editForm.email = $event" />
                       @if (!isEmailValid(editForm.email)) { <div class="field-error">Invalid email</div> }
                     </div>
@@ -344,6 +349,10 @@ export class ClientsListComponent {
   /** Filtered results when searching, otherwise the current server-fetched page. */
   displayedClients = computed(() => this.isFiltering() ? this.filtered() : this.clients.pagedClients());
 
+  isPhoneValid(phone: string): boolean {
+    return isValidEthiopianPhone(phone);
+  }
+
   isEmailValid(email: string | null | undefined): boolean {
     return isValidRegistrationEmail(email);
   }
@@ -389,6 +398,10 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.form.email)) {
       this.registerError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isPhoneValid(this.form.phoneNumber)) {
+      this.registerError.set(PHONE_ERROR);
       return;
     }
 
@@ -511,6 +524,10 @@ export class ClientsListComponent {
     }
     if (!this.isEmailValid(this.editForm.email)) {
       this.editError.set('Invalid email — please use a @gmail.com address.');
+      return;
+    }
+    if (!this.isPhoneValid(this.editForm.phoneNumber)) {
+      this.editError.set(PHONE_ERROR);
       return;
     }
 

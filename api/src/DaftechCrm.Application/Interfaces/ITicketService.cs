@@ -22,7 +22,7 @@ public interface ITicketService
     /// </summary>
     Task<TicketDto> UpdateStatusAsync(Guid ticketId, UpdateTicketStatusRequest request, SessionAccountType callerType, Guid callerId, CancellationToken ct = default);
 
-    /// <summary>Sets a ticket's priority (Low/Medium/High) — an Admin or the assigned employee can change this at any time. Feeds workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService); has no effect on technician auto-assignment order.</summary>
+    /// <summary>Sets a ticket's priority (Low/Medium/High) — only an Admin can change this (the controller enforces it); technicians see it read-only. Feeds workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService); has no effect on technician auto-assignment order.</summary>
     Task<TicketDto> SetPriorityAsync(Guid ticketId, SetTicketPriorityRequest request, CancellationToken ct = default);
 
     /// <summary>
@@ -97,6 +97,9 @@ public interface ITicketService
 
     /// <summary>Removes the ticket's attachment (reference first, then the stored file). A no-op if none is attached. Callers must check CanAccessAttachmentAsync first.</summary>
     Task<TicketDto> DeleteAttachmentAsync(Guid ticketId, CancellationToken ct = default);
+
+    /// <summary>True when the ticket already has an attachment (replacing one is Admin only).</summary>
+    Task<bool> HasAttachmentAsync(Guid ticketId, CancellationToken ct = default);
 
     /// <summary>
     /// Admin moves an open ticket to another active technician, e.g. when

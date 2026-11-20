@@ -9,6 +9,7 @@ import { AgreementService } from '../../core/services/agreement.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
 import { TicketService } from '../../core/services/ticket.service';
 import { TrainingService } from '../../core/services/training.service';
+import { AuthService } from '../../core/services/auth.service';
 import { BadgeComponent } from '../../shared/badge.component';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, TrainerWorkload } from '../../core/models';
@@ -239,17 +240,19 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                     <td style="white-space:nowrap;">
                       @if (a.scannedFileUrl) {
                         <button class="btn btn-outline btn-sm" (click)="viewAgreementFile(a.id, a.scannedFileUrl)">View</button>
-                        <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === a.id ? 0.5 : 1">
-                          Replace
-                          <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === a.id" (change)="onAgreementFilePicked($event, a.id)" />
-                        </label>
-                        <button class="btn btn-outline btn-sm btn-danger" [disabled]="fileBusyId() === a.id" (click)="removeAgreementFile(a.id)">Delete</button>
-                      } @else {
+                        @if (isAdmin()) {
+                          <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === a.id ? 0.5 : 1">
+                            Replace
+                            <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === a.id" (change)="onAgreementFilePicked($event, a.id)" />
+                          </label>
+                          <button class="btn btn-outline btn-sm btn-danger" [disabled]="fileBusyId() === a.id" (click)="removeAgreementFile(a.id)">Delete</button>
+                        }
+                      } @else if (isAdmin()) {
                         <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === a.id ? 0.5 : 1">
                           {{ fileBusyId() === a.id ? 'Uploading…' : 'Upload' }}
                           <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === a.id" (change)="onAgreementFilePicked($event, a.id)" />
                         </label>
-                      }
+                      } @else { <span class="text-muted">None</span> }
                     </td>
                   </tr>
                 }
@@ -299,6 +302,7 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
 
               <div class="records">
                 <p class="text-muted" style="font-size:0.76rem; margin: 0.9rem 0 0.4rem;">Training Records</p>
+                @if (agreementFileError()) { <p class="upload-error">{{ agreementFileError() }}</p> }
                 @if (recordsFor(sp.id).length === 0) {
                   <p class="text-muted" style="font-size:0.82rem;">No training sessions logged yet.</p>
                 } @else {
@@ -316,6 +320,18 @@ import { TICKET_CATEGORY_LABELS, BillingTier, Agreement, TrainingRecord, Trainer
                           <td>
                             @if (r.fileName) {
                               <button class="btn btn-outline btn-sm" (click)="viewRecordFile(r)">{{ r.fileName }}</button>
+                              @if (isAdmin()) {
+                                <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === r.id ? 0.5 : 1">
+                                  Replace
+                                  <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === r.id" (change)="onRecordFilePicked($event, sp.id, r.id)" />
+                                </label>
+                                <button class="btn btn-outline btn-sm btn-danger" [disabled]="fileBusyId() === r.id" (click)="removeRecordFile(sp.id, r.id)">Delete</button>
+                              }
+                            } @else if (isAdmin()) {
+                              <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === r.id ? 0.5 : 1">
+                                {{ fileBusyId() === r.id ? 'Uploading…' : 'Add file' }}
+                                <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === r.id" (change)="onRecordFilePicked($event, sp.id, r.id)" />
+                              </label>
                             } @else { <span class="text-muted">None</span> }
                           </td>
                         </tr>
@@ -458,6 +474,7 @@ export class ClientDetailComponent {
     public agreementTypesSvc: AgreementTypeService,
     private ticketsSvc: TicketService,
     private trainingSvc: TrainingService,
+    private auth: AuthService,
     private route: ActivatedRoute,
   ) {
     // Load this client's systems/products as soon as the client id is
@@ -692,6 +709,9 @@ export class ClientDetailComponent {
   previewKind: FilePreviewKind = 'other';
   previewLoader?: () => Promise<Blob>;
 
+  /** Only an Admin may add, replace or delete agreement/training files; everyone else can only view. */
+  isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
+
   fileBusyId = signal<string | null>(null);
   agreementFileError = signal<string | null>(null);
 
@@ -731,6 +751,44 @@ export class ClientDetailComponent {
     this.previewKind = filePreviewKindFor(scannedFileUrl);
     this.previewLoader = () => this.agreementsSvc.downloadScannedFile(agreementId);
     this.previewOpen = true;
+  }
+
+  /** Swaps one updated record into the per-system/product list without reloading everything. */
+  private replaceRecord(systemProductId: string, updated: TrainingRecord) {
+    this.recordsBySystemProduct.update(map => ({
+      ...map,
+      [systemProductId]: (map[systemProductId] ?? []).map(x => (x.id === updated.id ? updated : x)),
+    }));
+  }
+
+  /** Adds a file to a training record that has none, or replaces its current one (Admin). */
+  async onRecordFilePicked(evt: Event, systemProductId: string, recordId: string) {
+    const input = evt.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.agreementFileError.set(null);
+    this.fileBusyId.set(recordId);
+    try {
+      this.replaceRecord(systemProductId, await this.trainingSvc.uploadFile(recordId, file));
+    } catch (err: any) {
+      this.agreementFileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not upload this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
+    }
+  }
+
+  async removeRecordFile(systemProductId: string, recordId: string) {
+    if (!confirm('Delete this training file? The training session itself is kept.')) return;
+    this.agreementFileError.set(null);
+    this.fileBusyId.set(recordId);
+    try {
+      this.replaceRecord(systemProductId, await this.trainingSvc.deleteFile(recordId));
+    } catch (err: any) {
+      this.agreementFileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not delete this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
+    }
   }
 
   viewRecordFile(r: TrainingRecord) {

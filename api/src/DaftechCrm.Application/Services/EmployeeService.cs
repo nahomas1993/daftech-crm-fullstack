@@ -40,7 +40,7 @@ public class EmployeeService : IEmployeeService
         {
             FullName = request.FullName,
             Email = request.Email,
-            PhoneNumber = request.PhoneNumber,
+            PhoneNumber = PhoneNumberValidator.Normalize(request.PhoneNumber),
             Specialization = request.Specialization,
             Roles = request.Roles.ToList(),
             ExtraRoleLabels = request.ExtraRoleLabels.ToList(),
@@ -199,7 +199,7 @@ public class EmployeeService : IEmployeeService
 
         employee.FullName = request.FullName;
         employee.Email = request.Email;
-        employee.PhoneNumber = request.PhoneNumber;
+        employee.PhoneNumber = PhoneNumberValidator.Normalize(request.PhoneNumber);
         employee.Specialization = request.Specialization;
         _db.Update(employee);
         await _db.SaveChangesAsync(ct);

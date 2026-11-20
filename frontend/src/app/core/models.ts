@@ -30,7 +30,7 @@ export type ClosureReason = 'ClientConfirmedSatisfied' | 'AutoClosedNoResponse';
  */
 export type SupportPhase = 'Intake' | 'Diagnosis' | 'Repair' | 'Verification' | 'Closed';
 
-/** Matches Domain.Entities.TicketPriority. Any employee may set this on a ticket; feeds workload-aware Trainer assignment's "high-priority tickets" dimension. */
+/** Matches Domain.Entities.TicketPriority. Only an Admin may set this on a ticket (technicians see it read-only); feeds workload-aware Trainer assignment's "high-priority tickets" dimension. */
 export type TicketPriority = 'Low' | 'Medium' | 'High';
 
 export type MaintenanceCategory =

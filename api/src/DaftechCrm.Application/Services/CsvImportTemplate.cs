@@ -15,7 +15,7 @@ public static class CsvImportTemplate
     public static string Generate()
     {
         var sb = new StringBuilder();
-        sb.AppendLine(string.Join(",", CsvImportParser.ExpectedColumns));
+        sb.AppendLine(string.Join(",", CsvImportParser.ExpectedColumns.Concat(CsvImportParser.OptionalColumns)));
 
         // Row 1: a client with training already done on paper and an
         // existing signed Support agreement.
@@ -26,7 +26,8 @@ public static class CsvImportTemplate
             "Branch POS System", "Point-of-sale system for the Bole branch", "2023-05-01", "",
             "Yes",
             "Support", "Addis Ababa Head Office", "2023-05-15", "2025-05-15", "12", "Intermediate", "",
-            "Paper folder 14, page 3"
+            "Paper folder 14, page 3",
+            "Yes"
         );
 
         // Row 2: a client with a system/product on paper but no
@@ -42,7 +43,8 @@ public static class CsvImportTemplate
             "HR Portal", "", "2024-01-10", "",
             "No",
             "", "", "", "", "", "", "",
-            "Paper folder 14, page 7"
+            "Paper folder 14, page 7",
+            "No"
         );
 
         return sb.ToString();

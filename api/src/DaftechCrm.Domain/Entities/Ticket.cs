@@ -10,7 +10,7 @@ namespace DaftechCrm.Domain.Entities;
 /// </summary>
 public enum SupportPhase { Intake, Diagnosis, Repair, Verification, Closed }
 
-/// <summary>Urgency an Admin or technician can set on a ticket — used by workload-aware Trainer assignment (see TrainerWorkloadService) to weight "high-priority" tickets more heavily than routine ones. Defaults to Medium; does not affect auto-assignment order for technicians (see TicketAssignmentService, which is unaffected by this).</summary>
+/// <summary>Urgency an Admin sets on a ticket (technicians see it read-only) — used by workload-aware Trainer assignment (see TrainerWorkloadService) to weight "high-priority" tickets more heavily than routine ones. Defaults to Medium; does not affect auto-assignment order for technicians (see TicketAssignmentService, which is unaffected by this).</summary>
 public enum TicketPriority { Low, Medium, High }
 
 public class Ticket

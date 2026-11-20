@@ -156,6 +156,11 @@ public class TrainingRecordService : ITrainingRecordService
         if (record.TrainerEmployeeId != callerEmployeeId && !callerIsAdmin)
             throw new InvalidOperationException("You can only attach a file to your own training record.");
 
+        // A trainer attaches the first file when logging the session; once
+        // a file exists, replacing it is an Admin action.
+        if (!callerIsAdmin && !string.IsNullOrEmpty(record.FileStorageKey))
+            throw new InvalidOperationException("You can only add a file to a record that has none. Only an Admin can replace an existing file.");
+
         var previousStorageKey = record.FileStorageKey;
 
         var result = await _storage.SaveAsync(content, fileName, contentType, ct);

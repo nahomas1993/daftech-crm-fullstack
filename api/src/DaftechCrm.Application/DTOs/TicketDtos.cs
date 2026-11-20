@@ -92,7 +92,7 @@ public record UpdateTicketStatusRequest(TicketStatus Status, string ActorName);
 /// <summary>Admin reassigns a ticket to another technician. Reason is optional free text (e.g. "absent today") and is written to the audit trail.</summary>
 public record ReassignTicketRequest(Guid EmployeeId, string? Reason);
 
-/// <summary>Admin or an assigned technician can set/change a ticket's priority at any time — used by workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService).</summary>
+/// <summary>Only an Admin can set/change a ticket's priority (technicians see it read-only) — used by workload-aware Trainer assignment's "high-priority tickets" dimension (see TrainerWorkloadService).</summary>
 public record SetTicketPriorityRequest(TicketPriority Priority);
 
 /// <summary>

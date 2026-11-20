@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { TrainingService } from '../../core/services/training.service';
 import { SystemProductService } from '../../core/services/system-product.service';
 import { AgreementTypeService } from '../../core/services/agreement-type.service';
+import { AuthService } from '../../core/services/auth.service';
 import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '../../shared/file-preview-modal.component';
 import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
 
@@ -151,6 +152,7 @@ import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
       } @else if (history().length === 0) {
         <p class="text-muted">No training sessions logged yet.</p>
       } @else {
+        @if (fileError()) { <p class="text-muted" style="color: var(--red); font-size:0.8rem;">{{ fileError() }}</p> }
         <div class="table-scroll"><table>
           <thead><tr><th>Date</th><th>Item</th><th>Client</th><th>System/Product</th><th>Start</th><th>End</th><th>Description</th><th>File</th></tr></thead>
           <tbody>
@@ -166,7 +168,19 @@ import { MyTrainingAssignment, TrainingRecord } from '../../core/models';
                 <td>
                   @if (r.fileName) {
                     <button class="btn btn-outline btn-sm" (click)="viewFile(r)">{{ r.fileName }}</button>
-                  } @else { <span class="text-muted">None</span> }
+                    @if (isAdmin()) {
+                      <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === r.id ? 0.5 : 1">
+                        Replace
+                        <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === r.id" (change)="onRecordFilePicked($event, r)" />
+                      </label>
+                      <button class="btn btn-outline btn-sm btn-danger" [disabled]="fileBusyId() === r.id" (click)="removeRecordFile(r)">Delete</button>
+                    }
+                  } @else {
+                    <label class="btn btn-outline btn-sm" style="cursor:pointer;" [style.opacity]="fileBusyId() === r.id ? 0.5 : 1">
+                      {{ fileBusyId() === r.id ? 'Uploading…' : 'Add file' }}
+                      <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="fileBusyId() === r.id" (change)="onRecordFilePicked($event, r)" />
+                    </label>
+                  }
                 </td>
               </tr>
             }
@@ -229,7 +243,11 @@ export class MyTrainingsComponent implements OnInit {
     private trainingSvc: TrainingService,
     private systemProductSvc: SystemProductService,
     private agreementTypeSvc: AgreementTypeService,
+    private auth: AuthService,
   ) {}
+
+  /** Trainers add the first file when logging a session; replacing or deleting it is Admin only. */
+  isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
   selectedAssignment = computed(() =>
     this.assignments().find(a => a.systemProductId === this.form.systemProductId) ?? null);
@@ -379,6 +397,42 @@ export class MyTrainingsComponent implements OnInit {
       console.error(err);
     } finally {
       this.submittingAll.set(false);
+    }
+  }
+
+  /** Record whose file is being added/replaced/removed right now. */
+  fileBusyId = signal<string | null>(null);
+  fileError = signal<string | null>(null);
+
+  /** Adds a file to a session that has none, or replaces its current one. */
+  async onRecordFilePicked(evt: Event, r: TrainingRecord) {
+    const input = evt.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.fileError.set(null);
+    this.fileBusyId.set(r.id);
+    try {
+      await this.trainingSvc.uploadFile(r.id, file);
+      await this.loadHistory();
+    } catch (err: any) {
+      this.fileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not upload this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
+    }
+  }
+
+  async removeRecordFile(r: TrainingRecord) {
+    if (!confirm(`Delete the file "${r.fileName}" from this training session? The session itself is kept.`)) return;
+    this.fileError.set(null);
+    this.fileBusyId.set(r.id);
+    try {
+      await this.trainingSvc.deleteFile(r.id);
+      await this.loadHistory();
+    } catch (err: any) {
+      this.fileError.set(typeof err?.error === 'string' && err.error ? err.error : 'Could not delete this file. Please try again.');
+    } finally {
+      this.fileBusyId.set(null);
     }
   }
 

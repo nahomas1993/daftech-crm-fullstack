@@ -257,7 +257,7 @@ export class TicketService {
     );
   }
 
-  /** Sets a ticket's priority (Low/Medium/High) — any employee may set this. Feeds workload-aware Trainer assignment's "high-priority tickets" dimension; has no effect on technician auto-assignment. */
+  /** Sets a ticket's priority (Low/Medium/High) — Admin only (the server enforces it). Feeds workload-aware Trainer assignment's "high-priority tickets" dimension; has no effect on technician auto-assignment. */
   async setPriority(ticketId: string, priority: TicketPriority): Promise<void> {
     await firstValueFrom(this.http.patch<Ticket>(`${API_BASE_URL}/tickets/${ticketId}/priority`, { priority }));
     await this.refresh();

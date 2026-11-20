@@ -1,6 +1,7 @@
-import { Component, signal } from '@angular/core';
+import { Component, computed, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AgreementService } from '../../core/services/agreement.service';
+import { AuthService } from '../../core/services/auth.service';
 import { Agreement } from '../../core/models';
 import { BadgeComponent } from '../../shared/badge.component';
 import { PaginationComponent } from '../../shared/pagination.component';
@@ -73,17 +74,19 @@ import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '
               <td class="doc-cell">
                 @if (a.scannedFileUrl) {
                   <button class="btn btn-outline btn-sm" (click)="view(a.id, a.scannedFileUrl)">View</button>
-                  <label class="btn btn-outline btn-sm" [class.disabled]="busyId() === a.id">
-                    Replace
-                    <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="busyId() === a.id" (change)="onFilePicked($event, a)" />
-                  </label>
-                  <button class="btn btn-outline btn-sm btn-danger" [disabled]="busyId() === a.id" (click)="remove(a)">Delete</button>
-                } @else {
+                  @if (isAdmin()) {
+                    <label class="btn btn-outline btn-sm" [class.disabled]="busyId() === a.id">
+                      Replace
+                      <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="busyId() === a.id" (change)="onFilePicked($event, a)" />
+                    </label>
+                    <button class="btn btn-outline btn-sm btn-danger" [disabled]="busyId() === a.id" (click)="remove(a)">Delete</button>
+                  }
+                } @else if (isAdmin()) {
                   <label class="btn btn-outline btn-sm" [class.disabled]="busyId() === a.id">
                     {{ busyId() === a.id ? 'Uploading…' : 'Upload' }}
                     <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" [disabled]="busyId() === a.id" (change)="onFilePicked($event, a)" />
                   </label>
-                }
+                } @else { <span class="text-muted">None</span> }
               </td>
               <td>
                 <a [routerLink]="['/admin/clients', a.clientId]" [queryParams]="{ tab: 'agreements' }" class="btn btn-outline btn-sm">Open Client</a>
@@ -124,7 +127,10 @@ import { FilePreviewModalComponent, filePreviewKindFor, FilePreviewKind } from '
   `],
 })
 export class AgreementsComponent {
-  constructor(public agreements: AgreementService) {}
+  constructor(public agreements: AgreementService, private auth: AuthService) {}
+
+  /** Only an Admin may add, replace or delete a scanned document; everyone else can only view. */
+  isAdmin = computed(() => this.auth.currentEmployee()?.roles.includes('Admin') ?? false);
 
   previewOpen = false;
   previewFileName = '';

@@ -260,9 +260,9 @@ public class TicketsController : ControllerBase
         }
     }
 
-    /// <summary>Sets a ticket's priority (Low/Medium/High) — any employee may set this (not just Admin), since a technician working the ticket is often best placed to judge its urgency. Feeds workload-aware Trainer assignment (see TrainerWorkloadService).</summary>
+    /// <summary>Sets a ticket's priority (Low/Medium/High). Admin only: technicians can see a ticket's priority but not change it. Feeds workload-aware Trainer assignment (see TrainerWorkloadService).</summary>
     [HttpPatch("{id:guid}/priority")]
-    [Authorize(Policy = AuthorizationPolicies.AnyEmployee)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<TicketDto>> SetPriority(Guid id, [FromBody] SetTicketPriorityRequest request, CancellationToken ct)
     {
         try { return Ok(await _tickets.SetPriorityAsync(id, request, ct)); }
@@ -337,6 +337,12 @@ public class TicketsController : ControllerBase
         if (access != AttachmentAccessResult.Granted)
             return NotFound();
 
+        // Anyone with access (the client who owns the ticket, staff) may add
+        // the FIRST attachment; replacing an existing one is Admin only.
+        if (!User.IsInRole(nameof(EmployeeRole.Admin))
+            && await _tickets.HasAttachmentAsync(id, ct))
+            return this.ForbidOwnership();
+
         try
         {
             await using var stream =
@@ -363,22 +369,15 @@ public class TicketsController : ControllerBase
     }
 
     /// <summary>
-    /// Removes the ticket's attachment. Same access rule as uploading:
-    /// the client who owns the ticket, or an active technician/admin.
+    /// Removes the ticket's attachment. Admin only: clients and
+    /// technicians can view an attachment, never delete it.
     /// </summary>
     [HttpDelete("{id:guid}/attachment")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<ActionResult<TicketDto>> DeleteAttachment(
         Guid id,
         CancellationToken ct)
     {
-        var (callerType, callerId) = CallerIdentity.Resolve(User);
-
-        var access = await _tickets.CanAccessAttachmentAsync(id, callerType, callerId, ct);
-        if (access == AttachmentAccessResult.Forbidden)
-            return this.ForbidOwnership();
-        if (access != AttachmentAccessResult.Granted)
-            return NotFound();
-
         try
         {
             return Ok(await _tickets.DeleteAttachmentAsync(id, ct));
